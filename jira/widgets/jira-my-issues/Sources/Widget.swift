@@ -141,9 +141,11 @@ final class JiraBoardWidget: Work42Widget {
     let icon = "ticket"
     var iconImageData: Data? { jiraMarkPNG }
 
-    /// Home-only board, matching `github-prs` — the personal Jira dashboard
-    /// belongs on Home, not inside a session. AC14.
-    var enabledLayouts: Set<WidgetLayout> { [.home] }
+    /// Available everywhere (data-driven-session-surfaces s6) — no technical
+    /// dependency on the Home surface (unlike `github-prs`'s workspace-root
+    /// cwd requirement), so the personal Jira dashboard is just as usable
+    /// docked inside a session.
+    var enabledLayouts: Set<WidgetLayout> { Set(WidgetLayout.allCases) }
 
     /// This dashboard starts task sessions but is not a link destination.
     let linkIntents: [WidgetLinkIntentSpec] = []
