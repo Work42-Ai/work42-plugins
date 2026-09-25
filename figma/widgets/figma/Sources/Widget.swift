@@ -101,8 +101,9 @@ final class FigmaWidget: Work42Widget {
     let icon = "square.on.square.dashed"   // fallback; iconImageData is the brand mark
     var iconImageData: Data? { FigmaWidget.brandPNG }
 
-    /// Session surfaces only — attached files belong to a session, not Home.
-    var enabledLayouts: Set<WidgetLayout> { Set(WidgetLayout.allCases).subtracting([.home]) }
+    // The `enabledLayouts` allow-list was removed from the SDK in data-driven-
+    // session-surfaces s7 — this widget is available on every surface,
+    // curated only by the host's per-type deny-list.
 
     /// Figma pages are rendered by this widget. Receiving a URL only changes the
     /// in-memory BrowserSurface destination; attach remains an explicit

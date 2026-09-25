@@ -141,11 +141,9 @@ final class JiraBoardWidget: Work42Widget {
     let icon = "ticket"
     var iconImageData: Data? { jiraMarkPNG }
 
-    /// Available everywhere (data-driven-session-surfaces s6) — no technical
-    /// dependency on the Home surface (unlike `github-prs`'s workspace-root
-    /// cwd requirement), so the personal Jira dashboard is just as usable
-    /// docked inside a session.
-    var enabledLayouts: Set<WidgetLayout> { Set(WidgetLayout.allCases) }
+    // Available everywhere: the `enabledLayouts` allow-list was removed from the
+    // SDK in data-driven-session-surfaces s7 — every widget is available on
+    // every surface, curated only by the host's per-type deny-list.
 
     /// This dashboard starts task sessions but is not a link destination.
     let linkIntents: [WidgetLinkIntentSpec] = []
