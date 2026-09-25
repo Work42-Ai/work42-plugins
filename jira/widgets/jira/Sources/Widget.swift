@@ -135,9 +135,10 @@ final class JiraWidget: Work42Widget {
     let icon = "ticket"
     var iconImageData: Data? { jiraMarkPNG }
 
-    /// Session surfaces only — issues belong to a session, not the Home dashboard
-    /// (the `jira-my-issues` board is the Home-facing widget). AC14.
-    var enabledLayouts: Set<WidgetLayout> { Set(WidgetLayout.allCases).subtracting([.home]) }
+    // The `enabledLayouts` allow-list was removed from the SDK in data-driven-
+    // session-surfaces s7 — this widget is available on every surface (it made
+    // most sense on a session, but availability is now curated by the host's
+    // per-type deny-list, not declared here).
 
     /// Jira Cloud pages are rendered by this widget. Receiving a URL only
     /// changes the in-memory BrowserSurface destination; attach remains an

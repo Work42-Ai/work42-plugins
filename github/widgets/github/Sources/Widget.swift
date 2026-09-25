@@ -749,9 +749,10 @@ final class GitHubPRWidget: Work42Widget {
     let icon = "arrow.triangle.pull"
     var iconImageData: Data? { githubMarkPNG }
 
-    /// Session surfaces only — a single PR belongs to a session, not the Home
-    /// dashboard (the `github-prs` board is the Home-facing widget). AC14.
-    var enabledLayouts: Set<WidgetLayout> { Set(WidgetLayout.allCases).subtracting([.home]) }
+    // The `enabledLayouts` allow-list was removed from the SDK in data-driven-
+    // session-surfaces s7 — this widget is available on every surface (it made
+    // most sense on a session, but availability is now curated by the host's
+    // per-type deny-list, not declared here).
 
     /// GitHub web pages, including repositories, pull requests, and their
     /// sub-routes, are rendered by this widget. The handler is intentionally

@@ -159,12 +159,14 @@ private let enrichedPathPrefix = "export PATH=\"$PATH:/opt/homebrew/bin:/usr/loc
 
 // MARK: - GitHubPRsWidget
 
-/// Widget id: `github-prs`. Home-surface browser widget showing one tab per
-/// workspace repo at its GitHub PRs page. Requires `git` in PATH.
+/// Widget id: `github-prs`. Browser widget showing one tab per repo in the
+/// current surface's workspace at its GitHub PRs page. Requires `git` in PATH.
 ///
-/// Placement: Home surface only (enabledLayouts = [.home]) because the repo
-/// enumeration relies on services.shell cwd being the workspace root, which is
-/// guaranteed only on the Home surface.
+/// Available on every surface (the `enabledLayouts` allow-list was removed from
+/// the SDK in data-driven-session-surfaces s7). Repo enumeration walks
+/// `services.shell`'s cwd — the workspace root on Home, the session's own
+/// worktree container in a session (the enumeration handles a worktree's
+/// file-shaped `.git`, s8).
 @Observable
 @MainActor
 final class GitHubPRsWidget: Work42Widget {
@@ -175,9 +177,6 @@ final class GitHubPRsWidget: Work42Widget {
     let title = "GitHub PRs"
     let icon = "arrow.triangle.pull"
     var iconImageData: Data? { GitHubPRsReviewAgent.githubMarkPNG }
-
-    /// Home-only: enumeration depends on workspace root being the shell's cwd.
-    var enabledLayouts: Set<WidgetLayout> { [.home] }
 
     /// This dashboard starts review sessions but is not a link destination.
     let linkIntents: [WidgetLinkIntentSpec] = []
@@ -322,17 +321,22 @@ final class GitHubPRsWidget: Work42Widget {
 
         // Shell script:
         //   If the workspace root is itself a git repo, use it (solo-repo workspace).
-        //   Otherwise enumerate depth-1 subdirs that have a .git directory
+        //   Otherwise enumerate depth-1 subdirs that have a .git entry
         //   (multi-repo workspace; RepoDiscovery's depth-1 rule).
         //   For each repo get its origin remote URL and emit "<path>|<url>".
+        //   `-e` (not `-d`): a git WORKTREE's `.git` is a FILE, not a
+        //   directory (data-driven-session-surfaces s8) — a session's cwd is
+        //   always a worktree container, so `-d` silently enumerated zero
+        //   repos there. `-e` matches a real clone's directory AND a
+        //   worktree's file.
         let cmd = """
             \(enrichedPathPrefix)
-            if [ -d ".git" ]; then
+            if [ -e ".git" ]; then
               _url=$(git config --get remote.origin.url 2>/dev/null)
               [ -n "$_url" ] && printf '.|%s\\n' "$_url"
             else
               for _d in */; do
-                [ -d "${_d}.git" ] || continue
+                [ -e "${_d}.git" ] || continue
                 _url=$(git -C "${_d%/}" config --get remote.origin.url 2>/dev/null)
                 [ -n "$_url" ] && printf '%s|%s\\n' "${_d%/}" "$_url"
               done
@@ -813,19 +817,21 @@ final class GitHubPRsReviewAgent: WidgetBackgroundAgent {
         )
     }
 
-    /// This workspace's GitHub `owner/repo` slugs — the workspace root if it is
-    /// itself a repo, else its depth-1 git subdirs — mirroring the widget's own
-    /// enumeration (services.shell cwd is the workspace root on Home). Deduped;
-    /// empty when nothing resolves (→ no label).
+    /// This surface's GitHub `owner/repo` slugs — the root if it is itself a
+    /// repo, else its depth-1 git subdirs — mirroring the widget's own
+    /// enumeration (services.shell cwd is the workspace root on Home, a
+    /// session's worktree container in a session). Deduped; empty when
+    /// nothing resolves (→ no label). `-e` not `-d`: see `enumerateRepos()`
+    /// (data-driven-session-surfaces s8) — a worktree's `.git` is a file.
     private func workspaceRepoSlugs(services: WidgetBackgroundServices) async -> [String] {
         let cmd = """
             \(ghReviewPathPrefix)
-            if [ -d ".git" ]; then
+            if [ -e ".git" ]; then
               _url=$(git config --get remote.origin.url 2>/dev/null)
               [ -n "$_url" ] && printf '%s\\n' "$_url"
             else
               for _d in */; do
-                [ -d "${_d}.git" ] || continue
+                [ -e "${_d}.git" ] || continue
                 _url=$(git -C "${_d%/}" config --get remote.origin.url 2>/dev/null)
                 [ -n "$_url" ] && printf '%s\\n' "$_url"
               done
