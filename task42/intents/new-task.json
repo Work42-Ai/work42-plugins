@@ -1,0 +1,6 @@
+{
+  "id": "new-task",
+  "title": "New Task",
+  "type_id": "task",
+  "button": true
+}
