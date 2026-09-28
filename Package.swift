@@ -37,6 +37,8 @@ let package = Package(
                 "figma/tab-templates",
                 "figma/widgets/figma/SKILL.md",
                 "figma/widgets/figma/Sources/Widget.swift",
+                "task42/README.md",
+                "task42/plugin.yaml",
             ],
             sources: [
                 "github/widgets/github/Sources/GitHubLinkSupport.swift",
