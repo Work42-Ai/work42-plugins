@@ -39,6 +39,10 @@ let package = Package(
                 "figma/widgets/figma/Sources/Widget.swift",
                 "task42/README.md",
                 "task42/plugin.yaml",
+                "task42/workflows/task42.json",
+                "task42/session-types/task.json",
+                "task42/intents/new-task.json",
+                "task42/Sources/Plugin.swift",
             ],
             sources: [
                 "github/widgets/github/Sources/GitHubLinkSupport.swift",
