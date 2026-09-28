@@ -45,6 +45,8 @@ let package = Package(
                 "task42/Sources/Plugin.swift",
                 "task42/widgets/spec/SKILL.md",
                 "task42/widgets/spec/Sources/Widget.swift",
+                "task42/widgets/subtasks/SKILL.md",
+                "task42/widgets/subtasks/Sources/Widget.swift",
             ],
             sources: [
                 "github/widgets/github/Sources/GitHubLinkSupport.swift",
