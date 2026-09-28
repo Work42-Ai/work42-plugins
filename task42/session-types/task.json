@@ -17,27 +17,5 @@
     "task42-worker",
     "task42-qa"
   ],
-  "create_intent": "new-task",
-  "args": [
-    {
-      "key": "kind",
-      "label": "Kind",
-      "type": "enum",
-      "options": [
-        "feature",
-        "bug",
-        "chore"
-      ],
-      "required": true,
-      "storage": "plan/kind"
-    },
-    {
-      "key": "jira_url",
-      "label": "Jira issue URL",
-      "type": "string",
-      "required": false,
-      "storage": "jira/url",
-      "placeholder": "https://acme.atlassian.net/browse/ABC-1"
-    }
-  ]
+  "create_intent": "new-task"
 }
