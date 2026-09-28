@@ -43,6 +43,8 @@ let package = Package(
                 "task42/session-types/task.json",
                 "task42/intents/new-task.json",
                 "task42/Sources/Plugin.swift",
+                "task42/widgets/spec/SKILL.md",
+                "task42/widgets/spec/Sources/Widget.swift",
             ],
             sources: [
                 "github/widgets/github/Sources/GitHubLinkSupport.swift",
