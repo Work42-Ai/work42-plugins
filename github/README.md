@@ -47,7 +47,7 @@ hand-edit or commit them.
 - Explicitly declares no link-opening handlers; it remains a Home dashboard,
   not an `Open Link` destination.
 - A GitHub-branded “Review GitHub PR” action for the currently viewed PR.
-- The action resolves GitHub's stable pull-request head ref and fires `session.open.codeReview`
+- The action resolves GitHub's stable pull-request head ref and fires `session.open` (typeId `codeReview`)
   with structured branch and initial widget-storage arguments, titling the
   session "Code Review: <PR title>" (fail-soft to "Code Review: PR #<number>").
 - Session creation failures stay visible in Work42's blocking error dialog.
