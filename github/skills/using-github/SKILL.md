@@ -6,7 +6,7 @@ description: |
   widget (session-scoped, github/prs storage, [system event] delivery), the
   github-prs Home widget (one browser tab per workspace repo, stable GitHub PR
   ref resolution, action-center "Review GitHub PR" enabled on /pull/<N>
-  URLs), and the typed session.open.codeReview intent. Install this plugin with:
+  URLs), and the generic session.open intent (typeId codeReview). Install this plugin with:
   work42 plugin install <path-to-github-plugin>
 ---
 
@@ -71,11 +71,11 @@ Clicking the enabled button maps the URL to GitHub's stable
 
 ```swift
 services.intents.execute(
-    id: "session.open.codeReview",
+    id: "session.open",
     params: [
-        "kind": .string("codeReview"),
+        "typeId": .string("codeReview"),
         "name": .string("Code Review: <PR title>"),
-        "codeReview": .object(["branchesByRepository": branchMap]),
+        "branchesByRepository": branchMap,
         "initialWidgetStorage": .object(["github": .object(["prs": prMetadata])]),
     ]
 )
@@ -140,14 +140,15 @@ restarting the agent (dormancy + session coming alive again, or `work42 widget
 reload`) resets the baseline; `ON CONFLICT DO NOTHING` prevents re-delivery of
 events already in `pending_updates`.
 
-## session.open.codeReview intent
+## session.open intent (Code Review)
 
-The typed Code Review intent accepts a provider-neutral repository branch map,
-an optional session display `name`, and optional opaque initial widget
-storage. The GitHub widget resolves the PR URL itself and supplies all three:
+The generic `session.open` intent accepts `typeId` (here `"codeReview"`), a
+provider-neutral repository branch map (`branchesByRepository`), an optional
+session display `name`, and optional opaque initial widget storage. The GitHub
+widget resolves the PR URL itself and supplies all of them:
 
 ```swift
-services.intents.execute(id: "session.open.codeReview", params: payload)
+services.intents.execute(id: "session.open", params: payload)
 ```
 
 The host checks out the supplied branches without parsing GitHub data and

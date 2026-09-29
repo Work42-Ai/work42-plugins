@@ -94,14 +94,14 @@ board browser is open. The button is:
   (e.g. `https://myorg.atlassian.net/browse/PROJ-123`).
 - **Dimmed** when the browser is on the board itself or any other page.
 
-When clicked (or executed from the palette), the button fires the typed
-session intent, naming the task after the issue key parsed from the URL:
+When clicked (or executed from the palette), the button fires the generic
+session-open intent, naming the task after the issue key parsed from the URL:
 ```
 services.intents.execute(
-  id: "session.open.task",
+  id: "session.open",
   params: [
-    "kind": .string("task"),
-    "task": .object(["name": .string("<ISSUE-KEY>"), "kind": .string("feature")]),
+    "typeId": .string("task"),
+    "name": .string("<ISSUE-KEY>"),
     "initialWidgetStorage": .object(["jira": .object(["url": .string(currentURL)])]),
   ]
 )

@@ -1,0 +1,3151 @@
+{
+  "slug": "task42",
+  "name": "task42",
+  "description": "The built-in task lifecycle: Planning, In-Progress, Testing, Human Review, Done.",
+  "stages": [
+    {
+      "name": "Planning",
+      "ordinal": 1,
+      "is_initial": true,
+      "is_terminal": false,
+      "entry_prompt": "You're in Planning. Invoke the task42-planner skill.",
+      "entry_gate": null,
+      "icon": "circle",
+      "color_light": "#0284C7",
+      "color_dark": "#66C8FF",
+      "model": "opus[1m]",
+      "provider": "claude"
+    },
+    {
+      "name": "In-Progress",
+      "ordinal": 2,
+      "is_initial": false,
+      "is_terminal": false,
+      "entry_prompt": "Plan approved \u2014 you're now In-Progress. Invoke the task42-worker skill and implement the subtasks one at a time. If you find the plan is wrong, run `work42 transition \"Planning\"` to go back.",
+      "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"}]}",
+      "icon": "play.circle.fill",
+      "color_light": "#6D28D9",
+      "color_dark": "#9D6BFF",
+      "model": "sonnet",
+      "provider": "claude"
+    },
+    {
+      "name": "Testing",
+      "ordinal": 3,
+      "is_initial": false,
+      "is_terminal": false,
+      "entry_prompt": "All subtasks are done \u2014 you're now in Testing. Invoke the task42-qa skill and verify the acceptance criteria.",
+      "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"},{\"forAll\":\"subtasks\",\"where\":{\"field\":\"done\",\"op\":\"equals\",\"value\":\"true\"}}]}",
+      "icon": "testtube.2",
+      "color_light": "#B45309",
+      "color_dark": "#FFC766",
+      "model": "haiku",
+      "provider": "claude"
+    },
+    {
+      "name": "Human Review",
+      "ordinal": 4,
+      "is_initial": false,
+      "is_terminal": false,
+      "entry_prompt": "QA passed \u2014 you're now in Human Review. Read + build/test only. To open the draft PR, load the skill from your installed git-host widget, or ask the user. If changes are needed, go back: `work42 transition \"Planning\"`.",
+      "entry_gate": "{\"or\":[{\"namespace\":\"qa\",\"key\":\"verdict\",\"op\":\"equals\",\"value\":\"PASS\"},{\"and\":[{\"namespace\":\"config\",\"key\":\"skip_testing\",\"op\":\"equals\",\"value\":\"true\"},{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"forAll\":\"subtasks\",\"where\":{\"field\":\"done\",\"op\":\"equals\",\"value\":\"true\"}}]}]}",
+      "icon": "eye",
+      "color_light": "#C2410C",
+      "color_dark": "#FFA060",
+      "model": "opus[1m]",
+      "provider": "claude"
+    },
+    {
+      "name": "Done",
+      "ordinal": 5,
+      "is_initial": false,
+      "is_terminal": true,
+      "entry_prompt": "Accepted \u2014 this task is Done. No further action needed.",
+      "entry_gate": "{\"and\":[{\"exists\":\"github/prs\"},{\"forAll\":\"github/prs\",\"where\":{\"field\":\"status\",\"op\":\"equals\",\"value\":\"merged\"}}]}",
+      "icon": "checkmark.circle.fill",
+      "color_light": "#15803D",
+      "color_dark": "#4CDB73",
+      "model": "opus[1m]",
+      "provider": "claude"
+    }
+  ],
+  "transitions": [
+    {
+      "from": "Planning",
+      "to": "In-Progress",
+      "description": "the plan is approved and you're ready to build"
+    },
+    {
+      "from": "In-Progress",
+      "to": "Testing",
+      "description": "you've implemented everything and want it verified"
+    },
+    {
+      "from": "In-Progress",
+      "to": "Human Review",
+      "description": "testing is being skipped for this task and the plan is fully implemented"
+    },
+    {
+      "from": "Testing",
+      "to": "Human Review",
+      "description": "all acceptance criteria passed QA"
+    },
+    {
+      "from": "Human Review",
+      "to": "Done",
+      "description": "every attached PR has merged"
+    },
+    {
+      "from": "In-Progress",
+      "to": "Planning",
+      "description": "the plan is wrong and needs rework"
+    },
+    {
+      "from": "Testing",
+      "to": "Planning",
+      "description": "the plan or acceptance criteria themselves are wrong"
+    },
+    {
+      "from": "Human Review",
+      "to": "Planning",
+      "description": "the issue is outside the approved plan"
+    },
+    {
+      "from": "Testing",
+      "to": "In-Progress",
+      "description": "tests failed, the fix is in the code"
+    }
+  ],
+  "stage_rules": [
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "swift build",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "swift test",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "swift run",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "xcodebuild",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "make",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "tsc",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "npm run",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "npm test",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "npm ci",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "npm install",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "npm ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "yarn",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "pnpm",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "eslint",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "prettier",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "cargo build",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "cargo test",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "cargo check",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "go build",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "go test",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "go vet",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "pytest",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "gradle",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "./gradlew",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "mvn",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "dotnet build",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "dotnet test",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "flutter test",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "flutter build",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "flutter analyze",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git add",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git commit",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git push",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/subtasks",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 debug",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "flow42",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "meet42",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "swift build",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "swift test",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "swift run",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "xcodebuild",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "make",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "tsc",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "npm run",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "npm test",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "npm ci",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "npm install",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "npm ls",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "yarn",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "pnpm",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "eslint",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "prettier",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "cargo build",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "cargo test",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "cargo check",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "go build",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "go test",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "go vet",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "pytest",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "gradle",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "./gradlew",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "mvn",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "dotnet build",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "dotnet test",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "flutter test",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "flutter build",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "flutter analyze",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git add",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git commit",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git push",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/subtasks",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 debug",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "flow42",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "meet42",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "swift build",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "swift test",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "swift run",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "xcodebuild",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "make",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "tsc",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "npm run",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "npm test",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "npm ci",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "npm install",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "npm ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "yarn",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "pnpm",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "eslint",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "prettier",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "cargo build",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "cargo test",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "cargo check",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "go build",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "go test",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "go vet",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "pytest",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "gradle",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "./gradlew",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "mvn",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "dotnet build",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "dotnet test",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "flutter test",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "flutter build",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "flutter analyze",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git add",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git commit",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git push",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/subtasks",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 debug",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "flow42",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "meet42",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "swift build",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "swift test",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "swift run",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "xcodebuild",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "make",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "tsc",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "npm run",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "npm test",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "npm ci",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "npm install",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "npm ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "yarn",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "pnpm",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "eslint",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "prettier",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "cargo build",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "cargo test",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "cargo check",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "go build",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "go test",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "go vet",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "pytest",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "gradle",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "./gradlew",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "mvn",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "dotnet build",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "dotnet test",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "flutter test",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "flutter build",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "flutter analyze",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git add",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git commit",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git push",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/subtasks",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 debug",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "flow42",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "meet42",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "swift build",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "swift test",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "swift run",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "xcodebuild",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "make",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "tsc",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "npm run",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "npm test",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "npm ci",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "npm install",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "npm ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "yarn",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "pnpm",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "eslint",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "prettier",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "cargo build",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "cargo test",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "cargo check",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "go build",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "go test",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "go vet",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "pytest",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "gradle",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "./gradlew",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "mvn",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "dotnet build",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "dotnet test",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "flutter test",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "flutter build",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "flutter analyze",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git add",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git commit",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git push",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/subtasks",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 debug",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "flow42",
+      "action": "allow"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "meet42",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "block"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "block"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "block"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "block"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "block"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "block"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "allow"
+    },
+    {
+      "stage": "Planning",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    },
+    {
+      "stage": "Testing",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "block"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "block"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "block"
+    }
+  ]
+}
