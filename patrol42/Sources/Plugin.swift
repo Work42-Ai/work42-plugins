@@ -31,12 +31,13 @@ import Work42WidgetKit
 
 final class Patrol42Hooks: Work42SessionHooks {
     func onCreate(_ context: SessionCreateContext) async throws {
+        // No pr_url -> an empty code-review session (the built-in no-arg
+        // creation path, e.g. the Home "Review PR" button): nothing to resolve.
+        // The PR is attached later via the github widget. This preserves the
+        // pre-conversion behaviour exactly — creation without a URL is valid.
         guard case let .string(prURL)? = context.params["pr_url"],
               !prURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw WidgetServiceError(
-                message: "code-review requires a pr_url param",
-                suggestion: "invoke the review-pr intent (or `work42 session new`) with a GitHub PR URL"
-            )
+            return
         }
 
         guard let pr = Self.parsePR(prURL) else {

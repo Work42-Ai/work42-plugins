@@ -21,7 +21,7 @@
       "key": "pr_url",
       "label": "GitHub PR URL",
       "type": "string",
-      "required": true,
+      "required": false,
       "storage": "review/pr_url",
       "placeholder": "https://github.com/<owner>/<repo>/pull/<N>"
     }
