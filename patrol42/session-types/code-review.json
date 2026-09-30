@@ -1,0 +1,29 @@
+{
+  "id": "codeReview",
+  "name": "Code Review",
+  "workflow": "code-review",
+  "layout_json": "[{\"id\":\"20BDC83F-CF50-4351-A881-C22C620F087A\",\"templateId\":\"codeReviewChat\",\"openItems\":[\"chat\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"93A12758-D335-40B3-A0BF-748CE7FA600C\",\"templateId\":\"codeReviewCode\",\"openItems\":[\"files\",\"terminal\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"3B89292A-254E-4BB1-B561-1B81BE99D4D4\",\"templateId\":\"debug\",\"openItems\":[\"debugConsole\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"9F06DE48-B96B-4050-B7B9-301E7B2AAEA2\",\"templateId\":\"codeReviewReview\",\"openItems\":[\"widget:github\"],\"pinnedItems\":[],\"isPlanView\":false}]",
+  "icon": "checkmark.shield",
+  "accent_hex": null,
+  "fresh_per_session": false,
+  "enforce_capability_gate": true,
+  "self_archives": false,
+  "list_shape": "session",
+  "shows_in_new_session_menu": true,
+  "shows_in_session_list": false,
+  "sort_order": 2,
+  "session_skills": [
+    "patrol42-reviewer"
+  ],
+  "create_intent": "review-pr",
+  "args": [
+    {
+      "key": "pr_url",
+      "label": "GitHub PR URL",
+      "type": "string",
+      "required": false,
+      "storage": "review/pr_url",
+      "placeholder": "https://github.com/<owner>/<repo>/pull/<N>"
+    }
+  ]
+}

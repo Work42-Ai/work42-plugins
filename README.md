@@ -100,6 +100,20 @@ work42-plugins/
       using-jira/      Plugin-level skill: using both Jira widgets together
     tab-templates/
       jira-work.json       "Jira Work" template (UUID 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e)
+  patrol42/            Code Review plugin bundle
+    plugin.yaml
+    session-types/
+      code-review.json     codeReview type -> code-review workflow; reuses the
+                            github plugin's widget:github as its review surface
+    workflows/
+      code-review.json     Intake -> AI Review -> Human Review -> Done
+    intents/
+      review-pr.json        "Review this PR" create-intent (pr_url)
+    skills/
+      patrol42-reviewer/   Session skill: the AI Review explainer-artifact pass
+    Sources/
+      Plugin.swift         onCreate hook: resolve the PR, fetch + checkout,
+                            seed github/prs, link the review To-Do
 ```
 
 ## Installing a plugin

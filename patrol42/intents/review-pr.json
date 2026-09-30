@@ -1,0 +1,7 @@
+{
+  "id": "review-pr",
+  "title": "Review this PR",
+  "type_id": "codeReview",
+  "params": ["pr_url"],
+  "button": true
+}
