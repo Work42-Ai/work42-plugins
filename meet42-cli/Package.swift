@@ -19,12 +19,19 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .library(name: "Meet42Kit", targets: ["Meet42Kit"]),
+        .library(name: "Meet42CalendarSync", targets: ["Meet42CalendarSync"]),
     ],
     targets: [
         .target(
             name: "Meet42Kit",
             path: "Sources/Meet42Kit",
             linkerSettings: [.linkedLibrary("sqlite3")]
+        ),
+        .target(
+            name: "Meet42CalendarSync",
+            dependencies: ["Meet42Kit"],
+            path: "Sources/Meet42CalendarSync",
+            linkerSettings: [.linkedFramework("EventKit")]
         ),
     ]
 )
