@@ -300,6 +300,167 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 280, height: 220) }
 
+    // MARK: - Recording state (drives action-area intent isEnabled / labels)
+
+    /// True when `meeting/started_at` is set AND `meeting/ended_at` is unset.
+    /// Drives the `record` intent (hidden while true) and the `stop` intent
+    /// (visible/enabled while true). Observed by the host at render time.
+    private(set) var isRecordingThisSession: Bool = false
+
+    /// Parsed `meeting/started_at`; drives the stop intent's live mm:ss timer.
+    private(set) var recordingStartedAt: Date? = nil
+
+    /// Pre-fetched microphone list for the selectMic menu `options` closure,
+    /// which is synchronous and reads this cached value.
+    private(set) var micOptions: [WidgetIntentMenuOption] = []
+
+    /// Active session services — set in `activate`, cleared in `deactivate`.
+    @ObservationIgnored private var services: SessionServices? = nil
+
+    /// Background state-poll task (recording state + mic options).
+    @ObservationIgnored private var statePollTask: Task<Void, Never>? = nil
+
+    // MARK: - Work42Widget.intents
+
+    /// Three pre-conversion action-area intents restored from
+    /// `SessionDetailPanel.transcriptIntentSpecs`:
+    ///   1. selectMic  — mic-picker menu
+    ///   2. record     — purple record.circle icon (hidden while recording)
+    ///   3. stop       — purple stop.fill labeled with a live mm:ss timer
+    ///                   (visible only while recording)
+    var intents: [WidgetIntentSpec] {
+        [
+            // ── 1. selectMic ─────────────────────────────────────────────────
+            WidgetIntentSpec(
+                name: "selectMic",
+                title: "Choose Microphone",
+                icon: "mic",
+                placement: [.actionArea],
+                actionAreaStyle: .menu(
+                    options: { [weak self] in self?.micOptions ?? [] },
+                    onSelect: { [weak self] uid in
+                        guard let self, let svc = self.services else { return }
+                        _ = try? await svc.shell.run(
+                            command: "meet42 mics select \"\(uid)\""
+                        )
+                        // Refresh so the checkmark moves to the new selection.
+                        await self.refreshMicOptions()
+                    }
+                ),
+                perform: {}      // never called — action-area-only intent
+            ),
+
+            // ── 2. record ────────────────────────────────────────────────────
+            WidgetIntentSpec(
+                name: "record",
+                title: "Record",
+                icon: "record.circle",
+                brandColorHex: "#7C3AED",
+                placement: [.actionArea],
+                actionAreaStyle: .icon,
+                isEnabled: { [weak self] in !(self?.isRecordingThisSession ?? false) },
+                perform: { [weak self] in
+                    guard let self, let svc = self.services,
+                          let dir = svc.worktreePath else { return }
+                    _ = try? await svc.shell.run(
+                        command: "meet42 record start --session-dir \"\(dir)\""
+                    )
+                    try? await svc.storage.set(
+                        key: "started_at", value: .string(isoNow())
+                    )
+                    await self.refreshRecordingState()
+                }
+            ),
+
+            // ── 3. stop ──────────────────────────────────────────────────────
+            WidgetIntentSpec(
+                name: "stop",
+                title: "Stop",
+                icon: "stop.fill",
+                brandColorHex: "#7C3AED",
+                placement: [.actionArea],
+                actionAreaStyle: .labeled,
+                isEnabled: { [weak self] in self?.isRecordingThisSession ?? false },
+                actionAreaTitle: { [weak self] in
+                    guard let self, let started = self.recordingStartedAt else {
+                        return "Stop"
+                    }
+                    let elapsed = max(0, Int(Date().timeIntervalSince(started)))
+                    return String(format: "%d:%02d", elapsed / 60, elapsed % 60)
+                },
+                livePeriodicTick: 1,
+                perform: { [weak self] in
+                    guard let self, let svc = self.services,
+                          let dir = svc.worktreePath else { return }
+                    _ = try? await svc.shell.run(
+                        command: "meet42 record stop --session-dir \"\(dir)\""
+                    )
+                    try? await svc.storage.set(
+                        key: "ended_at", value: .string(isoNow())
+                    )
+                    await self.refreshRecordingState()
+                }
+            ),
+        ]
+    }
+
+    // MARK: - Lifecycle
+
+    func activate(services: SessionServices) {
+        self.services = services
+        statePollTask?.cancel()
+        statePollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refreshRecordingState()
+                await self?.refreshMicOptions()
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
+    }
+
+    func deactivate() {
+        statePollTask?.cancel()
+        statePollTask = nil
+        services = nil
+        isRecordingThisSession = false
+        recordingStartedAt = nil
+        micOptions = []
+    }
+
+    // MARK: - State refresh helpers
+
+    /// Poll `meeting/started_at` and `meeting/ended_at` to derive
+    /// `isRecordingThisSession` and `recordingStartedAt`.
+    private func refreshRecordingState() async {
+        guard let svc = services else { return }
+        let started = try? await svc.storage.get(namespace: "meeting", key: "started_at")
+        let ended   = try? await svc.storage.get(namespace: "meeting", key: "ended_at")
+        var startDate: Date? = nil
+        if case .string(let s) = started { startDate = parseISO8601(s) }
+        let hasEnded: Bool
+        if case .string(_) = ended { hasEnded = true } else { hasEnded = false }
+        recordingStartedAt = startDate
+        isRecordingThisSession = startDate != nil && !hasEnded
+    }
+
+    /// Shell `meet42 mics --json` and refresh the cached `micOptions` list.
+    private func refreshMicOptions() async {
+        guard let svc = services else { return }
+        guard let result = try? await svc.shell.run(command: "meet42 mics --json"),
+              result.exitCode == 0 else { return }
+        guard let data = result.stdout.data(using: .utf8),
+              let rows = try? JSONSerialization.jsonObject(with: data)
+                  as? [[String: Any]] else { return }
+        micOptions = rows.compactMap { row -> WidgetIntentMenuOption? in
+            guard let uid  = row["uid"]  as? String,
+                  let name = row["name"] as? String else { return nil }
+            let isSelected = row["selected"] as? Bool ?? false
+            return WidgetIntentMenuOption(
+                id: uid, title: name, icon: "mic", isSelected: isSelected
+            )
+        }
+    }
+
     func makeView(services: SessionServices) -> AnyView {
         AnyView(TranscriptTileView(services: services))
     }

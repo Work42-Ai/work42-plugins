@@ -78,6 +78,9 @@ enum Dispatcher {
         Audio / modes:
           mics [--json]
                 List microphone input devices for the mic picker.
+          mics select <uid>
+                Persist a microphone selection (writes
+                ~/.work42/meet42/mic-input-device.json).
           watch [--json]
                 Long-lived; emits {"event":"mic-open"} / {"event":"mic-close"}
                 line-delimited JSON on default-input transitions.
