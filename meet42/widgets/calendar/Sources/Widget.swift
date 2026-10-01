@@ -1767,8 +1767,123 @@ final class CalendarWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgrou
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 420, height: 360) }
 
+    // MARK: - Shared store (drives both the view and the action-area intents)
+
+    /// Created in `activate(services:)`, torn down in `deactivate()`. Nil until
+    /// activate fires; `CalendarRootView` shows a ProgressView while nil.
+    private(set) var store: CLICalendarStore?
+
+    /// Observed by `CalendarRootView` to present the CalendarSettingsPopover when
+    /// the ⚙ action-area intent fires. The view resets this to false on dismiss.
+    var settingsOpen: Bool = false
+
+    @ObservationIgnored private var activatedServices: SessionServices?
+
+    // MARK: - Work42Widget lifecycle
+
+    func activate(services: SessionServices) {
+        activatedServices = services
+        let s = CLICalendarStore(services: services)
+        store = s
+        s.start()
+    }
+
+    func deactivate() {
+        store?.stop()
+        store = nil
+        activatedServices = nil
+        settingsOpen = false
+    }
+
     func makeView(services: SessionServices) -> AnyView {
-        AnyView(CalendarRootView(services: services))
+        AnyView(CalendarRootView(widget: self))
+    }
+
+    // MARK: - Action-area intents (AC8 — controls moved out of the widget body)
+    //
+    // Five intents matching the pre-conversion HomeView.actionAreaIntents calendar
+    // controls: a view-mode menu, previous/today/next navigation, and settings.
+    // All carry `placement: [.actionArea]` so they appear in the tab-bar row
+    // beside "Add Widget" while this widget is active — NOT inside the widget body.
+
+    var intents: [WidgetIntentSpec] {
+        [
+            // ── 1. View mode — Day / Week / Agenda ────────────────────────────
+            WidgetIntentSpec(
+                name: "viewMode",
+                title: "View",
+                icon: "calendar",
+                placement: [.actionArea],
+                actionAreaStyle: .menu(
+                    options: { [weak self] in
+                        guard let self, let store = self.store else { return [] }
+                        return CLICalendarStore.ViewMode.allCases.map { mode in
+                            WidgetIntentMenuOption(
+                                id: mode.rawValue,
+                                title: mode.label,
+                                isSelected: store.viewMode == mode
+                            )
+                        }
+                    },
+                    onSelect: { [weak self] rawValue in
+                        guard let self, let store = self.store,
+                              let mode = CLICalendarStore.ViewMode(rawValue: rawValue)
+                        else { return }
+                        store.setViewMode(mode)
+                    }
+                ),
+                perform: {}      // action-area menu — palette invocation is a no-op
+            ),
+
+            // ── 2. Previous ───────────────────────────────────────────────────
+            WidgetIntentSpec(
+                name: "previous",
+                title: "Previous",
+                icon: "chevron.left",
+                placement: [.actionArea],
+                actionAreaStyle: .icon,
+                isEnabled: { [weak self] in self?.store?.viewMode != .agenda },
+                perform: { [weak self] in self?.store?.goToPrevious() }
+            ),
+
+            // ── 3. Today ──────────────────────────────────────────────────────
+            // Uses `.pill` style — the WidgetIntentActionAreaStyle docs explicitly
+            // cite "Today" as the example of a text-only pill control.
+            WidgetIntentSpec(
+                name: "today",
+                title: "Today",
+                icon: "clock",
+                placement: [.actionArea],
+                actionAreaStyle: .pill,
+                perform: { [weak self] in self?.store?.goToToday() }
+            ),
+
+            // ── 4. Next ───────────────────────────────────────────────────────
+            WidgetIntentSpec(
+                name: "next",
+                title: "Next",
+                icon: "chevron.right",
+                placement: [.actionArea],
+                actionAreaStyle: .icon,
+                isEnabled: { [weak self] in self?.store?.viewMode != .agenda },
+                perform: { [weak self] in self?.store?.goToNext() }
+            ),
+
+            // ── 5. Settings ⚙ ────────────────────────────────────────────────
+            // Replicates the pre-conversion HomeView settings gear: sets
+            // `settingsOpen = true` so CalendarRootView presents the per-calendar
+            // AI assistance popover (CalendarSettingsPopover) anchored inside the
+            // widget body. The popover itself stays host-rendered (not action-area)
+            // because it requires a visual anchor point in the widget surface.
+            WidgetIntentSpec(
+                name: "settings",
+                title: "Calendar Settings",
+                icon: "gearshape",
+                placement: [.actionArea],
+                actionAreaStyle: .icon,
+                perform: { [weak self] in self?.settingsOpen = true }
+            ),
+        ]
     }
 
     // MARK: Work42WidgetBackground — the mic-wake detector + scheduler reconciler.
@@ -1797,106 +1912,71 @@ final class CalendarWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgrou
 // MARK: - CalendarRootView
 
 private struct CalendarRootView: View {
-    let services: SessionServices
-
-    @State private var store: CLICalendarStore?
-    @State private var settingsOpen = false
+    /// The owning CalendarWidget provides the shared CLICalendarStore (populated
+    /// in activate(services:)) and the settingsOpen flag the ⚙ intent writes to.
+    let widget: CalendarWidget
 
     var body: some View {
         Group {
-            if let store {
+            if let store = widget.store {
                 VStack(alignment: .leading, spacing: 0) {
                     header(store)
                     DT.systemAccent.opacity(0.25).frame(height: 1)
                     content(store)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                // Invisible 0×0 anchor for the settings popover opened by the ⚙
+                // action-area intent (CalendarWidget.intents last entry). The popover
+                // needs a visual anchor inside the widget body even though its trigger
+                // lives in the action area.
+                .overlay(alignment: .topTrailing) {
+                    Color.clear
+                        .frame(width: 0, height: 0)
+                        .popover(
+                            isPresented: Binding(
+                                get: { widget.settingsOpen },
+                                set: { widget.settingsOpen = $0 }
+                            ),
+                            arrowEdge: .top
+                        ) {
+                            CalendarSettingsPopover(
+                                choices: store.calendarChoices,
+                                setMode: { id, mode in store.setCalendarMode(id, mode) }
+                            )
+                        }
+                }
             } else {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onAppear {
-            if store == nil {
-                let s = CLICalendarStore(services: services)
-                store = s
-                s.start()
-            }
-        }
-        .onDisappear { store?.stop() }
     }
 
-    // MARK: Header
+    // MARK: Header (display-only — all controls moved to action-area intents)
+    //
+    // The Day/Week/Agenda picker, Previous/Today/Next nav buttons, and the ⚙
+    // settings button have been removed from this header; they now render as
+    // CalendarWidget.intents in the tab-bar action area (AC8). What remains is
+    // the date/period context and event count — read-only display.
 
     private func header(_ store: CLICalendarStore) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline, spacing: DT.s12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(periodLabel(store))
-                        .font(.system(size: DT.f17, weight: .bold))
-                        .foregroundStyle(.primary)
-                    if !periodSubLabel(store).isEmpty {
-                        Text(periodSubLabel(store))
-                            .font(.system(size: DT.f11))
-                            .foregroundStyle(.secondary)
-                    }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(periodLabel(store))
+                    .font(.system(size: DT.f17, weight: .bold))
+                    .foregroundStyle(.primary)
+                if !periodSubLabel(store).isEmpty {
+                    Text(periodSubLabel(store))
+                        .font(.system(size: DT.f11))
+                        .foregroundStyle(.secondary)
                 }
-                Spacer(minLength: 0)
-                viewModePicker(store)
             }
-            HStack(spacing: DT.s8) {
-                Text(subtitle(store))
-                    .font(.system(size: DT.f10))
-                    .foregroundStyle(.tertiary)
-                Spacer(minLength: 0)
-                if store.viewMode != .agenda {
-                    navButton("chevron.left") { store.goToPrevious() }
-                    Button { store.goToToday() } label: {
-                        Text("Today").font(.system(size: DT.f12, weight: .medium))
-                    }
-                    .buttonStyle(.bordered).controlSize(.small)
-                    navButton("chevron.right") { store.goToNext() }
-                }
-                settingsButton(store)
-            }
+            Text(subtitle(store))
+                .font(.system(size: DT.f10))
+                .foregroundStyle(.tertiary)
         }
         .padding(.horizontal, DT.s16)
         .padding(.top, DT.s12)
         .padding(.bottom, DT.s8)
-    }
-
-    private func viewModePicker(_ store: CLICalendarStore) -> some View {
-        Picker("", selection: Binding(
-            get: { store.viewMode },
-            set: { store.setViewMode($0) }
-        )) {
-            ForEach(CLICalendarStore.ViewMode.allCases) { mode in
-                Text(mode.label).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .labelsHidden()
-        .fixedSize()
-    }
-
-    private func navButton(_ symbol: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol).font(.system(size: 12, weight: .semibold))
-        }
-        .buttonStyle(.bordered).controlSize(.small)
-    }
-
-    private func settingsButton(_ store: CLICalendarStore) -> some View {
-        Button { settingsOpen = true } label: {
-            Image(systemName: "gearshape").font(.system(size: 14, weight: .medium))
-        }
-        .buttonStyle(.bordered).controlSize(.small)
-        .help("Calendar settings")
-        .popover(isPresented: $settingsOpen, arrowEdge: .top) {
-            CalendarSettingsPopover(
-                choices: store.calendarChoices,
-                setMode: { id, mode in store.setCalendarMode(id, mode) }
-            )
-        }
     }
 
     // MARK: Content router
