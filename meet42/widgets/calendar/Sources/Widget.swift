@@ -1441,6 +1441,16 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     /// Previous mic-running state — start closed so an already-open mic fires a
     /// fresh open transition on the first poll.
     @ObservationIgnored private var micWasRunning = false
+    /// Debounce: a candidate opposite-of-`micWasRunning` reading pending
+    /// confirmation. The per-process CoreAudio signal blips during a real call
+    /// (codec renegotiation, a browser tab's audio graph tearing down/rebuilding
+    /// a helper process) — without debouncing, each blip flips `micWasRunning`
+    /// and re-fires onMicOpen/onMicClose, re-presenting the pill and re-arming
+    /// auto-start repeatedly for what is really one continuous call. Mirrors the
+    /// pre-conversion MicUsageMonitor's ~0.4s anti-blip debounce; since this is
+    /// poll-based (every 2.5s) rather than listener-based, debouncing is done by
+    /// requiring the new reading to repeat on the NEXT poll before it's accepted.
+    @ObservationIgnored private var candidateRunning: Bool?
     /// Guards the record decision so auto-start + Record now fire it at most once.
     @ObservationIgnored private var resolving = false
     /// Handled-guard: true while this mic-open session has already presented the
@@ -1478,13 +1488,26 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         reconcileTask?.cancel(); reconcileTask = nil
         countdownTask?.cancel(); countdownTask = nil
         services = nil
+        candidateRunning = nil
     }
 
     // MARK: (a) Detection
 
     private func detectCycle(_ s: WidgetBackgroundServices) async {
         let running = Self.micIsRunning()
-        guard running != micWasRunning else { return }
+        guard running != micWasRunning else {
+            // Back to the confirmed state — any pending candidate was a blip.
+            candidateRunning = nil
+            return
+        }
+        guard candidateRunning == running else {
+            // First poll reporting the opposite state — wait for it to repeat
+            // on the next poll before treating it as a real transition.
+            candidateRunning = running
+            return
+        }
+        // The new state held across two consecutive polls — accept it.
+        candidateRunning = nil
         micWasRunning = running
         if running {
             await onMicOpen(s)
