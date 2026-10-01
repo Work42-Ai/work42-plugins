@@ -20,6 +20,13 @@ let package = Package(
     products: [
         .library(name: "Meet42Kit", targets: ["Meet42Kit"]),
         .library(name: "Meet42CalendarSync", targets: ["Meet42CalendarSync"]),
+        .library(name: "Meet42Capture", targets: ["Meet42Capture"]),
+    ],
+    dependencies: [
+        // FluidAudio: on-device (CoreML/ANE) speaker diarization, used by
+        // Meet42Capture's SpeakerDiarizationService (matches the version
+        // pinned in work42/app/Package.swift).
+        .package(url: "https://github.com/FluidInference/FluidAudio.git", from: "0.12.4"),
     ],
     targets: [
         .target(
@@ -32,6 +39,19 @@ let package = Package(
             dependencies: ["Meet42Kit"],
             path: "Sources/Meet42CalendarSync",
             linkerSettings: [.linkedFramework("EventKit")]
+        ),
+        // Meet42Capture (s8): audio-capture + transcription + diarization
+        // engine, ported from Flow42Core/Recording + Work42App/Meetings with
+        // all work42 coupling stripped. Depends on Meet42Kit for MeetingMeta
+        // (the calendar-snapshot attendee cap) and FluidAudio for on-device
+        // speaker diarization.
+        .target(
+            name: "Meet42Capture",
+            dependencies: [
+                "Meet42Kit",
+                .product(name: "FluidAudio", package: "FluidAudio"),
+            ],
+            path: "Sources/Meet42Capture"
         ),
     ]
 )
