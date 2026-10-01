@@ -25,8 +25,9 @@ enum Dispatcher {
         case "next":     ReadCommands.next(args: args)
         case "show":     ReadCommands.show(args: args)
         case "now":      ReadCommands.now(args: args)
-        case "snapshot": DataCommands.snapshot(args: args)
-        case "people":   DataCommands.people(args: args)
+        case "snapshot":      DataCommands.snapshot(args: args)
+        case "link-session":  DataCommands.linkSession(args: args)
+        case "people":        DataCommands.people(args: args)
         case "mics":     MicsCommand.mics(args: args)
         case "watch":    WatchCommand.watch(args: args)   // never returns
         case "modes":    DataCommands.modes(args: args)
@@ -67,6 +68,10 @@ enum Dispatcher {
         Sessions / people:
           snapshot <eventId> --session-dir <dir> [--json]
                 Write meeting.json for the event + seed the people graph.
+          link-session <eventId> <sessionId> [--json]
+                Link a work42 session back to its calendar event so
+                `meet42 now` surfaces the existing sessionId for dedup.
+                Idempotent — safe to call multiple times for the same eventId.
           people (--session-dir <dir> | --meeting-json <path>) [--json]
                 Attendee profiles (shared-meeting counts) from the snapshot.
 

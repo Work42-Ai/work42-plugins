@@ -119,6 +119,44 @@ enum DataCommands {
         }
     }
 
+    // MARK: - link-session <eventId> <sessionId>
+
+    /// Write `session_id` back onto a `calendar_events` row so `meet42 now`'s
+    /// `sessionId` field resolves for dedup. Idempotent — calling it twice for
+    /// the same eventId is safe and does NOT error or create inconsistent state.
+    static func linkSession(args: [String]) {
+        let pos = CLI.positionals(args)
+        guard pos.count >= 2 else {
+            CLI.fail("meet42 link-session: usage: link-session <eventId> <sessionId>")
+        }
+        let eventId = pos[0]
+        let sessionId = pos[1]
+
+        // Open read-write so the UPDATE can land.
+        let store: CalendarStore
+        do {
+            store = try CalendarStore()
+        } catch {
+            CLI.fail("meet42 link-session: couldn't open calendar.db: \(error)", code: 2)
+        }
+
+        do {
+            try store.linkSession(eventId: eventId, sessionId: sessionId)
+        } catch {
+            CLI.fail("meet42 link-session: failed to link session: \(error)", code: 2)
+        }
+
+        if CLI.wantsJSON(args) {
+            if let event = try? store.event(id: eventId) {
+                CLI.emitJSON(event)
+            } else {
+                print("null")
+            }
+        } else {
+            print("Linked session \(sessionId) → event \(eventId)")
+        }
+    }
+
     // MARK: - modes get / set
 
     static func modes(args: [String]) {

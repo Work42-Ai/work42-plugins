@@ -1447,6 +1447,15 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     @ObservationIgnored private var micWasRunning = false
     /// Guards the record decision so auto-start + Record now fire it at most once.
     @ObservationIgnored private var resolving = false
+    /// Handled-guard: true while this mic-open session has already presented the
+    /// pill. Prevents re-fire on a brief mic-state fluctuation (open → close →
+    /// open) while the user is still in the same effective call. Reset in
+    /// onMicClose so the NEXT genuine open can re-fire.
+    @ObservationIgnored private var micOpenHandled = false
+    /// Skipped-guard: set by skip() so the 10s countdown closure and recordNow()
+    /// cannot create a session after the user tapped Skip, even if the countdown
+    /// fired before the cancellation propagated.
+    @ObservationIgnored private var skipped = false
     /// Scheduler keys this agent has added, so it can cancel ones that drop out.
     @ObservationIgnored private var scheduledKeys: Set<String> = []
 
@@ -1491,6 +1500,12 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     /// Fresh mic-open: resolve the meeting, decide YES/NO, present the pill, and
     /// arm the 10s auto-start countdown.
     private func onMicOpen(_ s: WidgetBackgroundServices) async {
+        // Handled-guard: present the pill at most once per mic-open session.
+        // A brief state fluctuation (close → open in the same call) must not
+        // re-fire the pill while the user is still in the call.
+        guard !micOpenHandled else { return }
+        micOpenHandled = true
+        skipped = false
         resolving = false
         let resolved = await resolveNow(s)
 
@@ -1515,17 +1530,22 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         try? await s.pill.present(widgetId: "calendar", sessionId: s.sessionId)
 
         // Auto-start at countdown → 0 unless the user skipped / recorded first.
+        // The `skipped` guard is checked in recordNow(); the explicit check here
+        // is an extra safety belt for any task-cancellation race.
         countdownTask?.cancel()
         countdownTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, self?.skipped != true else { return }
             self?.recordNow(s)
         }
     }
 
     /// Mic closed — if the user never recorded (detection still showing), tear
-    /// the pill down.
+    /// the pill down. Also resets the handled/skipped guards so the NEXT genuine
+    /// mic-open can present the pill again.
     private func onMicClose(_ s: WidgetBackgroundServices) async {
+        micOpenHandled = false
+        skipped = false
         countdownTask?.cancel(); countdownTask = nil
         guard CalendarDetectionState.shared.detected != nil else { return }
         await clearAndDismiss(s)
@@ -1549,7 +1569,9 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     /// it. NO: start a new event session with autostart so its transcript agent
     /// records. Then clear + dismiss.
     private func recordNow(_ s: WidgetBackgroundServices) {
-        guard !resolving else { return }
+        // skipped guard: Skip() sets this before cancelling the countdown task,
+        // so a task that already passed the Task.isCancelled check can't mint.
+        guard !resolving, !skipped else { return }
         resolving = true
         countdownTask?.cancel(); countdownTask = nil
         let meeting = CalendarDetectionState.shared.detected
@@ -1579,8 +1601,11 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         }
     }
 
-    /// Skip (or auto-start cancelled): clear detection + dismiss the pill.
+    /// Skip (or auto-start cancelled): set the skipped flag BEFORE cancelling the
+    /// countdown task so a task already past Task.isCancelled can't slip through,
+    /// then clear + dismiss.
     private func skip(_ s: WidgetBackgroundServices) {
+        skipped = true
         countdownTask?.cancel(); countdownTask = nil
         Task { [weak self] in await self?.clearAndDismiss(s) }
     }
@@ -1643,39 +1668,82 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         return (try? dec.decode([CalEvent].self, from: data)) ?? []
     }
 
-    // MARK: CoreAudio mic-usage poll (default input device is-running-somewhere)
+    // MARK: CoreAudio per-process mic-input detection (macOS 14.4+)
 
-    /// True when the default input device is in use by any process. Observes
-    /// device state via `kAudioDevicePropertyDeviceIsRunningSomewhere` — no TCC,
-    /// no capture. (Equivalent to meet42-cli's WatchCommand poll.) Owning-bundle-id
-    /// resolution is intentionally skipped — device-is-running alone drives the
-    /// detection; the owning app isn't needed since meet42 resolves the meeting.
+    /// Bundle IDs of known video-call / voice-call apps whose mic INPUT should
+    /// trigger detection. Audio output from any other app (e.g. a video reel)
+    /// must NOT fire the pill.
+    private static let callAppCatalog: Set<String> = [
+        "us.zoom.xos",
+        "com.microsoft.teams2",
+        "com.tinyspeck.slackmacgap",
+        "com.apple.FaceTime",
+        "com.google.Chrome",
+        "com.apple.Safari",
+    ]
+
+    /// True when at least one known call app is holding the microphone INPUT.
+    /// Uses the per-process HAL API (`kAudioHardwarePropertyProcessObjectList` +
+    /// `kAudioProcessPropertyIsRunningInput` + `kAudioProcessPropertyBundleID`),
+    /// available macOS 14.4+ (the plugin targets macOS 15). Unlike the old
+    /// device-wide `kAudioDevicePropertyDeviceIsRunningSomewhere` this never fires
+    /// on audio OUTPUT alone — it requires an INPUT-holding process in the catalog.
     private static func micIsRunning() -> Bool {
-        let device = defaultInputDevice()
-        guard device != AudioDeviceID(0) else { return false }
-        var result = UInt32(0)
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+        // 1. Get the list of HAL process object IDs.
+        var listAddress = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyProcessObjectList,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &result)
+        var dataSize: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &listAddress, 0, nil, &dataSize
+        ) == noErr, dataSize > 0 else { return false }
+
+        let count = Int(dataSize) / MemoryLayout<AudioObjectID>.size
+        var processIDs = [AudioObjectID](repeating: 0, count: count)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &listAddress, 0, nil, &dataSize, &processIDs
+        ) == noErr else { return false }
+
+        // 2. For each process, check input-running flag and bundle id.
+        for pid in processIDs {
+            guard processIsRunningInput(pid) else { continue }
+            guard let bundleID = processBundleID(pid) else { continue }
+            if callAppCatalog.contains(bundleID) { return true }
+        }
+        return false
+    }
+
+    /// `kAudioProcessPropertyIsRunningInput` — true when the process currently
+    /// holds mic input capture (not just output).
+    private static func processIsRunningInput(_ processID: AudioObjectID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioProcessPropertyIsRunningInput,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var result = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(processID, &address, 0, nil, &size, &result)
         return status == noErr && result != 0
     }
 
-    private static func defaultInputDevice() -> AudioDeviceID {
-        var deviceID = AudioDeviceID(0)
-        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+    /// `kAudioProcessPropertyBundleID` — the CFString bundle id of the process.
+    private static func processBundleID(_ processID: AudioObjectID) -> String? {
         var address = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mSelector: kAudioProcessPropertyBundleID,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
+        var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        var cfStr: Unmanaged<CFString>? = nil
         let status = AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID
+            processID, &address, 0, nil, &dataSize, &cfStr
         )
-        return status == noErr ? deviceID : AudioDeviceID(0)
+        guard status == noErr, let str = cfStr?.takeRetainedValue() else { return nil }
+        return str as String
     }
 
     // MARK: Subtitle

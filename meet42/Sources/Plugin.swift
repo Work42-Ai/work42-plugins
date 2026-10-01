@@ -38,6 +38,15 @@ final class Meet42Hooks: Work42SessionHooks {
                 suggestion: "grant meet42 Calendar access (meet42 sync), or check the event id exists"
             )
         }
+
+        // Link the new session back to its calendar event so `meet42 now --json`
+        // surfaces a non-nil `sessionId` for this event. This is the dedup hook:
+        // both the detection pill's YES path and the T-15 reconciler go through
+        // onCreate, so both link via this single write. Fire-and-forget: a failed
+        // link means the NEXT detection creates a second session (accepted risk,
+        // not a fatal error for the session itself).
+        let linkCommand = "meet42 link-session \(shellQuote(eventId)) \(shellQuote(context.sessionId))"
+        _ = try? await context.shell.run(command: linkCommand)
     }
 }
 

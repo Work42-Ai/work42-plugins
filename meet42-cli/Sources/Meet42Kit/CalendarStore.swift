@@ -679,6 +679,23 @@ public final class CalendarStore {
         }
     }
 
+    // MARK: - Session linkage
+
+    /// Write `session_id` back onto the event row, so `meet42 now`'s `sessionId`
+    /// field resolves to the already-minted session for dedup. Idempotent: calling
+    /// it again for the same eventId with the same sessionId is harmless (UPDATE
+    /// is a no-op when the value matches). Silently no-ops if the eventId is
+    /// absent (event was deleted from the mirror since session creation).
+    public func linkSession(eventId: String, sessionId: String) throws {
+        try exec(
+            "UPDATE calendar_events SET session_id = ? WHERE event_id = ?",
+            bind: { stmt in
+                sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_CAL)
+                sqlite3_bind_text(stmt, 2, eventId, -1, SQLITE_TRANSIENT_CAL)
+            }
+        )
+    }
+
     // MARK: - Meeting prep dedup
 
     /// Mirror "prep fired" onto `calendar_events.prep_fired_at` so the
