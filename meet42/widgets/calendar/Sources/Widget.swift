@@ -1259,8 +1259,8 @@ final class CalendarDetectionState {
 
 /// Plugin-local port of EventSessionAccessory's `detected` state: medallion +
 /// meeting name/subtitle + "Auto-starting in Ns" countdown + purple bar + Skip /
-/// Record now. Rendered as a self-contained dark card so it reads identically
-/// whether or not the pill panel has focus (no AppKit, no Flow42Core).
+/// Record now. Content-only — the host (`PillBirthView`) owns the card surface;
+/// this view must not draw its own background (no AppKit, no Flow42Core).
 struct DetectedPillView: View {
     let meeting: DetectedMeeting
     let services: SessionServices
@@ -1279,10 +1279,6 @@ struct DetectedPillView: View {
             countdownBar
         }
         .frame(width: cardWidth, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(white: 0.11))
-        )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .environment(\.controlActiveState, .active)
     }

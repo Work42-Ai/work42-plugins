@@ -629,10 +629,6 @@ private struct RecordingAccessory: View {
             if isEnded { countdownBar }
         }
         .frame(width: cardWidth, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.black.opacity(0.82))
-        )
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.state)
         .environment(\.controlActiveState, .active)
