@@ -1,0 +1,27 @@
+{
+  "id": "event",
+  "name": "Event",
+  "workflow": "meeting",
+  "layout_json": "[{\"id\":\"F1051525-4C28-4376-96BB-7A87D9FCA0A4\",\"templateId\":\"meetingBrief\",\"openItems\":[\"widget:eventDetails\",\"widget:people\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"60B19321-A3C6-4496-982A-892466EDC889\",\"templateId\":\"meetingLive\",\"openItems\":[\"chat\",\"widget:transcript\",\"widget:annotations\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"E1B40221-0F3A-4D7D-A680-CF82E192A15E\",\"templateId\":\"meetingRecap\",\"openItems\":[\"widget:summary\",\"widget:transcript\",\"widget:annotations\"],\"pinnedItems\":[],\"isPlanView\":false}]",
+  "icon": "calendar",
+  "enforce_capability_gate": true,
+  "self_archives": true,
+  "list_shape": "schedule",
+  "archive_source": "meeting",
+  "shows_in_new_session_menu": true,
+  "shows_in_session_list": true,
+  "sort_order": 3,
+  "session_skills": [
+    "meet42-prep"
+  ],
+  "create_intent": "new-event",
+  "args": [
+    {
+      "key": "event_id",
+      "label": "Calendar event id",
+      "type": "string",
+      "required": false,
+      "storage": "meeting/event_id"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+name: meet42
+version: 1
+description: >
+  The meeting vertical, extracted from work42 into a first-party plugin
+  (meet42-plugin-conversion, M2). Provides the `meeting` workflow (Prepare for
+  Meeting -> In Meeting -> Summary -> Done, driven entirely by recording-
+  lifecycle storage signals), the `event` session type, the event-details /
+  transcript / people / annotations / summary / calendar / timeline widgets
+  (which render over files in the session dir + the standalone `meet42` CLI's
+  verbs), the transcript widget's auto-record background agent, the calendar
+  widget's mic-wake detection agent + scheduler reconciler, the `meet42-prep`
+  skill (type-scoped), a "New Event" create-intent, and an onCreate hook that
+  shells `meet42 snapshot` to write meeting.json. All privileged calendar/audio
+  work lives in the standalone meet42 tool; this plugin is UI + orchestration.
+author: work42
+sdk_version: 10
