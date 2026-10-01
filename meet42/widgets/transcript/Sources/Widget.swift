@@ -26,9 +26,13 @@
 //                 cancellable mic poll that, on an open→close transition,
 //                 stops capture, writes `meeting/ended_at`, dismisses the pill.
 //
-// CRITICAL: `storageNamespace` is "meeting" so `storage.set(key: "started_at")`
-// writes `meeting/started_at` — the workflow "In Meeting" gate — and
-// `storage.set(key: "ended_at")` writes `meeting/ended_at` → Summary.
+// CRITICAL: `storageNamespace` is "meeting" so VIEW-SIDE `SessionServices.storage`
+// writes (the manual Record/Stop action-area intents, the pill's Stop control)
+// land at `meeting/started_at`/`meeting/ended_at` — the workflow gates. This
+// does NOT extend to the BACKGROUND AGENT below: `WidgetBackgroundHost.makeServices`
+// hardcodes its storage to the widget's own slug ("transcript") regardless of
+// `storageNamespace`, so `TranscriptAgent` writes `meeting/started_at`/`ended_at`
+// explicitly via `work42 storage set` (shelled), not `WidgetBackgroundServices.storage.set`.
 
 import CoreGraphics
 import Foundation
@@ -242,6 +246,12 @@ private func isoNow() -> String {
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return f.string(from: Date())
+}
+
+/// POSIX single-quote shell escaping — mirrors the calendar widget's
+/// `calShellQuote` (duplicated per widget — no shared target).
+private func transcriptShellQuote(_ value: String) -> String {
+    "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
 /// Parse an ISO 8601 timestamp, tolerating presence/absence of fractional secs.
@@ -990,7 +1000,15 @@ final class TranscriptAgent: WidgetBackgroundAgent {
                 let alreadyStarted = (try? await s.storage.get(namespace: "meeting", key: "started_at")) != nil
                 if !alreadyStarted {
                     _ = try? await s.shell.run(command: "meet42 record start --session-dir \"$(pwd)\"")
-                    try? await s.storage.set(key: "started_at", value: .string(isoNow()))
+                    // `storage.set` can only write into THIS widget's own
+                    // ("transcript") namespace — it has no namespace parameter.
+                    // The workflow gate and this agent's own isRecording/ended
+                    // checks read `meeting/*`, so this MUST go through the
+                    // shell (`work42 storage set meeting/started_at ...`), the
+                    // same cross-namespace-write pattern the calendar widget
+                    // uses for `meeting/autostart`.
+                    let startedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+                    _ = try? await s.shell.run(command: "work42 storage set meeting/started_at \(startedAtJSON)")
                     try? await s.pill.present(widgetId: "transcript", sessionId: s.sessionId)
                 }
             }
@@ -1010,7 +1028,8 @@ final class TranscriptAgent: WidgetBackgroundAgent {
                     } else if sawOpen {
                         // open → close: stop, advance to Summary, dismiss the pill.
                         _ = try? await s.shell.run(command: "meet42 record stop --session-dir \"$(pwd)\"")
-                        try? await s.storage.set(key: "ended_at", value: .string(isoNow()))
+                        let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+                        _ = try? await s.shell.run(command: "work42 storage set meeting/ended_at \(endedAtJSON)")
                         try? await s.pill.dismiss(widgetId: "transcript")
                         break
                     }
