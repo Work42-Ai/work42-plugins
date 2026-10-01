@@ -31,7 +31,10 @@ private let SQLITE_TRANSIENT_PS = unsafeBitCast(
 /// A snapshot of one attendee's accumulated profile from `people.db`.
 /// Returned by `PeopleStore.profile(forAttendees:)` for the People tile
 /// (subtask 14) and the end-of-meeting pass (subtask 16).
-public struct PersonProfile: Sendable, Equatable {
+///
+/// `Codable` with snake_case keys (`person_id`, `shared_meeting_count`,
+/// `last_seen`) so `meet42 people --json` can emit it directly.
+public struct PersonProfile: Sendable, Equatable, Codable {
     /// Stable identifier — lowercased email, or normalised-name fallback.
     public let personId: String
     /// Display name from the most-recent event that supplied one.
@@ -42,6 +45,14 @@ public struct PersonProfile: Sendable, Equatable {
     public let sharedMeetingCount: Int
     /// ISO 8601 string of the last time this person appeared in an event.
     public let lastSeen: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case personId = "person_id"
+        case name
+        case email
+        case sharedMeetingCount = "shared_meeting_count"
+        case lastSeen = "last_seen"
+    }
 
     public init(
         personId: String,

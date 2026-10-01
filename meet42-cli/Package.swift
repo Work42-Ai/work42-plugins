@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "Meet42Kit", targets: ["Meet42Kit"]),
         .library(name: "Meet42CalendarSync", targets: ["Meet42CalendarSync"]),
         .library(name: "Meet42Capture", targets: ["Meet42Capture"]),
+        .executable(name: "meet42", targets: ["meet42"]),
     ],
     dependencies: [
         // FluidAudio: on-device (CoreML/ANE) speaker diarization, used by
@@ -52,6 +53,13 @@ let package = Package(
                 .product(name: "FluidAudio", package: "FluidAudio"),
             ],
             path: "Sources/Meet42Capture"
+        ),
+        // meet42 (s9): the CLI executable + its verbs. Manual arg dispatch
+        // (no ArgumentParser), driving the three in-package targets only.
+        .executableTarget(
+            name: "meet42",
+            dependencies: ["Meet42Kit", "Meet42CalendarSync", "Meet42Capture"],
+            path: "Sources/meet42"
         ),
     ]
 )
