@@ -25,6 +25,7 @@
 // CalEvent / CalMode mirrors, refreshing on a ~2s timer while mounted (the CLI
 // poll replaces the app store's db-mtime poller).
 
+import CoreAudio
 import Foundation
 import Observation
 import SwiftUI
@@ -1189,11 +1190,513 @@ private struct CalendarPreferenceRow: View {
     }
 }
 
+// MARK: - Mic-wake detection (background agent + pill bridge)
+//
+// The calendar widget's background agent is the always-on, session-less mic-wake
+// detector (per the confirmed meet42-detection design): on Home a widget's agent
+// runs independent of any mounted view, so it IS the global pre-session detector
+// — no app bridge needed. It:
+//
+//   (a) Detection — polls CoreAudio's default-input
+//       `kAudioDevicePropertyDeviceIsRunningSomewhere` every ~2.5s (observing
+//       device state, NOT capturing → no TCC). On a FRESH mic-open transition it
+//       shells `meet42 now --json` to resolve the current/imminent event (or none
+//       → ad-hoc "Meeting"), decides YES (a session already exists for the event)
+//       vs NO (none yet), writes `CalendarDetectionState.shared.detected`, and
+//       presents the calendar widget's DETECTED pill. On mic-close (if the user
+//       never recorded) it clears + dismisses.
+//   (b) Reconciler — every ~30s reads assisted events (`meet42 modes get --json`
+//       + `meet42 list --json`) and syncs them into work42's generic scheduler
+//       (`work42 schedule add/cancel --key mtg:<id>`) at T-15min.
+//
+// The DETECTED pill (`DetectedPillView`) is a plugin-local port of the app's
+// EventSessionAccessory "detected" state (medallion + name/subtitle + 10s
+// auto-start countdown + purple bar + Skip / Record now). The agent↔pill bridge
+// is `CalendarDetectionState.shared`: the agent WRITES `.detected`; `makePillView`
+// READS it and renders the accessory. The record decision + 10s auto-start timer
+// live on the agent (so side effects stay agent-owned); the pill just calls back.
+
+/// Meeting-detection accent — the brand violet (#7C3AED), redefined locally so the
+/// widget links no Flow42Core/Work42App. Purple = "a meeting was detected".
+let meetingDetectionPurple = Color(red: 0x7C / 255, green: 0x3A / 255, blue: 0xED / 255)
+/// Lighter violet for the on-dark countdown copy (#C4B5FD).
+let meetingDetectionPurpleLight = Color(red: 0xC4 / 255, green: 0xB5 / 255, blue: 0xFD / 255)
+
+/// A resolved detection the agent hands to the pill. Carries the display data +
+/// two callbacks the pill invokes (Record now / Skip) so the side effects stay
+/// owned by the agent, not the view.
+@MainActor
+struct DetectedMeeting {
+    /// Meeting name — calendar event title, or "Meeting" for an ad-hoc call.
+    let title: String
+    /// Subtitle context (e.g. "Zoom · 2:00 – 2:30 PM", or just the source app).
+    let subtitle: String
+    /// The resolved calendar event id, or nil for an ad-hoc call.
+    let eventId: String?
+    /// The id of a session already minted for this event (YES path), else nil (NO).
+    let existingSessionId: String?
+    /// Moment the 10s auto-start grace began — drives the bar + "Auto-… in Ns".
+    let countdownStart: Date
+    /// Record now / auto-start → run the record decision (agent-owned).
+    let onRecord: () -> Void
+    /// Skip → clear + dismiss (agent-owned).
+    let onSkip: () -> Void
+}
+
+/// The agent↔pill bridge. The background agent WRITES `detected`; the calendar
+/// widget's `makePillView` READS it to switch the pill into its DETECTED mode.
+@Observable
+@MainActor
+final class CalendarDetectionState {
+    static let shared = CalendarDetectionState()
+    private init() {}
+
+    /// Non-nil while a meeting is detected and the start pill should render.
+    var detected: DetectedMeeting?
+}
+
+// MARK: - DetectedPillView (ported "detected" accessory state)
+
+/// Plugin-local port of EventSessionAccessory's `detected` state: medallion +
+/// meeting name/subtitle + "Auto-starting in Ns" countdown + purple bar + Skip /
+/// Record now. Rendered as a self-contained dark card so it reads identically
+/// whether or not the pill panel has focus (no AppKit, no Flow42Core).
+struct DetectedPillView: View {
+    let meeting: DetectedMeeting
+    let services: SessionServices
+
+    private let cardWidth: CGFloat = 412
+    private let countdownTotal: TimeInterval = 10
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            VStack(alignment: .leading, spacing: 12) {
+                header
+                actionRow
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            countdownBar
+        }
+        .frame(width: cardWidth, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(white: 0.11))
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .environment(\.controlActiveState, .active)
+    }
+
+    // MARK: Header — medallion + name/subtitle
+
+    private var header: some View {
+        HStack(spacing: 11) {
+            medallion
+            VStack(alignment: .leading, spacing: 1) {
+                Text(meeting.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text(meeting.subtitle)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(.white.opacity(0.55))
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
+            Spacer(minLength: 8)
+        }
+        .frame(height: 36)
+    }
+
+    /// No AppKit here (plugin boundary): the source-app icon resolver from the
+    /// app accessory is dropped — we always render the fallback video medallion.
+    private var medallion: some View {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(meetingDetectionPurple.opacity(0.9))
+            .overlay(
+                Image(systemName: "video.fill")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+            )
+            .frame(width: 36, height: 36)
+            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
+    }
+
+    // MARK: Action row — countdown message + Skip + Record now
+
+    private var actionRow: some View {
+        HStack(spacing: 10) {
+            countdownMessage
+            Spacer(minLength: 8)
+            skipButton
+            recordButton
+        }
+        .frame(height: 32)
+    }
+
+    private var countdownMessage: some View {
+        TimelineView(.animation) { ctx in
+            Text("Auto-starting in \(countdownSeconds(at: ctx.date))s")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(meetingDetectionPurpleLight)
+                .lineLimit(1)
+        }
+    }
+
+    private var skipButton: some View {
+        Button(action: meeting.onSkip) {
+            Text("Skip")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 15)
+                .frame(height: 32)
+                .background(
+                    Capsule(style: .continuous)
+                        .fill(.white.opacity(0.10))
+                        .overlay(Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 0.5))
+                )
+        }
+        .buttonStyle(.plain)
+        .help("Skip auto-start")
+    }
+
+    private var recordButton: some View {
+        Button(action: meeting.onRecord) {
+            HStack(spacing: 6) {
+                Image(systemName: "record.circle")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.white)
+                Text("Record now")
+                    .font(.system(size: DT.f11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .fixedSize()
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 32)
+            .background(Capsule(style: .continuous).fill(meetingDetectionPurple))
+        }
+        .buttonStyle(.plain)
+        .help("Start recording now")
+    }
+
+    // MARK: Purple countdown bar (flush bottom)
+
+    private var countdownBar: some View {
+        TimelineView(.animation) { ctx in
+            let frac = countdownFraction(at: ctx.date)
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Color.white.opacity(0.08))
+                Rectangle()
+                    .fill(meetingDetectionPurple)
+                    .frame(width: max(0, cardWidth * frac))
+                    .shadow(color: meetingDetectionPurple.opacity(0.7), radius: 4)
+            }
+            .frame(width: cardWidth, height: 3)
+        }
+    }
+
+    private func countdownFraction(at date: Date) -> CGFloat {
+        guard countdownTotal > 0 else { return 0 }
+        let remaining = max(0, countdownTotal - date.timeIntervalSince(meeting.countdownStart))
+        return CGFloat(remaining / countdownTotal)
+    }
+
+    private func countdownSeconds(at date: Date) -> Int {
+        let remaining = max(0, countdownTotal - date.timeIntervalSince(meeting.countdownStart))
+        return max(1, Int(ceil(remaining)))
+    }
+}
+
+// MARK: - meet42 now --json payload
+
+/// Decode target for `meet42 now --json` — a single `CalendarEvent.Item` (or the
+/// literal `null`). Only the fields the detection flow needs; `sessionId` is the
+/// id of a session already minted for this event (nil → NO/record-to-create path).
+private struct DetectedEventPayload: Decodable {
+    let id: String
+    let title: String
+    let startsAt: Date
+    let endsAt: Date
+    let source: String?
+    let sessionId: String?
+}
+
+// MARK: - CalendarDetectionAgent
+
+/// The calendar widget's background agent: mic-wake detection + the scheduler
+/// reconciler. One instance per (session × widget) — on Home, that's the single
+/// session-less detector. All side effects go through `services.shell`
+/// (meet42/work42 CLIs), `services.pill`, and `CalendarDetectionState.shared`.
+@Observable
+@MainActor
+final class CalendarDetectionAgent: WidgetBackgroundAgent {
+    var headerLabels: [WidgetHeaderLabel] = []
+
+    @ObservationIgnored private var services: WidgetBackgroundServices?
+    @ObservationIgnored private var detectTask: Task<Void, Never>?
+    @ObservationIgnored private var reconcileTask: Task<Void, Never>?
+    @ObservationIgnored private var countdownTask: Task<Void, Never>?
+
+    /// Previous mic-running state — start closed so an already-open mic fires a
+    /// fresh open transition on the first poll.
+    @ObservationIgnored private var micWasRunning = false
+    /// Guards the record decision so auto-start + Record now fire it at most once.
+    @ObservationIgnored private var resolving = false
+    /// Scheduler keys this agent has added, so it can cancel ones that drop out.
+    @ObservationIgnored private var scheduledKeys: Set<String> = []
+
+    // MARK: Lifecycle
+
+    func start(services s: WidgetBackgroundServices) {
+        services = s
+        detectTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.detectCycle(s)
+                try? await Task.sleep(for: .seconds(2.5))
+            }
+        }
+        reconcileTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.reconcileCycle(s)
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
+    }
+
+    func stop() {
+        detectTask?.cancel(); detectTask = nil
+        reconcileTask?.cancel(); reconcileTask = nil
+        countdownTask?.cancel(); countdownTask = nil
+        services = nil
+    }
+
+    // MARK: (a) Detection
+
+    private func detectCycle(_ s: WidgetBackgroundServices) async {
+        let running = Self.micIsRunning()
+        guard running != micWasRunning else { return }
+        micWasRunning = running
+        if running {
+            await onMicOpen(s)
+        } else {
+            await onMicClose(s)
+        }
+    }
+
+    /// Fresh mic-open: resolve the meeting, decide YES/NO, present the pill, and
+    /// arm the 10s auto-start countdown.
+    private func onMicOpen(_ s: WidgetBackgroundServices) async {
+        resolving = false
+        let resolved = await resolveNow(s)
+
+        let title = resolved?.title ?? "Meeting"
+        let subtitle = Self.subtitle(for: resolved)
+        let eventId = resolved?.id
+        // Session-exists check (YES vs NO) comes straight off `meet42 now`'s
+        // `sessionId` — the id of the session already minted for this event. No
+        // extra work42 query needed; nil → the NO/create path.
+        let existingSessionId = resolved?.sessionId
+
+        let meeting = DetectedMeeting(
+            title: title,
+            subtitle: subtitle,
+            eventId: eventId,
+            existingSessionId: existingSessionId,
+            countdownStart: Date(),
+            onRecord: { [weak self] in self?.recordNow(s) },
+            onSkip: { [weak self] in self?.skip(s) }
+        )
+        CalendarDetectionState.shared.detected = meeting
+        try? await s.pill.present(widgetId: "calendar", sessionId: s.sessionId)
+
+        // Auto-start at countdown → 0 unless the user skipped / recorded first.
+        countdownTask?.cancel()
+        countdownTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            self?.recordNow(s)
+        }
+    }
+
+    /// Mic closed — if the user never recorded (detection still showing), tear
+    /// the pill down.
+    private func onMicClose(_ s: WidgetBackgroundServices) async {
+        countdownTask?.cancel(); countdownTask = nil
+        guard CalendarDetectionState.shared.detected != nil else { return }
+        await clearAndDismiss(s)
+    }
+
+    /// Shell `meet42 now --json`; nil when there is no current/imminent meeting.
+    private func resolveNow(_ s: WidgetBackgroundServices) async -> DetectedEventPayload? {
+        guard let r = try? await s.shell.run(command: "meet42 now --json"),
+              r.exitCode == 0 else { return nil }
+        let trimmed = r.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed != "null", let data = trimmed.data(using: .utf8) else { return nil }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return try? dec.decode(DetectedEventPayload.self, from: data)
+    }
+
+    // MARK: Record decision (invoked by the pill — Record now / auto-start)
+
+    /// The YES/NO record decision. YES (a session already exists): set that
+    /// session's `meeting/autostart` signal so its transcript agent records into
+    /// it. NO: start a new event session with autostart so its transcript agent
+    /// records. Then clear + dismiss.
+    private func recordNow(_ s: WidgetBackgroundServices) {
+        guard !resolving else { return }
+        resolving = true
+        countdownTask?.cancel(); countdownTask = nil
+        let meeting = CalendarDetectionState.shared.detected
+        Task { [weak self] in
+            if let existing = meeting?.existingSessionId {
+                // YES — flip autostart on the existing session.
+                _ = try? await s.shell.run(
+                    command: "work42 storage set --session \(calShellQuote(existing)) meeting/autostart true"
+                )
+            } else {
+                // NO — mint a new event session with autostart; the transcript
+                // agent sees meeting/autostart and records. autostart is seeded
+                // via --storage (NOT --arg): the event type declares only
+                // `event_id` in its args schema, so `--arg autostart` would be
+                // rejected as an unknown key. event_id stays an --arg so the
+                // plugin's onCreate hook (which reads params["event_id"]) fires
+                // `meet42 snapshot`. Omit event_id for an ad-hoc meeting.
+                var cmd = "work42 session start --type event"
+                    + " --name \(calShellQuote(meeting?.title ?? "Meeting"))"
+                    + " --storage meeting/autostart=true"
+                if let eventId = meeting?.eventId {
+                    cmd += " --arg event_id=\(calShellQuote(eventId))"
+                }
+                _ = try? await s.shell.run(command: cmd)
+            }
+            await self?.clearAndDismiss(s)
+        }
+    }
+
+    /// Skip (or auto-start cancelled): clear detection + dismiss the pill.
+    private func skip(_ s: WidgetBackgroundServices) {
+        countdownTask?.cancel(); countdownTask = nil
+        Task { [weak self] in await self?.clearAndDismiss(s) }
+    }
+
+    private func clearAndDismiss(_ s: WidgetBackgroundServices) async {
+        CalendarDetectionState.shared.detected = nil
+        try? await s.pill.dismiss(widgetId: "calendar")
+    }
+
+    // MARK: (b) Reconciler — assisted events → work42 scheduler
+
+    /// Sync assisted calendar events into work42's generic scheduler: schedule a
+    /// session start at T-15min under a stable `mtg:<id>` key (idempotent add),
+    /// and cancel keys for events that are no longer assisted / gone.
+    private func reconcileCycle(_ s: WidgetBackgroundServices) async {
+        // Effective mode per event: event override → calendar default → view_only.
+        guard let modes = await fetchModes(s) else { return }
+        let events = await fetchEvents(s)
+
+        var desired: Set<String> = []
+        for e in events {
+            let mode = modes.events[e.id] ?? modes.calendars[e.calendarId] ?? .viewOnly
+            guard mode == .assisted else { continue }
+            let key = "mtg:\(e.id)"
+            desired.insert(key)
+            let at = e.startsAt.addingTimeInterval(-15 * 60)
+            let iso = ISO8601DateFormatter().string(from: at)
+            // add is idempotent on --key — re-adding replaces the entry.
+            _ = try? await s.shell.run(
+                command: "work42 schedule add --type event"
+                    + " --at \(calShellQuote(iso))"
+                    + " --arg event_id=\(calShellQuote(e.id))"
+                    + " --key \(calShellQuote(key))"
+            )
+        }
+
+        // Cancel keys we previously added that are no longer desired.
+        for key in scheduledKeys.subtracting(desired) {
+            _ = try? await s.shell.run(command: "work42 schedule cancel --key \(calShellQuote(key))")
+        }
+        scheduledKeys = desired
+    }
+
+    private func fetchModes(_ s: WidgetBackgroundServices) async -> ModesPayload? {
+        guard let r = try? await s.shell.run(command: "meet42 modes get --json"),
+              r.exitCode == 0, let data = r.stdout.data(using: .utf8) else { return nil }
+        return try? JSONDecoder().decode(ModesPayload.self, from: data)
+    }
+
+    private func fetchEvents(_ s: WidgetBackgroundServices) async -> [CalEvent] {
+        let iso = ISO8601DateFormatter()
+        let from = Date()
+        let to = Calendar.current.date(byAdding: .day, value: 30, to: from) ?? from
+        let cmd = "meet42 list --from \(calShellQuote(iso.string(from: from)))"
+            + " --to \(calShellQuote(iso.string(from: to))) --json"
+        guard let r = try? await s.shell.run(command: cmd), r.exitCode == 0,
+              let data = r.stdout.data(using: .utf8) else { return [] }
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        return (try? dec.decode([CalEvent].self, from: data)) ?? []
+    }
+
+    // MARK: CoreAudio mic-usage poll (default input device is-running-somewhere)
+
+    /// True when the default input device is in use by any process. Observes
+    /// device state via `kAudioDevicePropertyDeviceIsRunningSomewhere` — no TCC,
+    /// no capture. (Equivalent to meet42-cli's WatchCommand poll.) Owning-bundle-id
+    /// resolution is intentionally skipped — device-is-running alone drives the
+    /// detection; the owning app isn't needed since meet42 resolves the meeting.
+    private static func micIsRunning() -> Bool {
+        let device = defaultInputDevice()
+        guard device != AudioDeviceID(0) else { return false }
+        var result = UInt32(0)
+        var size = UInt32(MemoryLayout<UInt32>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDeviceIsRunningSomewhere,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectGetPropertyData(device, &address, 0, nil, &size, &result)
+        return status == noErr && result != 0
+    }
+
+    private static func defaultInputDevice() -> AudioDeviceID {
+        var deviceID = AudioDeviceID(0)
+        var size = UInt32(MemoryLayout<AudioDeviceID>.size)
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &deviceID
+        )
+        return status == noErr ? deviceID : AudioDeviceID(0)
+    }
+
+    // MARK: Subtitle
+
+    private static func subtitle(for event: DetectedEventPayload?) -> String {
+        guard let event else { return "Ad-hoc call" }
+        let f = DateFormatter()
+        f.dateFormat = "h:mm a"
+        let range = "\(f.string(from: event.startsAt)) – \(f.string(from: event.endsAt))"
+        if let src = event.source, !src.isEmpty {
+            return "\(src) · \(range)"
+        }
+        return range
+    }
+}
+
 // MARK: - CalendarWidget
 
 @Observable
 @MainActor
-final class CalendarWidget: Work42Widget, Work42WidgetPill {
+final class CalendarWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackground {
     let id = "calendar"
     let title = "Calendar"
     let icon = "calendar"
@@ -1204,10 +1707,18 @@ final class CalendarWidget: Work42Widget, Work42WidgetPill {
         AnyView(CalendarRootView(services: services))
     }
 
-    // MARK: Work42WidgetPill — compact "next N events" agenda.
+    // MARK: Work42WidgetBackground — the mic-wake detector + scheduler reconciler.
+
+    func makeBackgroundAgent() -> any WidgetBackgroundAgent { CalendarDetectionAgent() }
+
+    // MARK: Work42WidgetPill — DETECTED accessory when the agent flags a meeting,
+    // else the compact "next N events" agenda.
 
     func makePillView(services: SessionServices) -> AnyView? {
-        AnyView(CalendarPillView(services: services))
+        if let detected = CalendarDetectionState.shared.detected {
+            return AnyView(DetectedPillView(meeting: detected, services: services))
+        }
+        return AnyView(CalendarPillView(services: services))
     }
 
     var pillMetadata: WidgetPillMetadata {
