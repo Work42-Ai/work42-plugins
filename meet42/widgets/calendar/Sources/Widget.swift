@@ -1707,9 +1707,17 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         for pid in processIDs {
             guard processIsRunningInput(pid) else { continue }
             guard let bundleID = processBundleID(pid) else { continue }
-            if callAppCatalog.contains(bundleID) { return true }
+            if matchesCatalog(bundleID) { return true }
         }
         return false
+    }
+
+    /// Matches an exact catalog id or a `<catalogId>.<suffix>` helper — browsers
+    /// and Electron apps (Chrome, Teams, Slack) run audio capture in a helper
+    /// process whose bundle id is a variant like `com.google.Chrome.helper`,
+    /// not the parent app's own bundle id.
+    private static func matchesCatalog(_ rawBundleID: String) -> Bool {
+        callAppCatalog.contains { rawBundleID == $0 || rawBundleID.hasPrefix($0 + ".") }
     }
 
     /// `kAudioProcessPropertyIsRunningInput` — true when the process currently
