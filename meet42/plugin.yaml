@@ -5,7 +5,7 @@ description: >
   (meet42-plugin-conversion, M2). Provides the `meeting` workflow (Prepare for
   Meeting -> In Meeting -> Summary -> Done, driven entirely by recording-
   lifecycle storage signals), the `event` session type, the event-details /
-  transcript / people / annotations / summary / calendar / timeline widgets
+  transcript / people / annotations / summary / calendar widgets
   (which render over files in the session dir + the standalone `meet42` CLI's
   verbs), the transcript widget's auto-record background agent, the calendar
   widget's mic-wake detection agent + scheduler reconciler, the `meet42-prep`
