@@ -54,7 +54,24 @@ enum WatchCommand {
 
     /// Never returns — registers CoreAudio property listeners and calls dispatchMain().
     static func watch(args: [String]) -> Never {
-        let watcher = MicWatcher()
+        // callId bookkeeping across the close edge — captured by the closure
+        // below (a `var` local, mutated only from MicWatcher's own serial
+        // queue since `onEdge` is invoked exclusively from recompute()).
+        var activeCallId: String?
+        let watcher = MicWatcher(onEdge: { active, match in
+            if active, let match {
+                let callId = "\(match.bundleId)-\(Int(Date().timeIntervalSince1970 * 1000))"
+                activeCallId = callId
+                emit(["event": "call-open", "callId": callId, "app": match.app, "bundleId": match.bundleId])
+                Meet42Trace.log("watch", "call-open",
+                                ["callId": callId, "app": match.app, "bundleId": match.bundleId])
+            } else {
+                let callId = activeCallId ?? "unknown"
+                emit(["event": "call-close", "callId": callId])
+                Meet42Trace.log("watch", "call-close", ["callId": callId])
+                activeCallId = nil
+            }
+        })
         watcher.start()
         // Keep watcher alive through dispatchMain (the listener blocks hold
         // a strong reference too, but this makes the intent explicit).
@@ -140,19 +157,44 @@ enum WatchCommand {
 /// blocks. Every method (and therefore every state mutation) runs exclusively
 /// on `queue`, giving us lock-free safety without actors.
 ///
+/// Shared (meet42-recording-lifecycle-rework, s2) by two callers with the
+/// SAME proven listener + 1s-backstop machinery but different matching scope
+/// and edge action:
+///   - `meet42 watch` (WatchCommand.watch): `scopeBundleId == nil` matches
+///     the WHOLE call-app catalog; `onEdge` emits call-open/call-close JSON.
+///   - RecordCommand's daemon self-watch: `scopeBundleId` is the recording's
+///     OWN trigger bundle id — it must react to only ITS call, never an
+///     unrelated one elsewhere — and `onEdge` drives the self-stop grace
+///     timer instead of emitting anything.
+///
 /// @unchecked Sendable: Swift can't verify the serial-queue discipline, but it
 /// is enforced by construction — all entry points dispatch onto `queue`.
-private final class MicWatcher: @unchecked Sendable {
+final class MicWatcher: @unchecked Sendable {
 
     let queue = DispatchQueue(label: "meet42.mic-watch")
+
+    /// Restrict matching to this ONE bundle id (prefix-matched like
+    /// `canonicalEntry`), or `nil` to match the whole `WatchCommand.catalog`.
+    let scopeBundleId: String?
+
+    /// Called on every active↔inactive edge with the new state and, when
+    /// active, the matched (app, bundleId) pair.
+    let onEdge: (Bool, (app: String, bundleId: String)?) -> Void
 
     // Guarded by `queue` — only ever mutated in methods called from `queue`.
     var registered = Set<AudioObjectID>()
     var wasActive  = false
-    var activeCall: (callId: String, app: String, bundleId: String)?
 
     /// Backstop re-scan timer (see start()). Held so it stays alive.
     var backstopTimer: DispatchSourceTimer?
+
+    init(
+        scopeBundleId: String? = nil,
+        onEdge: @escaping (Bool, (app: String, bundleId: String)?) -> Void
+    ) {
+        self.scopeBundleId = scopeBundleId
+        self.onEdge = onEdge
+    }
 
     // MARK: start
 
@@ -207,38 +249,25 @@ private final class MicWatcher: @unchecked Sendable {
 
     // MARK: recompute
 
-    /// Apply both gates to the current process list and emit on the aggregate
-    /// empty↔non-empty edge only. Called exclusively from `queue`.
+    /// Apply the match scope (whole catalog, or one bundle id) to the current
+    /// process list and invoke `onEdge` on the aggregate empty↔non-empty edge
+    /// only. Called exclusively from `queue`.
     func recompute() {
         let holders: [(app: String, bundleId: String)] = WatchCommand.processIDs()
             .compactMap { pid -> (app: String, bundleId: String)? in
                 guard WatchCommand.isRunningInput(pid) else { return nil }
-                guard let raw   = WatchCommand.processBundleID(pid),
-                      let entry = WatchCommand.canonicalEntry(for: raw) else { return nil }
+                guard let raw = WatchCommand.processBundleID(pid) else { return nil }
+                if let scope = scopeBundleId {
+                    guard raw == scope || raw.hasPrefix(scope + ".") else { return nil }
+                    return (scope, raw)
+                }
+                guard let entry = WatchCommand.canonicalEntry(for: raw) else { return nil }
                 return (entry.name, entry.id)
             }
         let active = !holders.isEmpty
-        guard active != wasActive else { return }   // no edge → no emit
+        guard active != wasActive else { return }   // no edge → no action
         wasActive = active
-
-        if active {
-            let h      = holders[0]
-            let callId = "\(h.bundleId)-\(Int(Date().timeIntervalSince1970 * 1000))"
-            activeCall = (callId: callId, app: h.app, bundleId: h.bundleId)
-            WatchCommand.emit([
-                "event":    "call-open",
-                "callId":   callId,
-                "app":      h.app,
-                "bundleId": h.bundleId,
-            ])
-            Meet42Trace.log("watch", "call-open",
-                            ["callId": callId, "app": h.app, "bundleId": h.bundleId])
-        } else {
-            let callId = activeCall?.callId ?? "unknown"
-            WatchCommand.emit(["event": "call-close", "callId": callId])
-            Meet42Trace.log("watch", "call-close", ["callId": callId])
-            activeCall = nil
-        }
+        onEdge(active, holders.first)
     }
 
     // MARK: per-process listener management
