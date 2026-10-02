@@ -93,10 +93,17 @@ enum Dispatcher {
         Sync / capture:
           sync
                 Request Calendar access + run one full EventKit sync.
-          record start --session-dir <dir> [--device <uid>]
+          record start --session-dir <dir> [--device <uid>] [--app <name>] [--bundle-id <id>]
                 Daemonize and capture (transcription + diarization).
+                Machine-wide singleton: refuses if a recording is already
+                active elsewhere. --app/--bundle-id label the claim (for
+                `record status`); default --app is "Manual".
           record stop --session-dir <dir>
                 Signal the capture daemon to finalize and exit.
+          record status [--json]
+                Print whether a recording is active and, if so, its owning
+                session/app/startedAt — the single source of truth every
+                surface reads instead of session storage.
 
         Diagnostics:
           trace [--tail N] [--call <callId>] [--json]
