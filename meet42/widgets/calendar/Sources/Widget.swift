@@ -1622,62 +1622,54 @@ private struct DetectedEventPayload: Decodable {
 
 // MARK: - DetectorLock
 
-/// Machine-wide pid lock so only ONE `CalendarDetectionAgent` instance — across
-/// every alive session this widget is active on — spawns `meet42 watch` and
-/// runs the prompt/mint pipeline. `WidgetBackgroundHost` starts one agent
-/// instance per (session × widget); with N alive sessions that's N
-/// independent watchers each prompting/minting for the same mic event
-/// (observed live: 3 simultaneous `meet42 watch` processes, orphaned across
-/// app relaunches since a non-graceful quit never calls `stop()` on the old
-/// instance). Mirrors `RecordingStateStore`'s pid + `kill(pid, 0)` liveness
-/// pattern — duplicated locally since a plugin widget can't import
-/// `Meet42Capture`.
+/// Machine-wide lock so only ONE `CalendarDetectionAgent` instance — across
+/// every alive session this widget is active on, and across every app
+/// process — spawns `meet42 watch` and runs the prompt/mint pipeline.
+/// `WidgetBackgroundHost` starts one agent instance per (session × widget);
+/// with N alive sessions that's N independent watchers each prompting/minting
+/// for the same mic event (observed live: two simultaneous `meet42 watch`
+/// processes, two `call-open`s and two `prompt-shown`s ~1ms apart for the
+/// SAME Chrome session).
+///
+/// Uses an OS-level `flock()` rather than a hand-rolled "read the claim file,
+/// check if the pid is alive, then overwrite it" scheme — that read-then-write
+/// shape is NOT atomic: two agents starting within the same instant both read
+/// "free/stale" and both unconditionally win the overwrite (confirmed live —
+/// that race is exactly what produced the duplicate watchers above).
+/// `flock(LOCK_EX | LOCK_NB)` is atomic at the kernel level (no TOCTOU window)
+/// and self-releasing — the lock drops the instant the owning process exits
+/// for ANY reason (clean quit, crash, force-kill), so there is no pid-liveness
+/// bookkeeping to get wrong.
 private enum DetectorLock {
     private static var path: String {
-        (NSHomeDirectory() as NSString).appendingPathComponent(".work42/meet42/detector-lock.json")
+        (NSHomeDirectory() as NSString).appendingPathComponent(".work42/meet42/detector.lock")
     }
 
-    private struct Claim: Codable { let pid: Int32 }
+    /// The fd we hold the lock on, once claimed. -1 means not held.
+    nonisolated(unsafe) private static var heldFD: Int32 = -1
 
-    /// Returns true if this process now owns the lock — either it already did,
-    /// or the lock was free/stale (owner's pid is dead) and got reclaimed.
+    /// Returns true if this process now owns the lock — either it already
+    /// did, or just atomically acquired it.
     static func claim() -> Bool {
-        let myPid = ProcessInfo.processInfo.processIdentifier
-        if let data = FileManager.default.contents(atPath: path),
-           let claim = try? JSONDecoder().decode(Claim.self, from: data) {
-            if claim.pid == myPid { return true }
-            if kill(claim.pid, 0) == 0 { return false } // a live owner that isn't us
-            // Owner's pid is dead — the claim is stale, fall through and take it.
-        }
-        return write(pid: myPid)
-    }
-
-    /// Release the lock, but only if we're still the recorded owner (avoids
-    /// deleting a claim another process took over in the meantime).
-    static func release(myPid: Int32) {
-        guard let data = FileManager.default.contents(atPath: path),
-              let claim = try? JSONDecoder().decode(Claim.self, from: data),
-              claim.pid == myPid
-        else { return }
-        try? FileManager.default.removeItem(atPath: path)
-    }
-
-    private static func write(pid: Int32) -> Bool {
+        if heldFD >= 0 { return true }
         let dir = (path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
-        guard let data = try? JSONEncoder().encode(Claim(pid: pid)) else { return false }
-        let tmp = path + ".tmp.\(pid)"
-        do {
-            try data.write(to: URL(fileURLWithPath: tmp))
-            guard rename(tmp, path) == 0 else {
-                try? FileManager.default.removeItem(atPath: tmp)
-                return false
-            }
-            return true
-        } catch {
-            try? FileManager.default.removeItem(atPath: tmp)
+        let fd = open(path, O_CREAT | O_RDWR, 0o644)
+        guard fd >= 0 else { return false }
+        guard flock(fd, LOCK_EX | LOCK_NB) == 0 else {
+            close(fd)
             return false
         }
+        heldFD = fd
+        return true
+    }
+
+    /// Release the lock, if we hold it.
+    static func release() {
+        guard heldFD >= 0 else { return }
+        flock(heldFD, LOCK_UN)
+        close(heldFD)
+        heldFD = -1
     }
 }
 
@@ -1731,8 +1723,10 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         }
         // Idle instances (lock not held) re-check every ~15s in case the
         // owner died without a clean stop() (e.g. the app was killed, not
-        // quit) — the lock is pid-liveness-checked, so a dead owner's claim
-        // is reclaimable immediately, not just after some fixed expiry.
+        // quit) — flock releases automatically the instant that process
+        // exits, so the very next claim() attempt after that succeeds; the
+        // 15s interval is just how soon an idle instance notices and takes
+        // over, not a staleness timeout.
         detectorClaimTask = Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
@@ -1753,7 +1747,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         stopGraceTask?.cancel(); stopGraceTask = nil
         detectorClaimTask?.cancel(); detectorClaimTask = nil
         if ownsDetectorLock {
-            DetectorLock.release(myPid: ProcessInfo.processInfo.processIdentifier)
+            DetectorLock.release()
             ownsDetectorLock = false
         }
         services = nil
@@ -2109,10 +2103,20 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     }
 
     /// A start attempt failed after the pill already flipped into its loader
-    /// state — revert to the DETECTED prompt (the call may still be live, so
-    /// the user can retry) rather than dismissing outright.
+    /// state — revert to the DETECTED prompt briefly (the call may still be
+    /// live, so Skip/Record now stay available for an immediate manual
+    /// retry), then auto-dismiss after a few seconds. Without this grace
+    /// timer the pill is stuck forever: `meeting.countdownStart` is from the
+    /// ORIGINAL detection, so the "Auto-starting in Ns" text is already
+    /// clamped to its 1s floor and nothing re-arms the 10s auto-start timer.
     private func abortStart(_ meeting: DetectedMeeting, _ s: WidgetBackgroundServices) async {
         CalendarDetectionState.shared.phase = .detected(meeting)
+        countdownTask?.cancel()
+        countdownTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(4))
+            guard !Task.isCancelled else { return }
+            await self?.clearAndDismiss(s)
+        }
     }
 
     /// No — permanently dismiss for this call session; a genuinely new call
