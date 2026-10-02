@@ -1648,10 +1648,18 @@ private enum DetectorLock {
     /// The fd we hold the lock on, once claimed. -1 means not held.
     nonisolated(unsafe) private static var heldFD: Int32 = -1
 
-    /// Returns true if this process now owns the lock — either it already
-    /// did, or just atomically acquired it.
+    /// Returns true only for the ONE caller that actually wins the lock.
+    /// `heldFD` is process-wide, not per-caller — `WidgetBackgroundHost` runs
+    /// one `CalendarDetectionAgent` instance per (session × widget), all in
+    /// the SAME process (e.g. the Home-level detector + this task session's
+    /// own detector), so a "heldFD >= 0 → return true" fast path (as if that
+    /// meant "I already hold it") actually told EVERY instance in the
+    /// process "you have it" the instant the first one claimed it —
+    /// confirmed live: two `meet42 watch` children spawned from one PID.
+    /// Once held, every other claim() in this process must get false; only
+    /// release() (called by the true owner's stop()) reopens it.
     static func claim() -> Bool {
-        if heldFD >= 0 { return true }
+        guard heldFD < 0 else { return false }
         let dir = (path as NSString).deletingLastPathComponent
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         let fd = open(path, O_CREAT | O_RDWR, 0o644)
@@ -1985,13 +1993,23 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
             // Confirm the claim actually landed (TCC prompt / spawn failure
             // means it may not have) via the bounded, quick `status` read —
             // the single source of truth the rest of the pipeline trusts.
+            // `meet42 record start` derives ITS sessionId from the session
+            // DIRECTORY's last path component (RecordCommand.swift:116 —
+            // `dirURL.lastPathComponent`), e.g. a worktree slug like
+            // "keen-beacon" — NOT the semantic session UUID `sessionId` holds
+            // here. Comparing against the UUID meant this NEVER matched for a
+            // freshly-minted session, so a successful recording was reported
+            // as "status-not-confirmed" and immediately aborted every time
+            // (confirmed live: `record start-claimed` succeeded, then 3s
+            // later the pill tore itself down anyway).
+            let recordSlug = (sessionDir as NSString).lastPathComponent
             var confirmed = false
             for _ in 0..<4 {
                 try? await Task.sleep(for: .milliseconds(750))
                 if let r = try? await s.shell.run(command: "meet42 record status --json"),
                    r.exitCode == 0, let data = r.stdout.data(using: .utf8),
                    let status = try? JSONDecoder().decode(RecordStatusPayload.self, from: data),
-                   status.recording, status.sessionId == sessionId {
+                   status.recording, status.sessionId == recordSlug {
                     confirmed = true
                     break
                 }

@@ -334,10 +334,17 @@ private func fetchRecordingSnapshot(services: SessionServices) async -> Recordin
         return RecordingSnapshot(isRecordingThisSession: false, startedAt: nil, hasEnded: false)
     }
     var isRecording = false
+    // `meet42 record start --session-dir <dir>` derives ITS sessionId from
+    // the DIRECTORY's last path component (a worktree slug like
+    // "keen-beacon"), not the semantic session UUID `services.sessionId`
+    // holds for an ad-hoc minted session — comparing against the UUID meant
+    // this NEVER matched for such a session (confirmed live: a recording
+    // that was genuinely active still read back as "not recording" here).
+    let recordSlug = services.worktreePath.map { ($0 as NSString).lastPathComponent } ?? sessionId
     if let r = try? await services.shell.run(command: "meet42 record status --json"),
        r.exitCode == 0, let data = r.stdout.data(using: .utf8),
        let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data),
-       status.recording, status.sessionId == sessionId {
+       status.recording, status.sessionId == recordSlug {
         isRecording = true
     }
     var startedAt: Date?
@@ -484,13 +491,18 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
                           let dir = svc.worktreePath, let sessionId = svc.sessionId else { return }
                     fireTranscriptRecordStart(sessionDir: dir)
 
+                    // Compare against the dir's basename, not sessionId — see
+                    // fetchRecordingSnapshot's comment: `meet42 record start`
+                    // derives its own sessionId from the session DIRECTORY's
+                    // last path component, not the semantic session UUID.
+                    let recordSlug = (dir as NSString).lastPathComponent
                     var confirmed = false
                     for _ in 0..<4 {
                         try? await Task.sleep(nanoseconds: 750_000_000)
                         if let r = try? await svc.shell.run(command: "meet42 record status --json"),
                            r.exitCode == 0, let data = r.stdout.data(using: .utf8),
                            let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data),
-                           status.recording, status.sessionId == sessionId {
+                           status.recording, status.sessionId == recordSlug {
                             confirmed = true
                             break
                         }
