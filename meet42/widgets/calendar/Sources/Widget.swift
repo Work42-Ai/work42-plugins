@@ -25,7 +25,7 @@
 // CalEvent / CalMode mirrors, refreshing on a ~2s timer while mounted (the CLI
 // poll replaces the app store's db-mtime poller).
 
-import CoreAudio
+import AppKit
 import Foundation
 import Observation
 import SwiftUI
@@ -1227,21 +1227,31 @@ private struct CalendarPreferenceRow: View {
 // MARK: - Mic-wake detection (background agent + pill bridge)
 //
 // The calendar widget's background agent is the always-on, session-less mic-wake
-// detector (per the confirmed meet42-detection design): on Home a widget's agent
-// runs independent of any mounted view, so it IS the global pre-session detector
-// — no app bridge needed. It:
+// detector (meet42-detection-rework design): on Home a widget's agent runs
+// independent of any mounted view, so it IS the global pre-session detector —
+// no app bridge needed. It:
 //
-//   (a) Detection — polls CoreAudio's default-input
-//       `kAudioDevicePropertyDeviceIsRunningSomewhere` every ~2.5s (observing
-//       device state, NOT capturing → no TCC). On a FRESH mic-open transition it
-//       shells `meet42 now --json` to resolve the current/imminent event (or none
-//       → ad-hoc "Meeting"), decides YES (a session already exists for the event)
-//       vs NO (none yet), writes `CalendarDetectionState.shared.detected`, and
-//       presents the calendar widget's DETECTED pill. On mic-close (if the user
-//       never recorded) it clears + dismisses.
+//   (a) Detection — EVENT-DRIVEN, zero polling. Consumes the long-lived
+//       `meet42 watch` child process's line-delimited JSON stdout stream
+//       (CoreAudio property listeners over PER-PROCESS mic INPUT only — never
+//       triggers on audio output). Each `call-open` is handled exactly once
+//       (in-memory `Set<CallId>`, never re-prompts within one call session);
+//       it shells `meet42 now --json` to optionally NAME the call from a
+//       matching calendar event (purely cosmetic — detection itself is
+//       platform-based, not calendar-based), decides YES (a session already
+//       exists for the event) vs NO (none yet), writes
+//       `CalendarDetectionState.shared.detected`, and presents the calendar
+//       widget's DETECTED pill with the app's native icon. Yes / the 10s
+//       auto-start runs the START SEQUENCE (resolve session → `meet42 record
+//       start` → write `meeting/started_at` → dismiss this pill → float the
+//       transcript RECORDING pill). `call-close` either cancels an
+//       undecided prompt, or — for the call currently recording — begins a
+//       5s stop-grace (a `call-open` for the SAME call within that window
+//       cancels the stop; otherwise `meet42 record stop` + `meeting/ended_at`).
 //   (b) Reconciler — every ~30s reads assisted events (`meet42 modes get --json`
 //       + `meet42 list --json`) and syncs them into work42's generic scheduler
-//       (`work42 schedule add/cancel --key mtg:<id>`) at T-15min.
+//       (`work42 schedule add/cancel --key mtg:<id>`) at T-15min. Unchanged by
+//       the detection rework.
 //
 // The DETECTED pill (`DetectedPillView`) is a plugin-local port of the app's
 // EventSessionAccessory "detected" state (medallion + name/subtitle + 10s
@@ -1261,19 +1271,30 @@ let meetingDetectionPurpleLight = Color(red: 0xC4 / 255, green: 0xB5 / 255, blue
 /// owned by the agent, not the view.
 @MainActor
 struct DetectedMeeting {
-    /// Meeting name — calendar event title, or "Meeting" for an ad-hoc call.
+    /// Meeting name — the matching calendar event's title if one resolved,
+    /// else the detected app name (e.g. "Zoom").
     let title: String
-    /// Subtitle context (e.g. "Zoom · 2:00 – 2:30 PM", or just the source app).
+    /// Subtitle context — "<app> · 2:00 – 2:30 PM" when a calendar event
+    /// matched, else just the app name.
     let subtitle: String
     /// The resolved calendar event id, or nil for an ad-hoc call.
     let eventId: String?
     /// The id of a session already minted for this event (YES path), else nil (NO).
     let existingSessionId: String?
+    /// That session's worktree directory — required for the YES path's
+    /// `meet42 record start --session-dir`. There is no other way to look up
+    /// an arbitrary session's directory by id (see `meet42 link-session
+    /// --session-dir`), so a YES detection with no directory on record aborts
+    /// rather than guessing a path.
+    let existingSessionDir: String?
+    /// Canonical bundle id of the detected call app (e.g. "us.zoom.xos") —
+    /// resolves the medallion's native app icon via NSWorkspace.
+    let bundleId: String
     /// Moment the 10s auto-start grace began — drives the bar + "Auto-… in Ns".
     let countdownStart: Date
-    /// Record now / auto-start → run the record decision (agent-owned).
+    /// Record now / auto-start → run the start sequence (agent-owned).
     let onRecord: () -> Void
-    /// Skip → clear + dismiss (agent-owned).
+    /// Skip → clear + dismiss, permanently for this call session (agent-owned).
     let onSkip: () -> Void
 }
 
@@ -1339,19 +1360,36 @@ struct DetectedPillView: View {
         .frame(height: 36)
     }
 
-    /// No AppKit here (plugin boundary): the source-app icon resolver from the
-    /// app accessory is dropped — we always render the fallback video medallion.
+    /// The detected app's native icon (resolved via NSWorkspace from the
+    /// canonical bundle id meet42 watch reported), falling back to a plain
+    /// video glyph if resolution fails (app not discoverable, empty bundle id).
     private var medallion: some View {
         RoundedRectangle(cornerRadius: 9, style: .continuous)
             .fill(meetingDetectionPurple.opacity(0.9))
             .overlay(
-                Image(systemName: "video.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                Group {
+                    if let icon = Self.resolveAppIcon(bundleId: meeting.bundleId) {
+                        Image(nsImage: icon)
+                            .resizable()
+                            .scaledToFit()
+                            .padding(6)
+                    } else {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
             )
             .frame(width: 36, height: 36)
             .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
+    }
+
+    private static func resolveAppIcon(bundleId: String) -> NSImage? {
+        guard !bundleId.isEmpty,
+              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+        else { return nil }
+        return NSWorkspace.shared.icon(forFile: url.path)
     }
 
     // MARK: Action row — countdown message + Skip + Record now
@@ -1447,6 +1485,10 @@ struct DetectedPillView: View {
 /// Decode target for `meet42 now --json` — a single `CalendarEvent.Item` (or the
 /// literal `null`). Only the fields the detection flow needs; `sessionId` is the
 /// id of a session already minted for this event (nil → NO/record-to-create path).
+/// `sessionDir` is that session's worktree directory — there is no other way to
+/// look up an arbitrary session's directory by id, so the YES path (recording
+/// into an event that already has a session) needs it for
+/// `meet42 record start --session-dir`.
 private struct DetectedEventPayload: Decodable {
     let id: String
     let title: String
@@ -1454,6 +1496,7 @@ private struct DetectedEventPayload: Decodable {
     let endsAt: Date
     let source: String?
     let sessionId: String?
+    let sessionDir: String?
 }
 
 // MARK: - CalendarDetectionAgent
@@ -1468,34 +1511,23 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     var headerLabels: [WidgetHeaderLabel] = []
 
     @ObservationIgnored private var services: WidgetBackgroundServices?
-    @ObservationIgnored private var detectTask: Task<Void, Never>?
+    @ObservationIgnored private var watchTask: Task<Void, Never>?
+    @ObservationIgnored private var watchProcess: Process?
     @ObservationIgnored private var reconcileTask: Task<Void, Never>?
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
+    @ObservationIgnored private var stopGraceTask: Task<Void, Never>?
 
-    /// Previous mic-running state — start closed so an already-open mic fires a
-    /// fresh open transition on the first poll.
-    @ObservationIgnored private var micWasRunning = false
-    /// Debounce: a candidate opposite-of-`micWasRunning` reading pending
-    /// confirmation. The per-process CoreAudio signal blips during a real call
-    /// (codec renegotiation, a browser tab's audio graph tearing down/rebuilding
-    /// a helper process) — without debouncing, each blip flips `micWasRunning`
-    /// and re-fires onMicOpen/onMicClose, re-presenting the pill and re-arming
-    /// auto-start repeatedly for what is really one continuous call. Mirrors the
-    /// pre-conversion MicUsageMonitor's ~0.4s anti-blip debounce; since this is
-    /// poll-based (every 2.5s) rather than listener-based, debouncing is done by
-    /// requiring the new reading to repeat on the NEXT poll before it's accepted.
-    @ObservationIgnored private var candidateRunning: Bool?
-    /// Guards the record decision so auto-start + Record now fire it at most once.
-    @ObservationIgnored private var resolving = false
-    /// Handled-guard: true while this mic-open session has already presented the
-    /// pill. Prevents re-fire on a brief mic-state fluctuation (open → close →
-    /// open) while the user is still in the same effective call. Reset in
-    /// onMicClose so the NEXT genuine open can re-fire.
-    @ObservationIgnored private var micOpenHandled = false
-    /// Skipped-guard: set by skip() so the 10s countdown closure and recordNow()
-    /// cannot create a session after the user tapped Skip, even if the countdown
-    /// fired before the cancellation propagated.
-    @ObservationIgnored private var skipped = false
+    /// Calls already handled (prompted, or decided) — a call-open is handled
+    /// exactly once. In-memory only, call-session scoped: a restart treats a
+    /// still-open call as fresh (confirmed acceptable — no cross-restart
+    /// persistence needed).
+    @ObservationIgnored private var handledCalls: Set<String> = []
+    /// The call currently owning the active recording, if any — so a
+    /// call-open for the SAME call within the 5s stop-grace cancels the
+    /// pending stop instead of being treated as a new call.
+    @ObservationIgnored private var recordingCallId: String?
+    @ObservationIgnored private var recordingSessionId: String?
+    @ObservationIgnored private var recordingSessionDir: String?
     /// Scheduler keys this agent has added, so it can cancel ones that drop out.
     @ObservationIgnored private var scheduledKeys: Set<String> = []
 
@@ -1503,12 +1535,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
 
     func start(services s: WidgetBackgroundServices) {
         services = s
-        detectTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.detectCycle(s)
-                try? await Task.sleep(for: .seconds(2.5))
-            }
-        }
+        spawnWatchLoop(s)
         reconcileTask = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.reconcileCycle(s)
@@ -1518,90 +1545,163 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     }
 
     func stop() {
-        detectTask?.cancel(); detectTask = nil
+        watchTask?.cancel(); watchTask = nil
+        watchProcess?.terminate(); watchProcess = nil
         reconcileTask?.cancel(); reconcileTask = nil
         countdownTask?.cancel(); countdownTask = nil
+        stopGraceTask?.cancel(); stopGraceTask = nil
         services = nil
-        candidateRunning = nil
+        handledCalls.removeAll()
+        recordingCallId = nil
+        recordingSessionId = nil
+        recordingSessionDir = nil
     }
 
-    // MARK: (a) Detection
+    // MARK: (a) meet42 watch stream — event-driven, zero polling
 
-    private func detectCycle(_ s: WidgetBackgroundServices) async {
-        let running = Self.micIsRunning()
-        guard running != micWasRunning else {
-            // Back to the confirmed state — any pending candidate was a blip.
-            candidateRunning = nil
-            return
-        }
-        guard candidateRunning == running else {
-            // First poll reporting the opposite state — wait for it to repeat
-            // on the next poll before treating it as a real transition.
-            candidateRunning = running
-            return
-        }
-        // The new state held across two consecutive polls — accept it.
-        candidateRunning = nil
-        micWasRunning = running
-        if running {
-            await onMicOpen(s)
-        } else {
-            await onMicClose(s)
+    /// Keep a long-lived `meet42 watch` child alive for the agent's lifetime,
+    /// respawning (after a brief backoff) if it ever exits unexpectedly.
+    /// Dedup by callId backstops any duplicate re-detection across a respawn.
+    private func spawnWatchLoop(_ s: WidgetBackgroundServices) {
+        watchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.runWatchOnce(s)
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(2))
+            }
         }
     }
 
-    /// Fresh mic-open: resolve the meeting, decide YES/NO, present the pill, and
-    /// arm the 10s auto-start countdown.
-    private func onMicOpen(_ s: WidgetBackgroundServices) async {
-        // Handled-guard: present the pill at most once per mic-open session.
-        // A brief state fluctuation (close → open in the same call) must not
-        // re-fire the pill while the user is still in the call.
-        guard !micOpenHandled else { return }
-        micOpenHandled = true
-        skipped = false
-        resolving = false
+    /// Spawn `meet42 watch` as a DETACHED process (not via `WidgetShellService`
+    /// — it's bounded to a 10s timeout and `watch` never exits on its own) and
+    /// consume its line-delimited JSON stdout until it dies, then return so the
+    /// caller's loop respawns it.
+    private func runWatchOnce(_ s: WidgetBackgroundServices) async {
+        let (exe, args) = Self.meet42Invocation(verb: "watch")
+        let process = Process()
+        process.executableURL = exe
+        process.arguments = args
+        let outPipe = Pipe()
+        process.standardOutput = outPipe
+        process.standardError = Pipe() // discard — meet42 watch logs via Meet42Trace
+
+        do {
+            try process.run()
+        } catch {
+            return
+        }
+        watchProcess = process
+
+        // AsyncLineSequence throws on an I/O error (e.g. the pipe closing
+        // when the child dies) — that's just our cue to fall through and let
+        // the caller's loop respawn it, not a real failure to surface.
+        do {
+            for try await line in outPipe.fileHandleForReading.bytes.lines {
+                if Task.isCancelled { break }
+                await handleWatchLine(line, s)
+            }
+        } catch {
+            // Pipe closed / read error — fall through to respawn.
+        }
+        watchProcess = nil
+    }
+
+    private func handleWatchLine(_ line: String, _ s: WidgetBackgroundServices) async {
+        guard let data = line.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let event = obj["event"] as? String,
+              let callId = obj["callId"] as? String
+        else { return }
+        switch event {
+        case "call-open":
+            let app = obj["app"] as? String ?? "Call"
+            let bundleId = obj["bundleId"] as? String ?? ""
+            await onCallOpen(callId: callId, app: app, bundleId: bundleId, s)
+        case "call-close":
+            await onCallClose(callId: callId, s)
+        default:
+            break
+        }
+    }
+
+    /// Resolve a meet42 subcommand invocation: the app's own bundled binary
+    /// first (`Contents/MacOS/meet42` — guaranteed same-flavor, matching
+    /// `WidgetCommandRunner`'s own PATH-prepend rule), falling back to a PATH
+    /// lookup via `/usr/bin/env` for non-bundle dev contexts.
+    private static func meet42Invocation(
+        verb: String, extraArgs: [String] = []
+    ) -> (executable: URL, arguments: [String]) {
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/meet42")
+        if FileManager.default.fileExists(atPath: bundled.path) {
+            return (bundled, [verb] + extraArgs)
+        }
+        return (URL(fileURLWithPath: "/usr/bin/env"), ["meet42", verb] + extraArgs)
+    }
+
+    // MARK: (b) Prompt — once per call session, event-driven
+
+    /// A call-open fires the prompt exactly once (dedup by callId) UNLESS it's
+    /// a reopen of the call we're currently in the 5s stop-grace for — then it
+    /// cancels the pending stop and keeps recording, no new prompt.
+    private func onCallOpen(callId: String, app: String, bundleId: String, _ s: WidgetBackgroundServices) async {
+        if callId == recordingCallId, stopGraceTask != nil {
+            stopGraceTask?.cancel(); stopGraceTask = nil
+            Meet42Trace.log("detect", "stop-grace-cancelled", ["callId": callId])
+            return
+        }
+        guard !handledCalls.contains(callId) else { return }
+        handledCalls.insert(callId)
+
+        // Cosmetic only: a matching calendar event NAMES the call and carries
+        // dedup (YES/NO) — detection itself is already platform-based and does
+        // not depend on this resolving.
         let resolved = await resolveNow(s)
-
-        let title = resolved?.title ?? "Meeting"
-        let subtitle = Self.subtitle(for: resolved)
-        let eventId = resolved?.id
-        // Session-exists check (YES vs NO) comes straight off `meet42 now`'s
-        // `sessionId` — the id of the session already minted for this event. No
-        // extra work42 query needed; nil → the NO/create path.
-        let existingSessionId = resolved?.sessionId
+        let title = resolved?.title ?? app
+        let subtitle = Self.subtitle(for: resolved, app: app)
 
         let meeting = DetectedMeeting(
             title: title,
             subtitle: subtitle,
-            eventId: eventId,
-            existingSessionId: existingSessionId,
+            eventId: resolved?.id,
+            existingSessionId: resolved?.sessionId,
+            existingSessionDir: resolved?.sessionDir,
+            bundleId: bundleId,
             countdownStart: Date(),
-            onRecord: { [weak self] in self?.recordNow(s) },
-            onSkip: { [weak self] in self?.skip(s) }
+            onRecord: { [weak self] in self?.startRecording(callId: callId, app: app, bundleId: bundleId, s) },
+            onSkip: { [weak self] in self?.skip(callId: callId, s) }
         )
         CalendarDetectionState.shared.detected = meeting
         try? await s.pill.present(widgetId: "calendar", sessionId: s.sessionId)
+        Meet42Trace.log("detect", "prompt-shown", ["callId": callId, "app": app])
 
-        // Auto-start at countdown → 0 unless the user skipped / recorded first.
-        // The `skipped` guard is checked in recordNow(); the explicit check here
-        // is an extra safety belt for any task-cancellation race.
         countdownTask?.cancel()
         countdownTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled, self?.skipped != true else { return }
-            self?.recordNow(s)
+            guard !Task.isCancelled else { return }
+            Meet42Trace.log("detect", "auto-start-fired", ["callId": callId])
+            self?.startRecording(callId: callId, app: app, bundleId: bundleId, s)
         }
     }
 
-    /// Mic closed — if the user never recorded (detection still showing), tear
-    /// the pill down. Also resets the handled/skipped guards so the NEXT genuine
-    /// mic-open can present the pill again.
-    private func onMicClose(_ s: WidgetBackgroundServices) async {
-        micOpenHandled = false
-        skipped = false
-        countdownTask?.cancel(); countdownTask = nil
-        guard CalendarDetectionState.shared.detected != nil else { return }
-        await clearAndDismiss(s)
+    /// A call-close either cancels an undecided prompt for that call, or — for
+    /// the call currently owning the active recording — begins the 5s
+    /// stop-grace (cancelled by a matching call-open, i.e. a quick rejoin).
+    private func onCallClose(callId: String, _ s: WidgetBackgroundServices) async {
+        if CalendarDetectionState.shared.detected != nil, recordingCallId != callId {
+            countdownTask?.cancel(); countdownTask = nil
+            CalendarDetectionState.shared.detected = nil
+            try? await s.pill.dismiss(widgetId: "calendar")
+        }
+        guard callId == recordingCallId,
+              let sessionId = recordingSessionId, let dir = recordingSessionDir
+        else { return }
+        Meet42Trace.log("detect", "stop-grace-start", ["callId": callId, "graceSec": 5])
+        stopGraceTask?.cancel()
+        stopGraceTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard !Task.isCancelled else { return }
+            await self?.finalizeStop(callId: callId, sessionId: sessionId, sessionDir: dir, s)
+        }
     }
 
     /// Shell `meet42 now --json`; nil when there is no current/imminent meeting.
@@ -1615,50 +1715,113 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         return try? dec.decode(DetectedEventPayload.self, from: data)
     }
 
-    // MARK: Record decision (invoked by the pill — Record now / auto-start)
+    // MARK: (c) Start sequence — Yes / 10s auto-start owns the whole atomic chain
 
-    /// The YES/NO record decision. YES (a session already exists): set that
-    /// session's `meeting/autostart` signal so its transcript agent records into
-    /// it. NO: start a new event session with autostart so its transcript agent
-    /// records. Then clear + dismiss.
-    private func recordNow(_ s: WidgetBackgroundServices) {
-        // skipped guard: Skip() sets this before cancelling the countdown task,
-        // so a task that already passed the Task.isCancelled check can't mint.
-        guard !resolving, !skipped else { return }
-        resolving = true
+    /// (1) resolve the session, (2) fire the singleton `meet42 record start`,
+    /// (3) write `meeting/started_at` (workflow gate), (4) dismiss this pill,
+    /// (5) float the transcript RECORDING pill. Manual Record (transcript
+    /// widget, s5) runs the same (2)-(5) tail for its already-open session.
+    private func startRecording(callId: String, app: String, bundleId: String, _ s: WidgetBackgroundServices) {
         countdownTask?.cancel(); countdownTask = nil
         let meeting = CalendarDetectionState.shared.detected
         Task { [weak self] in
+            guard let self else { return }
+
+            // 1. Resolve the session — reuse (YES) or mint (NO).
+            let sessionId: String
+            let sessionDir: String
             if let existing = meeting?.existingSessionId {
-                // YES — flip autostart on the existing session.
-                _ = try? await s.shell.run(
-                    command: "work42 storage set --session \(calShellQuote(existing)) meeting/autostart true"
-                )
+                guard let dir = meeting?.existingSessionDir, !dir.isEmpty else {
+                    // No directory on record (a pre-link-session-dir link, or a
+                    // failed link write) — can't record-start without one. Fail
+                    // safe: dismiss rather than guess a path.
+                    Meet42Trace.log("detect", "start-aborted", ["callId": callId, "reason": "no-session-dir"])
+                    await self.clearAndDismiss(s)
+                    return
+                }
+                sessionId = existing
+                sessionDir = dir
             } else {
-                // NO — mint a new event session with autostart; the transcript
-                // agent sees meeting/autostart and records. autostart is seeded
-                // via --storage (NOT --arg): the event type declares only
-                // `event_id` in its args schema, so `--arg autostart` would be
-                // rejected as an unknown key. event_id stays an --arg so the
-                // plugin's onCreate hook (which reads params["event_id"]) fires
-                // `meet42 snapshot`. Omit event_id for an ad-hoc meeting.
                 var cmd = "work42 session start --type event"
-                    + " --name \(calShellQuote(meeting?.title ?? "Meeting"))"
-                    + " --storage meeting/autostart=true"
+                    + " --name \(calShellQuote(meeting?.title ?? app))"
+                    + " --json"
                 if let eventId = meeting?.eventId {
                     cmd += " --arg event_id=\(calShellQuote(eventId))"
                 }
-                _ = try? await s.shell.run(command: cmd)
+                guard let r = try? await s.shell.run(command: cmd), r.exitCode == 0,
+                      let data = r.stdout.data(using: .utf8),
+                      let started = try? JSONDecoder().decode(SessionStartResult.self, from: data),
+                      let dir = started.ownerDir
+                else {
+                    Meet42Trace.log("detect", "start-aborted", ["callId": callId, "reason": "mint-failed"])
+                    await self.clearAndDismiss(s)
+                    return
+                }
+                sessionId = started.sessionId
+                sessionDir = dir
             }
-            await self?.clearAndDismiss(s)
+            Meet42Trace.log("detect", "session-resolved", ["callId": callId, "sessionId": sessionId])
+
+            // 2. Fire the singleton recording daemon — DETACHED (not via
+            // WidgetShellService: `meet42 record start` daemonizes via
+            // setsid+execve with NO fork, so the process never exits while
+            // recording; the bounded 10s shell service would kill it).
+            Self.fireRecordStart(sessionDir: sessionDir, app: app, bundleId: bundleId)
+
+            // Confirm the claim actually landed (TCC prompt / spawn failure
+            // means it may not have) via the bounded, quick `status` read —
+            // the single source of truth the rest of the pipeline trusts.
+            var confirmed = false
+            for _ in 0..<4 {
+                try? await Task.sleep(for: .milliseconds(750))
+                if let r = try? await s.shell.run(command: "meet42 record status --json"),
+                   r.exitCode == 0, let data = r.stdout.data(using: .utf8),
+                   let status = try? JSONDecoder().decode(RecordStatusPayload.self, from: data),
+                   status.recording, status.sessionId == sessionId {
+                    confirmed = true
+                    break
+                }
+            }
+            guard confirmed else {
+                Meet42Trace.log("detect", "start-aborted", ["callId": callId, "reason": "status-not-confirmed"])
+                await self.clearAndDismiss(s)
+                return
+            }
+            self.recordingCallId = callId
+            self.recordingSessionId = sessionId
+            self.recordingSessionDir = sessionDir
+
+            // 3. Advance the workflow (Prepare → In Meeting).
+            let startedAtJSON = calShellQuote("\"\(ISO8601DateFormatter().string(from: Date()))\"")
+            _ = try? await s.shell.run(
+                command: "work42 storage set --session \(calShellQuote(sessionId)) meeting/started_at \(startedAtJSON)"
+            )
+
+            // 4 + 5. Dismiss the detection pill, float the transcript pill.
+            CalendarDetectionState.shared.detected = nil
+            try? await s.pill.dismiss(widgetId: "calendar")
+            try? await s.pill.present(widgetId: "transcript", sessionId: sessionId)
+            Meet42Trace.log("detect", "pill-presented", ["callId": callId, "sessionId": sessionId])
         }
     }
 
-    /// Skip (or auto-start cancelled): set the skipped flag BEFORE cancelling the
-    /// countdown task so a task already past Task.isCancelled can't slip through,
-    /// then clear + dismiss.
-    private func skip(_ s: WidgetBackgroundServices) {
-        skipped = true
+    /// Launch `meet42 record start` as a detached, fire-and-forget process.
+    private static func fireRecordStart(sessionDir: String, app: String, bundleId: String) {
+        let (exe, args) = Self.meet42Invocation(verb: "record", extraArgs: [
+            "start", "--session-dir", sessionDir, "--app", app, "--bundle-id", bundleId,
+        ])
+        let process = Process()
+        process.executableURL = exe
+        process.arguments = args
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        try? process.run()
+    }
+
+    /// No — permanently dismiss for this call session; a genuinely new call
+    /// (new callId) prompts again.
+    private func skip(callId: String, _ s: WidgetBackgroundServices) {
+        Meet42Trace.log("detect", "no", ["callId": callId])
         countdownTask?.cancel(); countdownTask = nil
         Task { [weak self] in await self?.clearAndDismiss(s) }
     }
@@ -1666,6 +1829,20 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     private func clearAndDismiss(_ s: WidgetBackgroundServices) async {
         CalendarDetectionState.shared.detected = nil
         try? await s.pill.dismiss(widgetId: "calendar")
+    }
+
+    /// 5s stop-grace elapsed with no reopen of the same call — stop for real.
+    private func finalizeStop(callId: String, sessionId: String, sessionDir: String, _ s: WidgetBackgroundServices) async {
+        _ = try? await s.shell.run(command: "meet42 record stop --session-dir \(calShellQuote(sessionDir))")
+        let endedAtJSON = calShellQuote("\"\(ISO8601DateFormatter().string(from: Date()))\"")
+        _ = try? await s.shell.run(
+            command: "work42 storage set --session \(calShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
+        )
+        try? await s.pill.dismiss(widgetId: "transcript")
+        recordingCallId = nil
+        recordingSessionId = nil
+        recordingSessionDir = nil
+        Meet42Trace.log("detect", "recording-stopped", ["callId": callId, "sessionId": sessionId])
     }
 
     // MARK: (b) Reconciler — assisted events → work42 scheduler
@@ -1721,104 +1898,36 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         return (try? dec.decode([CalEvent].self, from: data)) ?? []
     }
 
-    // MARK: CoreAudio per-process mic-input detection (macOS 14.4+)
-
-    /// Bundle IDs of known video-call / voice-call apps whose mic INPUT should
-    /// trigger detection. Audio output from any other app (e.g. a video reel)
-    /// must NOT fire the pill.
-    private static let callAppCatalog: Set<String> = [
-        "us.zoom.xos",
-        "com.microsoft.teams2",
-        "com.tinyspeck.slackmacgap",
-        "com.apple.FaceTime",
-        "com.google.Chrome",
-        "com.apple.Safari",
-    ]
-
-    /// True when at least one known call app is holding the microphone INPUT.
-    /// Uses the per-process HAL API (`kAudioHardwarePropertyProcessObjectList` +
-    /// `kAudioProcessPropertyIsRunningInput` + `kAudioProcessPropertyBundleID`),
-    /// available macOS 14.4+ (the plugin targets macOS 15). Unlike the old
-    /// device-wide `kAudioDevicePropertyDeviceIsRunningSomewhere` this never fires
-    /// on audio OUTPUT alone — it requires an INPUT-holding process in the catalog.
-    private static func micIsRunning() -> Bool {
-        // 1. Get the list of HAL process object IDs.
-        var listAddress = AudioObjectPropertyAddress(
-            mSelector: kAudioHardwarePropertyProcessObjectList,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            AudioObjectID(kAudioObjectSystemObject), &listAddress, 0, nil, &dataSize
-        ) == noErr, dataSize > 0 else { return false }
-
-        let count = Int(dataSize) / MemoryLayout<AudioObjectID>.size
-        var processIDs = [AudioObjectID](repeating: 0, count: count)
-        guard AudioObjectGetPropertyData(
-            AudioObjectID(kAudioObjectSystemObject),
-            &listAddress, 0, nil, &dataSize, &processIDs
-        ) == noErr else { return false }
-
-        // 2. For each process, check input-running flag and bundle id.
-        for pid in processIDs {
-            guard processIsRunningInput(pid) else { continue }
-            guard let bundleID = processBundleID(pid) else { continue }
-            if matchesCatalog(bundleID) { return true }
-        }
-        return false
-    }
-
-    /// Matches an exact catalog id or a `<catalogId>.<suffix>` helper — browsers
-    /// and Electron apps (Chrome, Teams, Slack) run audio capture in a helper
-    /// process whose bundle id is a variant like `com.google.Chrome.helper`,
-    /// not the parent app's own bundle id.
-    private static func matchesCatalog(_ rawBundleID: String) -> Bool {
-        callAppCatalog.contains { rawBundleID == $0 || rawBundleID.hasPrefix($0 + ".") }
-    }
-
-    /// `kAudioProcessPropertyIsRunningInput` — true when the process currently
-    /// holds mic input capture (not just output).
-    private static func processIsRunningInput(_ processID: AudioObjectID) -> Bool {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyIsRunningInput,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var result = UInt32(0)
-        var size = UInt32(MemoryLayout<UInt32>.size)
-        let status = AudioObjectGetPropertyData(processID, &address, 0, nil, &size, &result)
-        return status == noErr && result != 0
-    }
-
-    /// `kAudioProcessPropertyBundleID` — the CFString bundle id of the process.
-    private static func processBundleID(_ processID: AudioObjectID) -> String? {
-        var address = AudioObjectPropertyAddress(
-            mSelector: kAudioProcessPropertyBundleID,
-            mScope: kAudioObjectPropertyScopeGlobal,
-            mElement: kAudioObjectPropertyElementMain
-        )
-        var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        var cfStr: Unmanaged<CFString>? = nil
-        let status = AudioObjectGetPropertyData(
-            processID, &address, 0, nil, &dataSize, &cfStr
-        )
-        guard status == noErr, let str = cfStr?.takeRetainedValue() else { return nil }
-        return str as String
-    }
-
     // MARK: Subtitle
 
-    private static func subtitle(for event: DetectedEventPayload?) -> String {
-        guard let event else { return "Ad-hoc call" }
+    /// "<app> · <time range>" when a calendar event matched (purely cosmetic
+    /// naming — detection is platform-based, not calendar-based), else just
+    /// the app name.
+    private static func subtitle(for event: DetectedEventPayload?, app: String) -> String {
+        guard let event else { return app }
         let f = DateFormatter()
         f.dateFormat = "h:mm a"
         let range = "\(f.string(from: event.startsAt)) – \(f.string(from: event.endsAt))"
-        if let src = event.source, !src.isEmpty {
-            return "\(src) · \(range)"
-        }
-        return range
+        return "\(app) · \(range)"
     }
+}
+
+// MARK: - CLI decode targets (start sequence)
+
+/// Decode target for `work42 session start --type event --json`.
+private struct SessionStartResult: Decodable {
+    let sessionId: String
+    let ownerDir: String?
+    enum CodingKeys: String, CodingKey {
+        case sessionId = "session_id"
+        case ownerDir = "owner_dir"
+    }
+}
+
+/// Decode target for `meet42 record status --json`.
+private struct RecordStatusPayload: Decodable {
+    let recording: Bool
+    let sessionId: String?
 }
 
 // MARK: - CalendarWidget

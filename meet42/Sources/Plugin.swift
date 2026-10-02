@@ -40,12 +40,17 @@ final class Meet42Hooks: Work42SessionHooks {
         }
 
         // Link the new session back to its calendar event so `meet42 now --json`
-        // surfaces a non-nil `sessionId` for this event. This is the dedup hook:
-        // both the detection pill's YES path and the T-15 reconciler go through
-        // onCreate, so both link via this single write. Fire-and-forget: a failed
-        // link means the NEXT detection creates a second session (accepted risk,
-        // not a fatal error for the session itself).
+        // surfaces a non-nil `sessionId`/`sessionDir` for this event. This is
+        // the dedup hook: both the detection pill's YES path and the T-15
+        // reconciler go through onCreate, so both link via this single write.
+        // `--session-dir` lets a LATER detection resolve this session's
+        // worktree directory (there is no other way to look up an arbitrary
+        // session's directory by id), so the detection agent's YES path can
+        // `meet42 record start --session-dir <dir>` into it. Fire-and-forget:
+        // a failed link means the NEXT detection creates a second session
+        // (accepted risk, not a fatal error for the session itself).
         let linkCommand = "meet42 link-session \(shellQuote(eventId)) \(shellQuote(context.sessionId))"
+            + " --session-dir \(shellQuote(context.worktreePath))"
         _ = try? await context.shell.run(command: linkCommand)
     }
 }

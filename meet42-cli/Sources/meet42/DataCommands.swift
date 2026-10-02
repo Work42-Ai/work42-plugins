@@ -119,18 +119,24 @@ enum DataCommands {
         }
     }
 
-    // MARK: - link-session <eventId> <sessionId>
+    // MARK: - link-session <eventId> <sessionId> [--session-dir <dir>]
 
-    /// Write `session_id` back onto a `calendar_events` row so `meet42 now`'s
-    /// `sessionId` field resolves for dedup. Idempotent — calling it twice for
-    /// the same eventId is safe and does NOT error or create inconsistent state.
+    /// Write `session_id` (+ optional `session_dir`) back onto a
+    /// `calendar_events` row so `meet42 now`'s `sessionId`/`sessionDir`
+    /// fields resolve — `sessionId` for dedup, `sessionDir` so the calendar
+    /// detection agent's YES path (recording into an event that already has
+    /// a session) can resolve that session's worktree directory for
+    /// `meet42 record start --session-dir`. Idempotent — calling it twice
+    /// for the same eventId is safe and does NOT error or create
+    /// inconsistent state.
     static func linkSession(args: [String]) {
         let pos = CLI.positionals(args)
         guard pos.count >= 2 else {
-            CLI.fail("meet42 link-session: usage: link-session <eventId> <sessionId>")
+            CLI.fail("meet42 link-session: usage: link-session <eventId> <sessionId> [--session-dir <dir>]")
         }
         let eventId = pos[0]
         let sessionId = pos[1]
+        let sessionDir = CLI.argValue(args, "--session-dir")
 
         // Open read-write so the UPDATE can land.
         let store: CalendarStore
@@ -141,7 +147,7 @@ enum DataCommands {
         }
 
         do {
-            try store.linkSession(eventId: eventId, sessionId: sessionId)
+            try store.linkSession(eventId: eventId, sessionId: sessionId, sessionDir: sessionDir)
         } catch {
             CLI.fail("meet42 link-session: failed to link session: \(error)", code: 2)
         }

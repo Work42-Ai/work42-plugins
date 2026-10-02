@@ -681,19 +681,36 @@ public final class CalendarStore {
 
     // MARK: - Session linkage
 
-    /// Write `session_id` back onto the event row, so `meet42 now`'s `sessionId`
-    /// field resolves to the already-minted session for dedup. Idempotent: calling
-    /// it again for the same eventId with the same sessionId is harmless (UPDATE
-    /// is a no-op when the value matches). Silently no-ops if the eventId is
-    /// absent (event was deleted from the mirror since session creation).
-    public func linkSession(eventId: String, sessionId: String) throws {
-        try exec(
-            "UPDATE calendar_events SET session_id = ? WHERE event_id = ?",
-            bind: { stmt in
-                sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_CAL)
-                sqlite3_bind_text(stmt, 2, eventId, -1, SQLITE_TRANSIENT_CAL)
-            }
-        )
+    /// Write `session_id` (+ optionally `session_dir`) back onto the event
+    /// row, so `meet42 now`'s `sessionId`/`sessionDir` fields resolve to the
+    /// already-minted session for dedup AND so a later detection can resolve
+    /// that session's worktree directory to record into it (the calendar
+    /// detection agent's YES path — recording into an event that already has
+    /// a session — needs a `--session-dir` for `meet42 record start`, and has
+    /// no other way to look up an arbitrary session's directory by id).
+    /// Idempotent: calling it again for the same eventId with the same values
+    /// is harmless (UPDATE is a no-op when the values match). Silently no-ops
+    /// if the eventId is absent (event was deleted from the mirror since
+    /// session creation).
+    public func linkSession(eventId: String, sessionId: String, sessionDir: String? = nil) throws {
+        if let sessionDir {
+            try exec(
+                "UPDATE calendar_events SET session_id = ?, session_dir = ? WHERE event_id = ?",
+                bind: { stmt in
+                    sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_CAL)
+                    sqlite3_bind_text(stmt, 2, sessionDir, -1, SQLITE_TRANSIENT_CAL)
+                    sqlite3_bind_text(stmt, 3, eventId, -1, SQLITE_TRANSIENT_CAL)
+                }
+            )
+        } else {
+            try exec(
+                "UPDATE calendar_events SET session_id = ? WHERE event_id = ?",
+                bind: { stmt in
+                    sqlite3_bind_text(stmt, 1, sessionId, -1, SQLITE_TRANSIENT_CAL)
+                    sqlite3_bind_text(stmt, 2, eventId, -1, SQLITE_TRANSIENT_CAL)
+                }
+            )
+        }
     }
 
     // MARK: - Meeting prep dedup
