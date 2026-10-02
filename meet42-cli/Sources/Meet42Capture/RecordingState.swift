@@ -5,7 +5,12 @@
 // (RecordCommand.swift), and `RecordingCore.shared` is only a singleton
 // WITHIN one process — so without this file, nothing stops two concurrent
 // recordings, and nothing lets another surface (the transcript pill, a
-// status check) ask "is a recording active, and whose session is it?".
+// status check) ask "is a recording active, and where does it live?".
+//
+// Session-agnostic (meet42-recording-lifecycle-rework, s1): a recording is
+// identified by its OWN recordingId + dir, never a work42 session id. The
+// session (if any) merely points at a recording via a storage pointer
+// (meeting/recording_dir) seeded at mint — it is never consulted here.
 //
 // Present == a recording is claimed; absent == idle. `isAlive` reclaims a
 // stale file left by a crashed daemon (kill(pid, 0) fails) without ever
@@ -15,18 +20,18 @@
 import Foundation
 import Meet42Kit
 
-/// The active recording's claim — who owns it, which session, which app.
+/// The active recording's claim — its own identity, which app triggered it.
 public nonisolated struct RecordingState: Sendable, Equatable, Codable {
-    public let sessionId: String
-    public let sessionDir: String
+    public let recordingId: String
+    public let dir: String
     public let app: String
     public let bundleId: String
     public let pid: Int32
     public let startedAt: String
 
-    public init(sessionId: String, sessionDir: String, app: String, bundleId: String, pid: Int32, startedAt: String) {
-        self.sessionId = sessionId
-        self.sessionDir = sessionDir
+    public init(recordingId: String, dir: String, app: String, bundleId: String, pid: Int32, startedAt: String) {
+        self.recordingId = recordingId
+        self.dir = dir
         self.app = app
         self.bundleId = bundleId
         self.pid = pid
@@ -64,11 +69,11 @@ public enum RecordingStateStore {
     /// Claim the singleton slot. Atomic temp-file + `rename(2)` swap so
     /// readers never observe a partial write.
     public nonisolated static func write(
-        sessionId: String, sessionDir: String, app: String, bundleId: String,
+        recordingId: String, dir: String, app: String, bundleId: String,
         pid: Int32, startedAt: String
     ) {
         let state = RecordingState(
-            sessionId: sessionId, sessionDir: sessionDir, app: app,
+            recordingId: recordingId, dir: dir, app: app,
             bundleId: bundleId, pid: pid, startedAt: startedAt
         )
         let path = statePath()

@@ -1,19 +1,28 @@
 // RecordCommand.swift — `meet42 record start|stop|status`: drive Meet42Capture.
 //
+// SESSION-AGNOSTIC (meet42-recording-lifecycle-rework, s1): `record` knows
+// nothing about work42 sessions. `start` allocates its OWN recordings
+// directory under `~/.work42/meet42/recordings/<recordingId>/`, writes the
+// transcript there, and hands the (recordingId, dir) pair back to the caller
+// via one JSON line on stdout — BEFORE daemonizing. A caller that wants a
+// work42 session wraps this: mint the session afterward, seeding its storage
+// with a pointer (`meeting/recording_dir`) at the returned dir. This ordering
+// means recording starts the instant the mic opens, independent of the
+// (slower, session-mint) step that used to gate it.
+//
 // `start` enforces a MACHINE-WIDE SINGLETON before daemonizing: it refuses if
 // `RecordingStateStore` already claims an alive recording — a second
-// concurrent call is DROPPED by design (see the meet42-detection-rework
-// spec's singleton-explainer artifact), never queued or auto-switched. On
+// concurrent call is DROPPED by design, never queued or auto-switched. On
 // success it daemonizes (setsid + a TCC-re-keying execve with `--reexec`),
 // then on the daemon side wires RecordingCore + the transcription engine +
-// diarization for the session dir, claims the RecordingState slot (now that
+// diarization for the recording dir, claims the RecordingState slot (now that
 // capture has actually started), and polls for a stop marker file.
 //
 // `stop` touches that marker; the daemon notices (~0.5s), finalizes
 // everything, clears the RecordingState slot, and exits.
 //
 // `status` reads the slot so any surface (the transcript pill, a detection
-// agent, a human) can ask "is a recording active, and whose session is it?"
+// agent, a human) can ask "is a recording active, and where does it live?"
 // without daemonizing anything itself — this is the single source of truth
 // the rest of the pipeline reads instead of session storage.
 //
@@ -23,6 +32,7 @@
 import Foundation
 import Meet42Capture
 import Meet42CalendarSync
+import Meet42Kit
 
 @MainActor
 enum RecordCommand {
@@ -43,7 +53,8 @@ enum RecordCommand {
 
     private struct StatusResult: Encodable {
         let recording: Bool
-        let sessionId: String?
+        let recordingId: String?
+        let dir: String?
         let app: String?
         let bundleId: String?
         let startedAt: String?
@@ -64,17 +75,31 @@ enum RecordCommand {
 
     // MARK: - start
 
+    /// Default recordings root: `~/.work42/meet42/recordings/`.
+    private static func recordingsRoot() -> String {
+        (Meet42Paths.meet42Root() as NSString).appendingPathComponent("recordings")
+    }
+
     private static func start(args: [String]) async {
-        guard let dir = CLI.argValue(args, "--session-dir") else {
-            CLI.fail("meet42 record start: missing --session-dir <dir>")
-        }
         let device = CLI.argValue(args, "--device")
         // Platform label for the singleton claim — auto-detected calls pass
-        // the real app/bundle id; a manual Record-button start passes nothing
-        // and defaults to "Manual".
+        // the real trigger app/bundle id; a manual Record-button start
+        // passes neither and defaults to "Manual".
         let app = CLI.argValue(args, "--app") ?? "Manual"
         let bundleId = CLI.argValue(args, "--bundle-id") ?? ""
+        // Manual recordings have no trigger call to watch — they only ever
+        // stop via an explicit `record stop` (self-stop lands in s2, gated
+        // on this flag so it's threaded through from the first entry).
+        let isManual = args.contains("--manual")
         let isReexec = Meet42Daemon.isReexec(args)
+
+        // Resolve the recording's identity ONCE, on the true foreground
+        // entry, and carry it through the re-exec argv (--recording-id/--dir)
+        // so both invocations of this function — same OS process, same PID,
+        // just before/after the execve below — agree on the same identity.
+        let recordingId = CLI.argValue(args, "--recording-id") ?? UUID().uuidString
+        let dir = CLI.argValue(args, "--dir")
+            ?? (recordingsRoot() as NSString).appendingPathComponent(recordingId)
 
         if !isReexec {
             // Singleton enforcement — ONLY on the foreground side, before the
@@ -85,35 +110,64 @@ enum RecordCommand {
             // own RecordingCore.start() succeeds.
             if let active = RecordingStateStore.read(), active.isAlive {
                 Meet42Trace.log("record", "start-refused", [
-                    "reason": "already-recording", "owner": active.sessionId,
+                    "reason": "already-recording", "owner": active.recordingId,
                 ])
                 if CLI.wantsJSON(args) {
                     CLI.emitJSON(StartRefusedResult(
-                        started: false, reason: "already-recording", owner: active.sessionId
+                        started: false, reason: "already-recording", owner: active.recordingId
                     ))
                 } else {
-                    print("meet42 record: refused — '\(active.sessionId)' (\(active.app)) is already recording.")
+                    print("meet42 record: refused — '\(active.recordingId)' (\(active.app)) is already recording.")
                 }
                 exit(0)
             }
-            print("meet42 record: starting capture daemon for \(dir)")
+
+            // Hand the recording's identity back to the caller BEFORE
+            // daemonizing. `Meet42Daemon.daemonize` below calls `execve`,
+            // which replaces this process's image but preserves open file
+            // descriptors (including stdout) — so a caller with a Pipe on
+            // this process sees this line regardless of what happens next
+            // (the re-exec, then the slow RecordingCore.start further down
+            // in runDaemon). This is the ONLY place it's printed — the
+            // re-exec'd entry (isReexec == true) skips this whole block.
+            // execve discards any unflushed C stdio buffer, so the explicit
+            // fflush is required, not just stylistic.
+            emitStarted(recordingId: recordingId, dir: dir)
         }
 
-        var reexecArgv = ["record", "start", "--session-dir", dir]
+        var reexecArgv = ["record", "start", "--recording-id", recordingId, "--dir", dir]
         if let device { reexecArgv += ["--device", device] }
         if !app.isEmpty { reexecArgv += ["--app", app] }
         if !bundleId.isEmpty { reexecArgv += ["--bundle-id", bundleId] }
+        if isManual { reexecArgv += ["--manual"] }
         reexecArgv += ["--reexec"]
         Meet42Daemon.daemonize(reexecArgv: reexecArgv, isReexec: isReexec)
 
         // Reached only on the re-exec/daemon side (or if execve failed and we
         // fell through — in which case we run the loop in-place anyway).
-        await runDaemon(dir: dir, device: device, app: app, bundleId: bundleId)
+        await runDaemon(
+            recordingId: recordingId, dir: dir, device: device,
+            app: app, bundleId: bundleId, isManual: isManual
+        )
     }
 
-    private static func runDaemon(dir: String, device: String?, app: String, bundleId: String) async {
+    /// The ONLY place `record start`'s stdout contract is written: one
+    /// compact JSON line + an explicit flush (mirrors WatchCommand.emit's
+    /// convention — see WatchCommand.swift).
+    private static func emitStarted(recordingId: String, dir: String) {
+        guard let data = try? JSONSerialization.data(
+            withJSONObject: ["recordingId": recordingId, "dir": dir, "started": true],
+            options: [.sortedKeys]
+        ), let line = String(data: data, encoding: .utf8) else { return }
+        print(line)
+        fflush(stdout)
+    }
+
+    private static func runDaemon(
+        recordingId: String, dir: String, device: String?, app: String,
+        bundleId: String, isManual: Bool
+    ) async {
         let dirURL = URL(fileURLWithPath: dir)
-        let sessionId = dirURL.lastPathComponent
         let marker = dirURL.appendingPathComponent(stopMarkerName).path
 
         try? FileManager.default.createDirectory(
@@ -134,7 +188,7 @@ enum RecordCommand {
         do {
             try await RecordingCore.shared.start(
                 session: RecordingCoreSession(
-                    sessionID: sessionId, sessionDir: dirURL, kind: "meeting"
+                    sessionID: recordingId, sessionDir: dirURL, kind: "meeting"
                 )
             )
         } catch {
@@ -146,11 +200,11 @@ enum RecordCommand {
         // `meet42 record status`.
         let startedAt = CLI.nowISO()
         RecordingStateStore.write(
-            sessionId: sessionId, sessionDir: dir, app: app, bundleId: bundleId,
+            recordingId: recordingId, dir: dir, app: app, bundleId: bundleId,
             pid: getpid(), startedAt: startedAt
         )
-        Meet42Trace.log("record", "start-claimed", ["sessionId": sessionId, "app": app])
-        Meet42Trace.log("record", "state-written", ["sessionId": sessionId])
+        Meet42Trace.log("record", "start-claimed", ["recordingId": recordingId, "app": app])
+        Meet42Trace.log("record", "state-written", ["recordingId": recordingId])
 
         MeetingCapture.transcriptionSetup()
         do {
@@ -160,7 +214,7 @@ enum RecordCommand {
             // log and keep recording so audio + diarization still run.
             CLI.warn("meet42 record: transcription failed to start: \(error)")
         }
-        await MeetingCapture.diarizationStart(sessionDir: dirURL, sessionId: sessionId)
+        await MeetingCapture.diarizationStart(sessionDir: dirURL, sessionId: recordingId)
 
         CLI.warn("meet42 record: capturing — polling for stop marker at \(marker)")
 
@@ -170,12 +224,12 @@ enum RecordCommand {
 
         // Finalize in reverse order.
         await MeetingCapture.transcriptionStop()
-        await MeetingCapture.diarizationStop(sessionId: sessionId)
+        await MeetingCapture.diarizationStop(sessionId: recordingId)
         await RecordingCore.shared.stop()
         try? FileManager.default.removeItem(atPath: marker)
-        Meet42Trace.log("record", "stop-finalized", ["sessionId": sessionId])
+        Meet42Trace.log("record", "stop-finalized", ["recordingId": recordingId])
         RecordingStateStore.clear()
-        Meet42Trace.log("record", "state-cleared", ["sessionId": sessionId])
+        Meet42Trace.log("record", "state-cleared", ["recordingId": recordingId])
         CLI.warn("meet42 record: stopped.")
         exit(0)
     }
@@ -183,8 +237,13 @@ enum RecordCommand {
     // MARK: - stop
 
     private static func stop(args: [String]) {
-        guard let dir = CLI.argValue(args, "--session-dir") else {
-            CLI.fail("meet42 record stop: missing --session-dir <dir>")
+        // `--dir` is optional — fall back to the active recording's dir so a
+        // caller that only knows "something is recording" (not its exact
+        // dir) can still stop it via `meet42 record stop` with no flags.
+        let dir = CLI.argValue(args, "--dir")
+            ?? RecordingStateStore.read()?.dir
+        guard let dir else {
+            CLI.fail("meet42 record stop: missing --dir <dir> and no active recording to infer it from")
         }
         let marker = (dir as NSString).appendingPathComponent(stopMarkerName)
         if !FileManager.default.createFile(atPath: marker, contents: Data()) {
@@ -207,24 +266,26 @@ enum RecordCommand {
         guard active.isAlive else {
             // A crashed daemon's leftover claim — reclaim it here too so a
             // stale file never permanently reads as "recording".
-            Meet42Trace.log("record", "stale-reclaimed", ["sessionId": active.sessionId])
+            Meet42Trace.log("record", "stale-reclaimed", ["recordingId": active.recordingId])
             RecordingStateStore.clear()
             emitNotRecording(args)
             return
         }
         if CLI.wantsJSON(args) {
             CLI.emitJSON(StatusResult(
-                recording: true, sessionId: active.sessionId, app: active.app,
-                bundleId: active.bundleId, startedAt: active.startedAt
+                recording: true, recordingId: active.recordingId, dir: active.dir,
+                app: active.app, bundleId: active.bundleId, startedAt: active.startedAt
             ))
         } else {
-            print("meet42 record: recording — session '\(active.sessionId)' (\(active.app)), started \(active.startedAt).")
+            print("meet42 record: recording — '\(active.recordingId)' (\(active.app)), started \(active.startedAt).")
         }
     }
 
     private static func emitNotRecording(_ args: [String]) {
         if CLI.wantsJSON(args) {
-            CLI.emitJSON(StatusResult(recording: false, sessionId: nil, app: nil, bundleId: nil, startedAt: nil))
+            CLI.emitJSON(StatusResult(
+                recording: false, recordingId: nil, dir: nil, app: nil, bundleId: nil, startedAt: nil
+            ))
         } else {
             print("meet42 record: not recording.")
         }

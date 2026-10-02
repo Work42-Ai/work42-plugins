@@ -93,17 +93,25 @@ enum Dispatcher {
         Sync / capture:
           sync
                 Request Calendar access + run one full EventKit sync.
-          record start --session-dir <dir> [--device <uid>] [--app <name>] [--bundle-id <id>]
-                Daemonize and capture (transcription + diarization).
-                Machine-wide singleton: refuses if a recording is already
-                active elsewhere. --app/--bundle-id label the claim (for
-                `record status`); default --app is "Manual".
-          record stop --session-dir <dir>
-                Signal the capture daemon to finalize and exit.
+          record start [--dir <dir>] [--device <uid>] [--app <name>]
+                       [--bundle-id <id>] [--manual] [--json]
+                Session-agnostic: allocates its OWN recordings dir under
+                ~/.work42/meet42/recordings/<recordingId>/ (or uses --dir if
+                given), daemonizes, and captures (transcription +
+                diarization) there. Prints {"recordingId","dir","started"}
+                on stdout BEFORE daemonizing, so a caller gets the path
+                immediately. Machine-wide singleton: refuses if a recording
+                is already active elsewhere. --app/--bundle-id label the
+                claim (for `record status`); default --app is "Manual".
+                --manual marks a recording with no trigger call to watch
+                (no auto-stop — only an explicit `record stop` ends it).
+          record stop [--dir <dir>]
+                Signal the capture daemon to finalize and exit. --dir
+                defaults to the active recording's dir when omitted.
           record status [--json]
-                Print whether a recording is active and, if so, its owning
-                session/app/startedAt — the single source of truth every
-                surface reads instead of session storage.
+                Print whether a recording is active and, if so, its
+                recordingId/dir/app/startedAt — the single source of truth
+                every surface reads instead of session storage.
 
         Diagnostics:
           trace [--tail N] [--call <callId>] [--json]
