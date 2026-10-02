@@ -1,7 +1,12 @@
-// WatchCommand.swift — `meet42 watch`: event-driven, input-only mic monitor.
+// WatchCommand.swift — `meet42 watch`: event-driven (+ 1s backstop), input-only
+// mic monitor.
 //
-// Detection is driven purely by CoreAudio property listeners — no polling.
-// Two listeners cooperate on one serial DispatchQueue:
+// Detection is driven by CoreAudio property listeners, PLUS a 1s backstop
+// re-scan (see MicWatcher.start) because macOS does not reliably notify when a
+// process that is already in the list starts capturing the mic. The backstop
+// emits only on the open↔close edge (not level-polling), so "prompt once per
+// call" is preserved; the listeners still give sub-second latency in the common
+// fresh-process case. Two listeners cooperate on one serial DispatchQueue:
 //
 //   1. kAudioHardwarePropertyProcessObjectList on kAudioObjectSystemObject:
 //      fires whenever a process starts or stops audio I/O. In its callback
@@ -146,10 +151,14 @@ private final class MicWatcher: @unchecked Sendable {
     var wasActive  = false
     var activeCall: (callId: String, app: String, bundleId: String)?
 
+    /// Backstop re-scan timer (see start()). Held so it stays alive.
+    var backstopTimer: DispatchSourceTimer?
+
     // MARK: start
 
     /// Register the system process-list listener, seed per-process listeners,
     /// and do an initial recompute so any already-running call app is detected.
+    /// Also arm a 1s backstop re-scan (see below).
     func start() {
         var listAddr = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyProcessObjectList,
@@ -169,6 +178,29 @@ private final class MicWatcher: @unchecked Sendable {
             self.syncPerProcessListeners()
             self.recompute()
         }
+
+        // Backstop re-scan. The per-process kAudioProcessPropertyIsRunningInput
+        // listener does NOT reliably fire when a process that was ALREADY in the
+        // list (e.g. a long-running Chrome helper) starts capturing the mic —
+        // and there is no other OS notification for "this specific process just
+        // started input while the input device is already in use". Without a
+        // backstop, detection of such an open only happens when some UNRELATED
+        // process appears/disappears and incidentally triggers recompute()
+        // (observed: ~11s prompt latency). A cheap 1s re-scan closes that gap.
+        //
+        // This is NOT level-polling that re-fires: recompute() emits ONLY on the
+        // aggregate open↔close edge, so the semantics stay "prompt once per
+        // call". The scan is microseconds (read 2 properties over ~30 process
+        // objects). The event listeners above still give sub-second latency for
+        // the common fresh-process case; this only covers what they miss.
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 1.0, repeating: 1.0, leeway: .milliseconds(200))
+        timer.setEventHandler { [self] in
+            self.syncPerProcessListeners()
+            self.recompute()
+        }
+        timer.resume()
+        backstopTimer = timer
 
         Meet42Trace.log("watch", "listener-registered", [:])
     }
