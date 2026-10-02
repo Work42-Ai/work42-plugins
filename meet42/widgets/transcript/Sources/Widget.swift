@@ -300,66 +300,84 @@ private func parseISO8601(_ ts: String) -> Date? {
 
 // MARK: - Recording truth (meet42 record status + the workflow-gate storage)
 
-/// Decode target for `meet42 record status --json`.
+/// Decode target for `meet42 record status --json`. `meet42 record` is now
+/// session-agnostic (meet42-recording-lifecycle-rework s1) — its status is
+/// keyed by `dir` (the recording's own directory), not a session id. `
+/// sessionId` is kept decodable (always nil against the real CLI now) ONLY
+/// because the manual Record/Stop intents below still reference it pending
+/// their own rewrite (s5) — remove once that lands.
 private struct TranscriptRecordStatusPayload: Decodable {
     let recording: Bool
+    let dir: String?
     let sessionId: String?
 }
 
-/// `meeting/started_at`/`ended_at` as a Date, read from `work42 storage get`'s
-/// raw (non-`--json`) output — a canonical-JSON-quoted string, e.g.
-/// `"2026-10-02T00:14:16.123Z"`. nil when unset (the CLI exits non-zero) or
-/// the output doesn't parse as a quoted ISO8601 string.
-private func parseStorageISOGet(_ raw: String) -> Date? {
-    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-    guard trimmed.hasPrefix("\""), trimmed.hasSuffix("\""), trimmed.count >= 2 else { return nil }
-    return parseISO8601(String(trimmed.dropFirst().dropLast()))
+/// Unwrap a canonical-JSON-quoted string from `work42 storage get`'s raw
+/// (non-`--json`) stdout, e.g. `"2026-10-02T00:14:16.123Z"` -> the inner
+/// string. nil when unset (the CLI exits non-zero) or the output isn't a
+/// quoted JSON string.
+/// Read `meeting/recording_dir` from THIS session's own storage via the
+/// SDK's native `services.storage` — NOT the shelled `work42 storage get`
+/// CLI. For a non-task session (exactly what an "event" meeting session is),
+/// `WidgetCommandRunner` injects `WORK42_SESSION_DIR` as the session's
+/// WORKTREE path, but `storage.json` actually lives in the chat-session
+/// metadata directory — a real work42-core bug (`SessionDiscovery`/
+/// `StorageCommand` resolve the wrong directory for a non-task session's
+/// env-matched/registry-matched storage lookup) that silently breaks the
+/// shelled CLI path. `services.storage` sidesteps it entirely: it's backed
+/// directly by `SessionStorageBackend(sessionDirectory: resolved.
+/// sessionDirectory)` — the CORRECT directory, no shell/CLI indirection at
+/// all. nil for a session with no recording attached yet (a plain event
+/// session, or one where Record hasn't been clicked).
+private func fetchRecordingDir(services: SessionServices) async -> String? {
+    guard let value = try? await services.storage.get(namespace: "meeting", key: "recording_dir"),
+          case .string(let dir) = value
+    else { return nil }
+    return dir
 }
 
 /// Recording truth for one session: `meet42 record status` is the single
-/// source of truth for "is MY session the one currently recording" (AC7) —
-/// `services.storage` is FILE-backed for a non-task session, a different
-/// store than `work42 storage set/get` (always work42.db), so it never sees
-/// the workflow-gate writes. `startedAt`/`hasEnded` are read via the shelled
-/// CLI instead, purely to distinguish "never recorded" from "recorded, then
-/// ended" for the pill's transitional ENDED state.
+/// source of truth for "is MY session's recording the one currently active"
+/// (AC7) — compared by DIRECTORY, since `meet42 record` is session-agnostic
+/// (meet42-recording-lifecycle-rework s1) and no longer knows about session
+/// ids or worktree slugs at all. `recordingDir`/`startedAt`/`hasEnded` are
+/// read via `services.storage` (see `fetchRecordingDir`'s doc for why that's
+/// the correct API, not the shelled CLI, for a non-task session).
 private struct RecordingSnapshot {
+    /// This session's `meeting/recording_dir` pointer, or nil if no
+    /// recording has ever been attached to it.
+    let recordingDir: String?
     let isRecordingThisSession: Bool
     let startedAt: Date?
     let hasEnded: Bool
 }
 
 private func fetchRecordingSnapshot(services: SessionServices) async -> RecordingSnapshot {
-    guard let sessionId = services.sessionId else {
-        return RecordingSnapshot(isRecordingThisSession: false, startedAt: nil, hasEnded: false)
+    guard services.sessionId != nil else {
+        return RecordingSnapshot(recordingDir: nil, isRecordingThisSession: false, startedAt: nil, hasEnded: false)
     }
+    let recordingDir = await fetchRecordingDir(services: services)
     var isRecording = false
-    // `meet42 record start --session-dir <dir>` derives ITS sessionId from
-    // the DIRECTORY's last path component (a worktree slug like
-    // "keen-beacon"), not the semantic session UUID `services.sessionId`
-    // holds for an ad-hoc minted session — comparing against the UUID meant
-    // this NEVER matched for such a session (confirmed live: a recording
-    // that was genuinely active still read back as "not recording" here).
-    let recordSlug = services.worktreePath.map { ($0 as NSString).lastPathComponent } ?? sessionId
-    if let r = try? await services.shell.run(command: "meet42 record status --json"),
+    if let recordingDir,
+       let r = try? await services.shell.run(command: "meet42 record status --json"),
        r.exitCode == 0, let data = r.stdout.data(using: .utf8),
        let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data),
-       status.recording, status.sessionId == recordSlug {
+       status.recording, status.dir == recordingDir {
         isRecording = true
     }
     var startedAt: Date?
-    if let r = try? await services.shell.run(
-        command: "work42 storage get --session \(transcriptShellQuote(sessionId)) meeting/started_at"
-    ), r.exitCode == 0 {
-        startedAt = parseStorageISOGet(r.stdout)
+    if let value = try? await services.storage.get(namespace: "meeting", key: "started_at"),
+       case .string(let iso) = value {
+        startedAt = parseISO8601(iso)
     }
     var hasEnded = false
-    if let r = try? await services.shell.run(
-        command: "work42 storage get --session \(transcriptShellQuote(sessionId)) meeting/ended_at"
-    ), r.exitCode == 0, parseStorageISOGet(r.stdout) != nil {
+    if let value = try? await services.storage.get(namespace: "meeting", key: "ended_at"),
+       case .string(let iso) = value, parseISO8601(iso) != nil {
         hasEnded = true
     }
-    return RecordingSnapshot(isRecordingThisSession: isRecording, startedAt: startedAt, hasEnded: hasEnded)
+    return RecordingSnapshot(
+        recordingDir: recordingDir, isRecordingThisSession: isRecording, startedAt: startedAt, hasEnded: hasEnded
+    )
 }
 
 /// Resolve a meet42 subcommand invocation: the app's own bundled binary first
@@ -431,6 +449,10 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
     /// `meeting/started_at`, read via the shelled CLI; drives the stop
     /// intent's live mm:ss timer.
     private(set) var recordingStartedAt: Date? = nil
+
+    /// `meeting/ended_at` is set but this session isn't the active recording
+    /// — drives the reconcile-on-activate re-present (AC8).
+    private(set) var hasEndedThisSession: Bool = false
 
     /// Pre-fetched microphone list for the selectMic menu `options` closure,
     /// which is synchronous and reads this cached value.
@@ -566,9 +588,23 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
         self.services = services
         statePollTask?.cancel()
         statePollTask = Task { [weak self] in
+            guard let self else { return }
+            await self.refreshRecordingState()
+            await self.refreshMicOptions()
+            // Reconcile on activate (AC8): a recording's lifetime is no
+            // longer tied to this widget (or the app) being alive — the
+            // record daemon self-watches its own trigger call and self-stops
+            // independent of everything else (meet42-recording-lifecycle-
+            // rework s2) — so if THIS session's recording survived an app
+            // relaunch/crash, or ended while nothing was watching, re-float
+            // its pill rather than leaving the user with no visible state.
+            if self.isRecordingThisSession || self.hasEndedThisSession,
+               let sessionId = services.sessionId {
+                try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
+            }
             while !Task.isCancelled {
-                await self?.refreshRecordingState()
-                await self?.refreshMicOptions()
+                await self.refreshRecordingState()
+                await self.refreshMicOptions()
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
@@ -580,18 +616,21 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
         services = nil
         isRecordingThisSession = false
         recordingStartedAt = nil
+        hasEndedThisSession = false
         micOptions = []
     }
 
     // MARK: - State refresh helpers
 
-    /// Refresh `isRecordingThisSession`/`recordingStartedAt` from the single
-    /// source of truth (`meet42 record status` + the workflow-gate storage).
+    /// Refresh `isRecordingThisSession`/`recordingStartedAt`/
+    /// `hasEndedThisSession` from the single source of truth (`meet42 record
+    /// status` + the workflow-gate storage).
     private func refreshRecordingState() async {
         guard let svc = services else { return }
         let snapshot = await fetchRecordingSnapshot(services: svc)
         isRecordingThisSession = snapshot.isRecordingThisSession
         recordingStartedAt = snapshot.startedAt
+        hasEndedThisSession = snapshot.hasEnded
     }
 
     /// Shell `meet42 mics --json` and refresh the cached `micOptions` list.
@@ -644,14 +683,22 @@ private struct TranscriptTileView: View {
 
     @State private var conversationWatcher = WidgetFileWatcher()
     @State private var speakersWatcher = WidgetFileWatcher()
+    /// This session's `meeting/recording_dir` pointer — the transcript now
+    /// lives there, not in the session's own worktree (meet42-recording-
+    /// lifecycle-rework s1: `meet42 record` owns its own store). nil until
+    /// resolved (a quick shell call, so this is near-instant in the common
+    /// case where the pointer was already seeded before this pill/tile ever
+    /// mounted — see the `.task` below for the "Record clicked after the
+    /// tile was already open" case, where it resolves once the pointer
+    /// appears).
+    @State private var recordingDir: String?
 
     var body: some View {
         // Register both watchers as dependencies so the body re-runs on change.
         let _ = conversationWatcher.version
         let _ = speakersWatcher.version
-        let dir = services.worktreePath
-        let lines = dir.map { parseConversation(sessionDir: $0) } ?? []
-        let speakers = dir.map { loadSpeakers(sessionDir: $0) } ?? [:]
+        let lines = recordingDir.map { parseConversation(sessionDir: $0) } ?? []
+        let speakers = recordingDir.map { loadSpeakers(sessionDir: $0) } ?? [:]
 
         return Group {
             if lines.isEmpty {
@@ -678,10 +725,27 @@ private struct TranscriptTileView: View {
                 }
             }
         }
+        .task {
+            // Poll until the pointer resolves, then stop — it's set once
+            // and never changes for a session's lifetime, but it may not
+            // exist YET if this tile is opened before Record is ever
+            // clicked (a plain session with no recording attached).
+            while recordingDir == nil, !Task.isCancelled {
+                recordingDir = await fetchRecordingDir(services: services)
+                if recordingDir == nil {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
+        .onChange(of: recordingDir) { _, newDir in
+            guard let newDir else { return }
+            conversationWatcher.watch(conversationPath(sessionDir: newDir))
+            speakersWatcher.watch(speakersPath(sessionDir: newDir))
+        }
         .onAppear {
-            if let dir {
-                conversationWatcher.watch(conversationPath(sessionDir: dir))
-                speakersWatcher.watch(speakersPath(sessionDir: dir))
+            if let recordingDir {
+                conversationWatcher.watch(conversationPath(sessionDir: recordingDir))
+                speakersWatcher.watch(speakersPath(sessionDir: recordingDir))
             }
         }
         .onDisappear {
