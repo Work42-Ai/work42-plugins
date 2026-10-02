@@ -1,38 +1,38 @@
-// Widget.swift — meet42's Transcript widget (meet42-plugin-conversion, s14).
+// Widget.swift — meet42's Transcript widget (meet42-plugin-conversion, s14;
+// meet42-detection-rework).
 //
-// The most complex meet42 widget: a TILE (conversation.jsonl → chat bubbles),
-// a stateful PILL (RECORDING / ENDED / idle recording accessory), AND a
-// BACKGROUND AGENT that drives capture from the calendar widget's autostart
-// handoff and watches for the meeting ending.
+// A TILE (conversation.jsonl → chat bubbles) + a stateful PILL (RECORDING /
+// ENDED / idle recording accessory). No background agent — the calendar
+// widget's detection agent (meet42-detection-rework) now owns the ENTIRE
+// recording lifecycle (start on Yes/auto-start, stop on its own 5s
+// stop-grace) for calls it detects; this widget only drives the MANUAL
+// Record/Stop controls and renders truth.
 //
-// Faithful port of three app surfaces into a plugin widget that links ONLY
-// Work42WidgetKit + Work42UI:
+//   • Tile — Work42App/Meetings/TranscriptWidgetView. Reads
+//            `<dir>/conversation.jsonl` (+ optional `speakers.json`) and
+//            renders each utterance as a Work42UI `ChatBubble` (You =
+//            trailing/accent, Them = leading/speaker-hue once matched else
+//            neutral, unknown = leading/neutral). The Flow42Core
+//            `TranscriptStore` parser + `FileWatcher` are reimplemented
+//            locally (no Flow42Core import).
+//   • Pill  — Work42App/Dictation/EventSessionAccessory, RECORDING + ENDED
+//            states only (+ a plain idle). The DETECTED state is dropped —
+//            the calendar widget owns it. Visuals kept: purple #7C3AED, the
+//            Stop capsule with a live monospaced `M:SS` timer.
 //
-//   • Tile      — Work42App/Meetings/TranscriptWidgetView. Reads
-//                 `<dir>/conversation.jsonl` (+ optional `speakers.json`) and
-//                 renders each utterance as a Work42UI `ChatBubble`
-//                 (You = trailing/accent, Them = leading/speaker-hue once
-//                 matched else neutral, unknown = leading/neutral). The
-//                 Flow42Core `TranscriptStore` parser + `FileWatcher` are
-//                 reimplemented locally (no Flow42Core import).
-//   • Pill      — Work42App/Dictation/EventSessionAccessory, RECORDING +
-//                 ENDED states only (+ a plain idle). The DETECTED state is
-//                 dropped — the calendar widget (s16) owns it. Visuals kept:
-//                 purple #7C3AED, the Stop capsule with a live monospaced
-//                 `M:SS` timer, the "Auto-stopping in Ns" ended row + bar.
-//   • Agent     — the autostart handoff (calendar widget sets
-//                 `meeting/autostart`) → `meet42 record start` → write
-//                 `meeting/started_at` → present the RECORDING pill; then a
-//                 cancellable mic poll that, on an open→close transition,
-//                 stops capture, writes `meeting/ended_at`, dismisses the pill.
-//
-// CRITICAL: `storageNamespace` is "meeting" so VIEW-SIDE `SessionServices.storage`
-// writes (the manual Record/Stop action-area intents, the pill's Stop control)
-// land at `meeting/started_at`/`meeting/ended_at` — the workflow gates. This
-// does NOT extend to the BACKGROUND AGENT below: `WidgetBackgroundHost.makeServices`
-// hardcodes its storage to the widget's own slug ("transcript") regardless of
-// `storageNamespace`, so `TranscriptAgent` writes `meeting/started_at`/`ended_at`
-// explicitly via `work42 storage set` (shelled), not `WidgetBackgroundServices.storage.set`.
+// RECORDING TRUTH, per meet42-detection-rework's singleton redesign: `meet42
+// record status` is the single source of truth for "is MY session the one
+// currently recording" (AC7) — NOT session storage. `SessionServices.storage`
+// is FILE-backed for a non-task session (`SessionStorageBackend`), a
+// DIFFERENT store than `work42 storage set/get` (always work42.db) — so
+// `meeting/started_at`/`ended_at` (written for the workflow gate, AC9) are
+// read back via the SHELLED CLI (`work42 storage get --session <id> ...`),
+// never via `services.storage`, to distinguish "never recorded" from
+// "recorded, then ended" for the pill's transitional ENDED state. Manual
+// Record/Stop share the SAME start-sequence tail the detection agent uses:
+// `meet42 record start` is a detached, fire-and-forget process (not via
+// `WidgetShellService`, which is bounded to 10s and would kill the
+// never-exiting daemon), confirmed via a bounded `meet42 record status` poll.
 
 import CoreGraphics
 import Foundation
@@ -298,17 +298,91 @@ private func parseISO8601(_ ts: String) -> Date? {
     return f2.date(from: ts)
 }
 
-/// A storage value is "truthy" when it is a non-empty / non-zero affirmative —
-/// covers `.bool(true)`, any non-zero number, and "1"/"true"/"yes" strings.
-private func isTruthy(_ v: WidgetJSONValue?) -> Bool {
-    switch v {
-    case .bool(let b): return b
-    case .number(let n): return n != 0
-    case .string(let s):
-        let l = s.trimmingCharacters(in: .whitespaces).lowercased()
-        return l == "1" || l == "true" || l == "yes"
-    default: return false
+// MARK: - Recording truth (meet42 record status + the workflow-gate storage)
+
+/// Decode target for `meet42 record status --json`.
+private struct TranscriptRecordStatusPayload: Decodable {
+    let recording: Bool
+    let sessionId: String?
+}
+
+/// `meeting/started_at`/`ended_at` as a Date, read from `work42 storage get`'s
+/// raw (non-`--json`) output — a canonical-JSON-quoted string, e.g.
+/// `"2026-10-02T00:14:16.123Z"`. nil when unset (the CLI exits non-zero) or
+/// the output doesn't parse as a quoted ISO8601 string.
+private func parseStorageISOGet(_ raw: String) -> Date? {
+    let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.hasPrefix("\""), trimmed.hasSuffix("\""), trimmed.count >= 2 else { return nil }
+    return parseISO8601(String(trimmed.dropFirst().dropLast()))
+}
+
+/// Recording truth for one session: `meet42 record status` is the single
+/// source of truth for "is MY session the one currently recording" (AC7) —
+/// `services.storage` is FILE-backed for a non-task session, a different
+/// store than `work42 storage set/get` (always work42.db), so it never sees
+/// the workflow-gate writes. `startedAt`/`hasEnded` are read via the shelled
+/// CLI instead, purely to distinguish "never recorded" from "recorded, then
+/// ended" for the pill's transitional ENDED state.
+private struct RecordingSnapshot {
+    let isRecordingThisSession: Bool
+    let startedAt: Date?
+    let hasEnded: Bool
+}
+
+private func fetchRecordingSnapshot(services: SessionServices) async -> RecordingSnapshot {
+    guard let sessionId = services.sessionId else {
+        return RecordingSnapshot(isRecordingThisSession: false, startedAt: nil, hasEnded: false)
     }
+    var isRecording = false
+    if let r = try? await services.shell.run(command: "meet42 record status --json"),
+       r.exitCode == 0, let data = r.stdout.data(using: .utf8),
+       let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data),
+       status.recording, status.sessionId == sessionId {
+        isRecording = true
+    }
+    var startedAt: Date?
+    if let r = try? await services.shell.run(
+        command: "work42 storage get --session \(transcriptShellQuote(sessionId)) meeting/started_at"
+    ), r.exitCode == 0 {
+        startedAt = parseStorageISOGet(r.stdout)
+    }
+    var hasEnded = false
+    if let r = try? await services.shell.run(
+        command: "work42 storage get --session \(transcriptShellQuote(sessionId)) meeting/ended_at"
+    ), r.exitCode == 0, parseStorageISOGet(r.stdout) != nil {
+        hasEnded = true
+    }
+    return RecordingSnapshot(isRecordingThisSession: isRecording, startedAt: startedAt, hasEnded: hasEnded)
+}
+
+/// Resolve a meet42 subcommand invocation: the app's own bundled binary first
+/// (`Contents/MacOS/meet42`), falling back to a PATH lookup via `/usr/bin/env`
+/// for non-bundle dev contexts. Duplicated from the calendar widget — no
+/// shared target between plugin widgets.
+private func transcriptMeet42Invocation(
+    verb: String, extraArgs: [String] = []
+) -> (executable: URL, arguments: [String]) {
+    let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/meet42")
+    if FileManager.default.fileExists(atPath: bundled.path) {
+        return (bundled, [verb] + extraArgs)
+    }
+    return (URL(fileURLWithPath: "/usr/bin/env"), ["meet42", verb] + extraArgs)
+}
+
+/// Launch `meet42 record start` as a detached, fire-and-forget process — NOT
+/// via `WidgetShellService` (bounded to 10s; `record start` daemonizes via
+/// setsid+execve with no fork, so it never exits on its own while recording,
+/// and the bounded shell service would kill it).
+private func fireTranscriptRecordStart(sessionDir: String) {
+    let (exe, args) = transcriptMeet42Invocation(
+        verb: "record", extraArgs: ["start", "--session-dir", sessionDir]
+    )
+    let process = Process()
+    process.executableURL = exe
+    process.arguments = args
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try? process.run()
 }
 
 /// Load just the meeting title from `<dir>/meeting.json` (best-effort) so the
@@ -330,28 +404,25 @@ private func meetingTitle(dir: String?) -> String {
 
 @Observable
 @MainActor
-final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackground {
+final class TranscriptWidget: Work42Widget, Work42WidgetPill {
 
     let id = "transcript"
     let title = "Transcript"
     let icon = "waveform"
-
-    /// CRITICAL: writes land in the `meeting/*` namespace (not `transcript/*`),
-    /// so `storage.set(key: "started_at")` → `meeting/started_at` (the workflow
-    /// "In Meeting" gate) and `storage.set(key: "ended_at")` → `meeting/ended_at`.
-    var storageNamespace: String? { "meeting" }
 
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 280, height: 220) }
 
     // MARK: - Recording state (drives action-area intent isEnabled / labels)
 
-    /// True when `meeting/started_at` is set AND `meeting/ended_at` is unset.
+    /// True when `meet42 record status` reports THIS session as the active
+    /// recording (AC7 — the single source of truth, not session storage).
     /// Drives the `record` intent (hidden while true) and the `stop` intent
     /// (visible/enabled while true). Observed by the host at render time.
     private(set) var isRecordingThisSession: Bool = false
 
-    /// Parsed `meeting/started_at`; drives the stop intent's live mm:ss timer.
+    /// `meeting/started_at`, read via the shelled CLI; drives the stop
+    /// intent's live mm:ss timer.
     private(set) var recordingStartedAt: Date? = nil
 
     /// Pre-fetched microphone list for the selectMic menu `options` closure,
@@ -395,6 +466,11 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
             ),
 
             // ── 2. record ────────────────────────────────────────────────────
+            // Shares the detection agent's start-sequence tail: fire the
+            // singleton daemon detached, confirm via `record status`, then
+            // write `meeting/started_at` for the workflow gate (via the CLI —
+            // `services.storage` is file-backed for a non-task session and
+            // never reaches work42.db).
             WidgetIntentSpec(
                 name: "record",
                 title: "Record",
@@ -405,12 +481,25 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
                 isEnabled: { [weak self] in !(self?.isRecordingThisSession ?? false) },
                 perform: { [weak self] in
                     guard let self, let svc = self.services,
-                          let dir = svc.worktreePath else { return }
+                          let dir = svc.worktreePath, let sessionId = svc.sessionId else { return }
+                    fireTranscriptRecordStart(sessionDir: dir)
+
+                    var confirmed = false
+                    for _ in 0..<4 {
+                        try? await Task.sleep(nanoseconds: 750_000_000)
+                        if let r = try? await svc.shell.run(command: "meet42 record status --json"),
+                           r.exitCode == 0, let data = r.stdout.data(using: .utf8),
+                           let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data),
+                           status.recording, status.sessionId == sessionId {
+                            confirmed = true
+                            break
+                        }
+                    }
+                    guard confirmed else { return }
+
+                    let startedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
                     _ = try? await svc.shell.run(
-                        command: "meet42 record start --session-dir \"\(dir)\""
-                    )
-                    try? await svc.storage.set(
-                        key: "started_at", value: .string(isoNow())
+                        command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/started_at \(startedAtJSON)"
                     )
                     await self.refreshRecordingState()
                 }
@@ -435,12 +524,15 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
                 livePeriodicTick: 1,
                 perform: { [weak self] in
                     guard let self, let svc = self.services,
-                          let dir = svc.worktreePath else { return }
+                          let dir = svc.worktreePath, let sessionId = svc.sessionId else { return }
+                    // meet42 record stop just touches a marker file and
+                    // returns immediately — safe via the bounded shell service.
                     _ = try? await svc.shell.run(
                         command: "meet42 record stop --session-dir \"\(dir)\""
                     )
-                    try? await svc.storage.set(
-                        key: "ended_at", value: .string(isoNow())
+                    let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+                    _ = try? await svc.shell.run(
+                        command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
                     )
                     await self.refreshRecordingState()
                 }
@@ -473,18 +565,13 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
 
     // MARK: - State refresh helpers
 
-    /// Poll `meeting/started_at` and `meeting/ended_at` to derive
-    /// `isRecordingThisSession` and `recordingStartedAt`.
+    /// Refresh `isRecordingThisSession`/`recordingStartedAt` from the single
+    /// source of truth (`meet42 record status` + the workflow-gate storage).
     private func refreshRecordingState() async {
         guard let svc = services else { return }
-        let started = try? await svc.storage.get(namespace: "meeting", key: "started_at")
-        let ended   = try? await svc.storage.get(namespace: "meeting", key: "ended_at")
-        var startDate: Date? = nil
-        if case .string(let s) = started { startDate = parseISO8601(s) }
-        let hasEnded: Bool
-        if case .string(_) = ended { hasEnded = true } else { hasEnded = false }
-        recordingStartedAt = startDate
-        isRecordingThisSession = startDate != nil && !hasEnded
+        let snapshot = await fetchRecordingSnapshot(services: svc)
+        isRecordingThisSession = snapshot.isRecordingThisSession
+        recordingStartedAt = snapshot.startedAt
     }
 
     /// Shell `meet42 mics --json` and refresh the cached `micOptions` list.
@@ -522,12 +609,6 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
             title: title,
             icon: icon
         )
-    }
-
-    // MARK: Work42WidgetBackground
-
-    func makeBackgroundAgent() -> any WidgetBackgroundAgent {
-        TranscriptAgent()
     }
 }
 
@@ -765,19 +846,19 @@ private final class RecModel {
         pollTask = nil
     }
 
+    /// `meet42 record status` is the single source of truth for `.recording`
+    /// (AC7); `meeting/ended_at` (read via the shelled CLI — `services.storage`
+    /// is file-backed for a non-task session and never reaches the
+    /// work42.db write the workflow gate / this check both need) distinguishes
+    /// `.ended` from `.idle` once it's no longer the active recording.
     private func refresh() async {
-        let started = try? await services.storage.get(namespace: "meeting", key: "started_at")
-        let ended = try? await services.storage.get(namespace: "meeting", key: "ended_at")
-        var startDate: Date?
-        if case .string(let s) = started { startDate = parseISO8601(s) }
-        var endDate: Date?
-        if case .string(let s) = ended { endDate = parseISO8601(s) }
-        startedAt = startDate
-        endedAt = endDate
-        if endDate != nil {
-            state = .ended
-        } else if startDate != nil {
+        let snapshot = await fetchRecordingSnapshot(services: services)
+        startedAt = snapshot.startedAt
+        if snapshot.isRecordingThisSession {
             state = .recording
+            endedAt = nil
+        } else if snapshot.hasEnded {
+            state = .ended
         } else {
             state = .idle
         }
@@ -787,9 +868,12 @@ private final class RecModel {
     /// pill. Reused by both the RECORDING Stop and the ENDED Stop controls.
     func stopRecording() {
         Task { @MainActor [weak self] in
-            guard let self else { return }
+            guard let self, let sessionId = self.services.sessionId else { return }
             _ = try? await self.services.shell.run(command: "meet42 record stop --session-dir \"$(pwd)\"")
-            try? await self.services.storage.set(key: "ended_at", value: .string(isoNow()))
+            let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+            _ = try? await self.services.shell.run(
+                command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
+            )
             try? await self.services.pill.dismiss(widgetId: "transcript")
             await self.refresh()
         }
@@ -998,97 +1082,14 @@ private extension View {
     }
 }
 
-// MARK: - TranscriptAgent (background — drives capture)
-
-/// The headless agent for one (session × transcript-widget). On the calendar
-/// widget's autostart handoff it starts capture, marks `meeting/started_at`,
-/// and floats the RECORDING pill; then it polls the mic and, on an open→close
-/// transition after a start, stops capture, marks `meeting/ended_at`, and
-/// dismisses the pill.
-///
-/// Mic-watch caveat (see report + SKILL.md): `meet42 watch` is a long-lived
-/// blocking stream and `WidgetShellService.run` is buffered request/response —
-/// a bare `watch` would never return. So the loop runs a *bounded* `watch`
-/// (kill after ~2s) each cycle as a single-shot mic-level probe: a freshly
-/// started `watch` emits `mic-open` within its first poll iff the default input
-/// is currently running, and emits nothing when it is closed. This is
-/// cancellable and never blocks the agent. (`meet42 mics --json` lists DEVICES,
-/// not running-state, so it cannot serve as the probe.)
-@Observable
-@MainActor
-final class TranscriptAgent: WidgetBackgroundAgent {
-
-    var headerLabels: [WidgetHeaderLabel] { [] }
-
-    @ObservationIgnored private var task: Task<Void, Never>?
-
-    func start(services s: WidgetBackgroundServices) {
-        task?.cancel()
-        task = Task { @MainActor in
-            // Let the view mount before the first storage/shell touch.
-            try? await Task.sleep(nanoseconds: 1_000_000_000)
-
-            // 1. Autostart handoff — the calendar widget set meeting/autostart.
-            if isTruthy(try? await s.storage.get(namespace: "meeting", key: "autostart")) {
-                // Only start if not already started (idempotent across restarts).
-                let alreadyStarted = (try? await s.storage.get(namespace: "meeting", key: "started_at")) != nil
-                if !alreadyStarted {
-                    _ = try? await s.shell.run(command: "meet42 record start --session-dir \"$(pwd)\"")
-                    // `storage.set` can only write into THIS widget's own
-                    // ("transcript") namespace — it has no namespace parameter.
-                    // The workflow gate and this agent's own isRecording/ended
-                    // checks read `meeting/*`, so this MUST go through the
-                    // shell (`work42 storage set meeting/started_at ...`), the
-                    // same cross-namespace-write pattern the calendar widget
-                    // uses for `meeting/autostart`.
-                    let startedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
-                    _ = try? await s.shell.run(command: "work42 storage set meeting/started_at \(startedAtJSON)")
-                    try? await s.pill.present(widgetId: "transcript", sessionId: s.sessionId)
-                }
-            }
-
-            // 2. Mic poll — detect the recording's open→close transition.
-            var sawOpen = false
-            while !Task.isCancelled {
-                // Already ended → nothing to watch.
-                if (try? await s.storage.get(namespace: "meeting", key: "ended_at")).flatMap({ $0 }) != nil {
-                    break
-                }
-                let isRecording = (try? await s.storage.get(namespace: "meeting", key: "started_at")).flatMap({ $0 }) != nil
-                if isRecording {
-                    let open = await Self.micIsOpen(shell: s.shell)   // ~2s bounded probe
-                    if open {
-                        sawOpen = true
-                    } else if sawOpen {
-                        // open → close: stop, advance to Summary, dismiss the pill.
-                        _ = try? await s.shell.run(command: "meet42 record stop --session-dir \"$(pwd)\"")
-                        let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
-                        _ = try? await s.shell.run(command: "work42 storage set meeting/ended_at \(endedAtJSON)")
-                        try? await s.pill.dismiss(widgetId: "transcript")
-                        break
-                    }
-                }
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-            }
-        }
-    }
-
-    func stop() {
-        task?.cancel()
-        task = nil
-    }
-
-    /// Single-shot mic-level probe: run a fresh `meet42 watch` bounded to ~2s
-    /// and report whether it emitted `mic-open` (the default input is running).
-    /// Never blocks — the subprocess is killed after the window.
-    private static func micIsOpen(shell: any WidgetShellService) async -> Bool {
-        let command = "meet42 watch & _w=$!; sleep 2; kill $_w 2>/dev/null; wait $_w 2>/dev/null; true"
-        guard let result = try? await shell.run(command: command) else { return false }
-        return result.stdout.contains("mic-open")
-    }
-}
-
 // MARK: - Widget entry-point ABI
+//
+// No background agent: the calendar widget's detection agent
+// (meet42-detection-rework) owns the whole recording lifecycle for calls it
+// detects (start via meet42 record start, stop via its own 5s stop-grace on
+// the event-driven meet42 watch stream). This widget only drives the MANUAL
+// Record/Stop controls (above) and renders recording truth — no polling, no
+// bounded single-shot `meet42 watch` probe hack.
 
 @_cdecl("work42_widget_sdk_version")
 public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }

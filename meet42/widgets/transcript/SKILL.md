@@ -3,14 +3,19 @@ name: widget-transcript
 description: |
   How the Transcript widget (session tab kindId widget:transcript) works on a
   meet42 meeting session. It renders the live meeting transcript as chat
-  bubbles, owns the RECORDING / ENDED / idle recording pill, and runs a
-  background agent that starts capture on the calendar widget's autostart
-  handoff and stops it when the meeting ends.
+  bubbles and owns the RECORDING / ENDED / idle recording pill. It has no
+  background agent — the calendar widget's detection agent owns the whole
+  recording lifecycle for detected calls; this widget drives the manual
+  Record/Stop controls and renders recording truth.
 ---
 
 # Transcript widget
 
-The most complex meet42 widget: a tile, a stateful pill, and a background agent.
+A tile + a stateful pill. No background agent (meet42-detection-rework) — the
+calendar widget's detection agent owns the entire recording lifecycle for
+detected calls (start on Yes/auto-start, stop on its own 5s stop-grace over the
+event-driven `meet42 watch` stream). This widget only drives the MANUAL
+Record/Stop action-area intents and renders truth.
 
 ## Tile
 
@@ -40,44 +45,40 @@ Flow42Core's `PeopleStore`); the avatar is inert here.
 | `<dir>/speakers.json` | read-only | Optional `{ "<speakerKey>": "<Name>" }` or `{ "<speakerKey>": { "person_id", "name" } }` sidecar mapping speaker keys to display names. |
 | `<dir>/meeting.json` | read-only | Read only for the meeting title shown on the pill. |
 
-## Storage (namespace `meeting`)
+## Recording truth
 
-The widget's `storageNamespace` is **`meeting`** (not `transcript`), so its
-writes land in the `meeting/*` namespace the workflow gates read:
+`meet42 record status` (the machine-wide singleton — see the meet42-cli
+`record` command) is the single source of truth for "is MY session the one
+currently recording", NOT session storage: `SessionServices.storage` is
+FILE-backed for a non-task session (a different store than `work42 storage
+set/get`, which always hits `work42.db`), so it never sees the workflow-gate
+writes below. The widget shells `work42 storage get --session <id>
+meeting/started_at|ended_at` directly to distinguish "never recorded" from
+"recorded, then ended" for the pill's transitional ENDED state.
 
 | Key | Written by | Meaning |
 |-----|-----------|---------|
-| `meeting/autostart` | the **calendar widget** (read here) | Truthy ⇒ the agent should start capture at session start. |
-| `meeting/started_at` | this widget | ISO 8601 start time → the "In Meeting" gate. |
-| `meeting/ended_at` | this widget | ISO 8601 end time → advances to Summary. |
+| `meeting/started_at` | whoever starts the recording (the calendar widget's detection agent, or this widget's manual Record intent) via `work42 storage set --session <id> ...` | ISO 8601 start time → the "In Meeting" workflow gate. |
+| `meeting/ended_at` | whoever stops the recording (the detection agent's 5s stop-grace, or this widget's Stop intent/pill Stop) | ISO 8601 end time → advances to Summary. |
 
 ## Pill
 
 `makePillView` renders the recording accessory, ported from the app's Event
 accessory with the **RECORDING** + **ENDED** states (+ a plain **idle**). The
 DETECTED state is NOT here — the calendar widget owns it. Visuals: purple
-`#7C3AED`, a Stop capsule with a live monospaced `M:SS` timer, and an
-"Auto-stopping in Ns" ended row + grace bar. State is derived by polling
-`meeting/started_at` + `meeting/ended_at` every ~1s: ended if `ended_at` is set,
-recording if `started_at` is set and not ended, else idle. The Stop button runs
-`meet42 record stop`, writes `ended_at`, and dismisses the pill.
+`#7C3AED`, a Stop capsule with a live monospaced `M:SS` timer. State is derived
+every ~1s from `meet42 record status` (recording) + the `meeting/started_at`/
+`ended_at` storage reads above (ended vs idle). The Stop button runs `meet42
+record stop`, writes `ended_at`, and dismisses the pill.
 
-## Background agent
+## Manual Record/Stop (action-area intents)
 
-On start the agent checks `meeting/autostart`; if truthy (and not already
-started) it runs `meet42 record start --session-dir "$(pwd)"`, writes
-`meeting/started_at`, and presents the RECORDING pill. It then polls the mic and,
-on an open→close transition after a start, runs `meet42 record stop`, writes
-`meeting/ended_at`, and dismisses the pill.
-
-**Mic-watch limitation.** `meet42 watch` is a long-lived blocking stream, but
-`WidgetShellService.run` is a buffered request/response call — a bare `watch`
-would never return and would hang the agent. The agent instead runs a *bounded*
-`watch` (killed after ~2s) each cycle as a single-shot mic-level probe: a fresh
-`watch` emits `mic-open` within its first poll iff the default input is running,
-and nothing when it is closed. This is cancellable and never blocks.
-`meet42 mics --json` lists DEVICES (not running-state), so it cannot serve as
-the probe. Note: because meet42's own capture daemon holds the default input
-open while recording, the CoreAudio-level mic-close edge may not fire until
-capture already stops — the reliable stop path in that case is the pill's Stop
-button.
+The Record intent shares the detection agent's start-sequence tail: it launches
+`meet42 record start --session-dir <dir>` as a DETACHED process (not via
+`WidgetShellService`, which is bounded to a 10s timeout — `record start`
+daemonizes via `setsid`+`execve` with no `fork`, so it never exits on its own
+while recording and the bounded shell service would kill it), confirms the
+claim landed via a bounded `meet42 record status` poll, then writes
+`meeting/started_at`. The Stop intent runs `meet42 record stop --session-dir
+<dir>` (safe via the bounded shell service — it just touches a marker file and
+returns immediately) and writes `meeting/ended_at`.
