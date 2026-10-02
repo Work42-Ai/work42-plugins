@@ -1239,26 +1239,39 @@ private struct CalendarPreferenceRow: View {
 //       it shells `meet42 now --json` to optionally NAME the call from a
 //       matching calendar event (purely cosmetic — detection itself is
 //       platform-based, not calendar-based), decides YES (a session already
-//       exists for the event) vs NO (none yet), writes
-//       `CalendarDetectionState.shared.detected`, and presents the calendar
-//       widget's DETECTED pill with the app's native icon. Yes / the 10s
-//       auto-start runs the START SEQUENCE (resolve session → `meet42 record
-//       start` → write `meeting/started_at` → dismiss this pill → float the
-//       transcript RECORDING pill). `call-close` either cancels an
-//       undecided prompt, or — for the call currently recording — begins a
-//       5s stop-grace (a `call-open` for the SAME call within that window
-//       cancels the stop; otherwise `meet42 record stop` + `meeting/ended_at`).
+//       exists for the event) vs NO (none yet), sets
+//       `CalendarDetectionState.shared.phase = .detected(meeting)`, and
+//       presents the calendar widget's DETECTED pill with the app's native
+//       icon. Yes / the 10s auto-start flips the phase to `.settingUp` (NO —
+//       minting a fresh session, ~11s) or `.starting` (YES — brief handoff)
+//       and runs the START SEQUENCE (resolve session → `meet42 record start`
+//       → write `meeting/started_at` → phase `.none` → dismiss this pill →
+//       float the transcript RECORDING pill); a failed attempt reverts the
+//       phase to `.detected` so the prompt can be retried. `call-close`
+//       either cancels an undecided prompt, or — for the call currently
+//       recording — begins a 5s stop-grace (a `call-open` for the SAME call
+//       within that window cancels the stop; otherwise `meet42 record stop`
+//       + `meeting/ended_at`).
 //   (b) Reconciler — every ~30s reads assisted events (`meet42 modes get --json`
 //       + `meet42 list --json`) and syncs them into work42's generic scheduler
 //       (`work42 schedule add/cancel --key mtg:<id>`) at T-15min. Unchanged by
 //       the detection rework.
 //
+// Only ONE agent instance (across every alive session) does this work — see
+// `DetectorLock` — since `WidgetBackgroundHost` starts one instance per
+// (session × widget) and N alive sessions must not mean N independent
+// watchers/prompts/mints for the same mic event.
+//
 // The DETECTED pill (`DetectedPillView`) is a plugin-local port of the app's
 // EventSessionAccessory "detected" state (medallion + name/subtitle + 10s
-// auto-start countdown + purple bar + Skip / Record now). The agent↔pill bridge
-// is `CalendarDetectionState.shared`: the agent WRITES `.detected`; `makePillView`
-// READS it and renders the accessory. The record decision + 10s auto-start timer
-// live on the agent (so side effects stay agent-owned); the pill just calls back.
+// auto-start countdown + purple bar + Skip / Record now); `SettingUpPillView`
+// covers the `.settingUp`/`.starting` phases with a `Loader42` + cycling
+// helper text, mirroring `ProcessOverlay.beginSessionSetup()`. The agent↔pill
+// bridge is `CalendarDetectionState.shared`: the agent WRITES `.phase`;
+// `makePillView` READS it and renders the matching accessory — the host panel
+// live-resizes the pill as the reported content size changes between phases.
+// The record decision + 10s auto-start timer live on the agent (so side
+// effects stay agent-owned); the pill just calls back.
 
 /// Meeting-detection accent — the brand violet (#7C3AED), redefined locally so the
 /// widget links no Flow42Core/Work42App. Purple = "a meeting was detected".
@@ -1298,16 +1311,32 @@ struct DetectedMeeting {
     let onSkip: () -> Void
 }
 
-/// The agent↔pill bridge. The background agent WRITES `detected`; the calendar
-/// widget's `makePillView` READS it to switch the pill into its DETECTED mode.
+/// The Calendar pill's current phase — mutually exclusive single-pill states
+/// (meet42-detect-pill-rework). The background agent WRITES `phase`; the
+/// calendar widget's `makePillView` READS it to choose the pill's content.
+enum CalendarPillPhase {
+    /// A meeting was detected and the Skip/Record now prompt is showing.
+    case detected(DetectedMeeting)
+    /// Record now / auto-start fired with NO existing session — minting a
+    /// fresh one (~11s). Shows the "Setting up your Session" loader.
+    case settingUp
+    /// Record now / auto-start fired with an EXISTING session — brief
+    /// handoff, no mint. Shows the "Starting recording…" loader.
+    case starting
+    /// No detection in progress — the pill falls back to the compact
+    /// "next N events" agenda (`CalendarPillView`).
+    case none
+}
+
+/// The agent↔pill bridge. The background agent WRITES `phase`; the calendar
+/// widget's `makePillView` READS it to switch the pill's content.
 @Observable
 @MainActor
 final class CalendarDetectionState {
     static let shared = CalendarDetectionState()
     private init() {}
 
-    /// Non-nil while a meeting is detected and the start pill should render.
-    var detected: DetectedMeeting?
+    var phase: CalendarPillPhase = .none
 }
 
 // MARK: - DetectedPillView (ported "detected" accessory state)
@@ -1480,6 +1509,98 @@ struct DetectedPillView: View {
     }
 }
 
+// MARK: - SettingUpPillView (Calendar pill's second/third state)
+
+/// Shown while a start sequence is in flight — minting a fresh session (no
+/// existing one for this event) or handing off into an existing one. Mirrors
+/// the app's `ProcessOverlay.beginSessionSetup()` (same `Loader42` + title +
+/// cycling helper lines), but content-only: the host panel owns the card
+/// surface (confirmed — `WidgetPillMetadata` has no per-widget color/style
+/// override, so every pill renders on the same dark glass), so this draws
+/// white text over that glass rather than the app dialog's light card.
+struct SettingUpPillView: View {
+    enum Mode: Equatable {
+        /// No existing session — minting a fresh one, ~11s.
+        case mint
+        /// An existing session — brief handoff, ~1-2s, no helper cycling.
+        case starting
+    }
+
+    let mode: Mode
+
+    private let cardWidth: CGFloat = 320
+    private let helperInterval: TimeInterval = 2.2
+    private static let mintHelpers = [
+        "Minting an isolated worktree",
+        "Carrying over your local files",
+        "Preparing agent skills",
+        "Wiring up the session",
+    ]
+
+    @State private var helperIndex = 0
+    @State private var dotsOn = false
+
+    var body: some View {
+        VStack(spacing: 14) {
+            Loader42()
+                .frame(width: 56, height: 56)
+            VStack(spacing: 4) {
+                HStack(spacing: 3) {
+                    Text(title)
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
+                    animatedDots
+                }
+                if let helper {
+                    Text(helper)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.55))
+                        .contentTransition(.opacity)
+                        .id(helper)
+                        .transition(.opacity)
+                }
+            }
+        }
+        .padding(.vertical, 22)
+        .frame(width: cardWidth)
+        .onAppear { dotsOn = true }
+        .onReceive(Timer.publish(every: helperInterval, on: .main, in: .common).autoconnect()) { _ in
+            guard mode == .mint else { return }
+            withAnimation(.easeInOut(duration: 0.3)) {
+                helperIndex = (helperIndex + 1) % Self.mintHelpers.count
+            }
+        }
+    }
+
+    private var title: String {
+        switch mode {
+        case .mint: return "Setting up your Session"
+        case .starting: return "Starting recording"
+        }
+    }
+
+    private var helper: String? {
+        guard mode == .mint else { return nil }
+        return Self.mintHelpers[helperIndex % Self.mintHelpers.count]
+    }
+
+    private var animatedDots: some View {
+        HStack(spacing: 2) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(.white.opacity(0.5))
+                    .frame(width: 3, height: 3)
+                    .opacity(dotsOn ? 1 : 0.2)
+                    .animation(
+                        .easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(Double(i) * 0.18),
+                        value: dotsOn
+                    )
+            }
+        }
+        .padding(.bottom, 2)
+    }
+}
+
 // MARK: - meet42 now --json payload
 
 /// Decode target for `meet42 now --json` — a single `CalendarEvent.Item` (or the
@@ -1499,6 +1620,67 @@ private struct DetectedEventPayload: Decodable {
     let sessionDir: String?
 }
 
+// MARK: - DetectorLock
+
+/// Machine-wide pid lock so only ONE `CalendarDetectionAgent` instance — across
+/// every alive session this widget is active on — spawns `meet42 watch` and
+/// runs the prompt/mint pipeline. `WidgetBackgroundHost` starts one agent
+/// instance per (session × widget); with N alive sessions that's N
+/// independent watchers each prompting/minting for the same mic event
+/// (observed live: 3 simultaneous `meet42 watch` processes, orphaned across
+/// app relaunches since a non-graceful quit never calls `stop()` on the old
+/// instance). Mirrors `RecordingStateStore`'s pid + `kill(pid, 0)` liveness
+/// pattern — duplicated locally since a plugin widget can't import
+/// `Meet42Capture`.
+private enum DetectorLock {
+    private static var path: String {
+        (NSHomeDirectory() as NSString).appendingPathComponent(".work42/meet42/detector-lock.json")
+    }
+
+    private struct Claim: Codable { let pid: Int32 }
+
+    /// Returns true if this process now owns the lock — either it already did,
+    /// or the lock was free/stale (owner's pid is dead) and got reclaimed.
+    static func claim() -> Bool {
+        let myPid = ProcessInfo.processInfo.processIdentifier
+        if let data = FileManager.default.contents(atPath: path),
+           let claim = try? JSONDecoder().decode(Claim.self, from: data) {
+            if claim.pid == myPid { return true }
+            if kill(claim.pid, 0) == 0 { return false } // a live owner that isn't us
+            // Owner's pid is dead — the claim is stale, fall through and take it.
+        }
+        return write(pid: myPid)
+    }
+
+    /// Release the lock, but only if we're still the recorded owner (avoids
+    /// deleting a claim another process took over in the meantime).
+    static func release(myPid: Int32) {
+        guard let data = FileManager.default.contents(atPath: path),
+              let claim = try? JSONDecoder().decode(Claim.self, from: data),
+              claim.pid == myPid
+        else { return }
+        try? FileManager.default.removeItem(atPath: path)
+    }
+
+    private static func write(pid: Int32) -> Bool {
+        let dir = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        guard let data = try? JSONEncoder().encode(Claim(pid: pid)) else { return false }
+        let tmp = path + ".tmp.\(pid)"
+        do {
+            try data.write(to: URL(fileURLWithPath: tmp))
+            guard rename(tmp, path) == 0 else {
+                try? FileManager.default.removeItem(atPath: tmp)
+                return false
+            }
+            return true
+        } catch {
+            try? FileManager.default.removeItem(atPath: tmp)
+            return false
+        }
+    }
+}
+
 // MARK: - CalendarDetectionAgent
 
 /// The calendar widget's background agent: mic-wake detection + the scheduler
@@ -1516,6 +1698,14 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     @ObservationIgnored private var reconcileTask: Task<Void, Never>?
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
     @ObservationIgnored private var stopGraceTask: Task<Void, Never>?
+    @ObservationIgnored private var detectorClaimTask: Task<Void, Never>?
+    /// True once THIS instance owns the machine-wide detector lock (see
+    /// `DetectorLock`) and is therefore the one spawning `meet42 watch` +
+    /// running the reconciler. WidgetBackgroundHost starts one agent instance
+    /// per (session × widget) — with N alive sessions that's N instances; only
+    /// the lock owner does real work, the rest stay idle and periodically
+    /// check whether the owner has died so one of them can take over.
+    @ObservationIgnored private var ownsDetectorLock = false
 
     /// Calls already handled (prompted, or decided) — a call-open is handled
     /// exactly once. In-memory only, call-session scoped: a restart treats a
@@ -1535,11 +1725,22 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
 
     func start(services s: WidgetBackgroundServices) {
         services = s
-        spawnWatchLoop(s)
-        reconcileTask = Task { [weak self] in
+        ownsDetectorLock = DetectorLock.claim()
+        if ownsDetectorLock {
+            beginWatching(s)
+        }
+        // Idle instances (lock not held) re-check every ~15s in case the
+        // owner died without a clean stop() (e.g. the app was killed, not
+        // quit) — the lock is pid-liveness-checked, so a dead owner's claim
+        // is reclaimable immediately, not just after some fixed expiry.
+        detectorClaimTask = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.reconcileCycle(s)
-                try? await Task.sleep(for: .seconds(30))
+                try? await Task.sleep(for: .seconds(15))
+                guard let self, !Task.isCancelled, !self.ownsDetectorLock else { continue }
+                if DetectorLock.claim() {
+                    self.ownsDetectorLock = true
+                    self.beginWatching(s)
+                }
             }
         }
     }
@@ -1550,11 +1751,28 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         reconcileTask?.cancel(); reconcileTask = nil
         countdownTask?.cancel(); countdownTask = nil
         stopGraceTask?.cancel(); stopGraceTask = nil
+        detectorClaimTask?.cancel(); detectorClaimTask = nil
+        if ownsDetectorLock {
+            DetectorLock.release(myPid: ProcessInfo.processInfo.processIdentifier)
+            ownsDetectorLock = false
+        }
         services = nil
         handledCalls.removeAll()
         recordingCallId = nil
         recordingSessionId = nil
         recordingSessionDir = nil
+    }
+
+    /// Spawn the watch loop and start the reconciler — only ever called while
+    /// `ownsDetectorLock` is true (initial start, or a later takeover).
+    private func beginWatching(_ s: WidgetBackgroundServices) {
+        spawnWatchLoop(s)
+        reconcileTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.reconcileCycle(s)
+                try? await Task.sleep(for: .seconds(30))
+            }
+        }
     }
 
     // MARK: (a) meet42 watch stream — event-driven, zero polling
@@ -1670,7 +1888,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
             onRecord: { [weak self] in self?.startRecording(callId: callId, app: app, bundleId: bundleId, s) },
             onSkip: { [weak self] in self?.skip(callId: callId, s) }
         )
-        CalendarDetectionState.shared.detected = meeting
+        CalendarDetectionState.shared.phase = .detected(meeting)
         try? await s.pill.present(widgetId: "calendar", sessionId: s.sessionId)
         Meet42Trace.log("detect", "prompt-shown", ["callId": callId, "app": app])
 
@@ -1687,9 +1905,9 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     /// the call currently owning the active recording — begins the 5s
     /// stop-grace (cancelled by a matching call-open, i.e. a quick rejoin).
     private func onCallClose(callId: String, _ s: WidgetBackgroundServices) async {
-        if CalendarDetectionState.shared.detected != nil, recordingCallId != callId {
+        if case .detected = CalendarDetectionState.shared.phase, recordingCallId != callId {
             countdownTask?.cancel(); countdownTask = nil
-            CalendarDetectionState.shared.detected = nil
+            CalendarDetectionState.shared.phase = .none
             try? await s.pill.dismiss(widgetId: "calendar")
         }
         guard callId == recordingCallId,
@@ -1723,38 +1941,40 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     /// widget, s5) runs the same (2)-(5) tail for its already-open session.
     private func startRecording(callId: String, app: String, bundleId: String, _ s: WidgetBackgroundServices) {
         countdownTask?.cancel(); countdownTask = nil
-        let meeting = CalendarDetectionState.shared.detected
+        guard case .detected(let meeting) = CalendarDetectionState.shared.phase else { return }
+        let isReuse = meeting.existingSessionId != nil
+        // Flip the pill into its loader state immediately — minting an ad-hoc
+        // session runs ~11s, and even the reuse handoff takes a beat; both get
+        // visible feedback instead of the pill looking frozen.
+        CalendarDetectionState.shared.phase = isReuse ? .starting : .settingUp
         Task { [weak self] in
             guard let self else { return }
 
             // 1. Resolve the session — reuse (YES) or mint (NO).
             let sessionId: String
             let sessionDir: String
-            if let existing = meeting?.existingSessionId {
-                guard let dir = meeting?.existingSessionDir, !dir.isEmpty else {
+            if let existing = meeting.existingSessionId {
+                guard let dir = meeting.existingSessionDir, !dir.isEmpty else {
                     // No directory on record (a pre-link-session-dir link, or a
                     // failed link write) — can't record-start without one. Fail
                     // safe: dismiss rather than guess a path.
                     Meet42Trace.log("detect", "start-aborted", ["callId": callId, "reason": "no-session-dir"])
-                    await self.clearAndDismiss(s)
+                    await self.abortStart(meeting, s)
                     return
                 }
                 sessionId = existing
                 sessionDir = dir
             } else {
-                var cmd = "work42 session start --type event"
-                    + " --name \(calShellQuote(meeting?.title ?? app))"
-                    + " --json"
-                if let eventId = meeting?.eventId {
-                    cmd += " --arg event_id=\(calShellQuote(eventId))"
-                }
-                guard let r = try? await s.shell.run(command: cmd), r.exitCode == 0,
-                      let data = r.stdout.data(using: .utf8),
-                      let started = try? JSONDecoder().decode(SessionStartResult.self, from: data),
+                // Unique per call — a constant name resolves to the SAME
+                // deterministic session id (SessionMint derives sid from
+                // --name), so every ad-hoc detected call must mint a
+                // genuinely new session, not resurrect an old "Chrome" one.
+                let name = "\(app) — \(Self.friendlyStamp(Date()))"
+                guard let started = await Self.mintEventSession(name: name, eventId: meeting.eventId),
                       let dir = started.ownerDir
                 else {
                     Meet42Trace.log("detect", "start-aborted", ["callId": callId, "reason": "mint-failed"])
-                    await self.clearAndDismiss(s)
+                    await self.abortStart(meeting, s)
                     return
                 }
                 sessionId = started.sessionId
@@ -1784,7 +2004,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
             }
             guard confirmed else {
                 Meet42Trace.log("detect", "start-aborted", ["callId": callId, "reason": "status-not-confirmed"])
-                await self.clearAndDismiss(s)
+                await self.abortStart(meeting, s)
                 return
             }
             self.recordingCallId = callId
@@ -1798,7 +2018,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
             )
 
             // 4 + 5. Dismiss the detection pill, float the transcript pill.
-            CalendarDetectionState.shared.detected = nil
+            CalendarDetectionState.shared.phase = .none
             try? await s.pill.dismiss(widgetId: "calendar")
             try? await s.pill.present(widgetId: "transcript", sessionId: sessionId)
             Meet42Trace.log("detect", "pill-presented", ["callId": callId, "sessionId": sessionId])
@@ -1818,6 +2038,83 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         try? process.run()
     }
 
+    /// "Chrome — Oct 2, 2:14 PM" — the name fed to `work42 session start
+    /// --name` for an ad-hoc mint. Must be unique per call (not just per app)
+    /// since SessionMint derives the session id deterministically from the
+    /// name; a constant name would keep resolving to the same old session.
+    private static func friendlyStamp(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, h:mm a"
+        return f.string(from: date)
+    }
+
+    /// Resolve the bundled `work42` binary the same way `meet42Invocation`
+    /// resolves `meet42` — same-flavor bundle lookup first, PATH fallback for
+    /// non-bundle dev contexts.
+    private static func work42Invocation(
+        extraArgs: [String]
+    ) -> (executable: URL, arguments: [String]) {
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/work42")
+        if FileManager.default.fileExists(atPath: bundled.path) {
+            return (bundled, extraArgs)
+        }
+        return (URL(fileURLWithPath: "/usr/bin/env"), ["work42"] + extraArgs)
+    }
+
+    /// Mint a fresh event session as a DETACHED process — `work42 session
+    /// start` measures ~11s, over `WidgetShellService`'s 10s bound, so it must
+    /// run outside the bounded shell the same way `meet42 watch`/`record
+    /// start` do. Unlike those two, this call DOES need its stdout (the JSON
+    /// result), so it redirects to a temp file and polls for completion
+    /// instead of the fire-and-forget + separate-status-check pattern.
+    private static func mintEventSession(name: String, eventId: String?) async -> SessionStartResult? {
+        var args = ["session", "start", "--type", "event", "--name", name, "--json"]
+        if let eventId {
+            args += ["--arg", "event_id=\(eventId)"]
+        }
+        let (exe, arguments) = Self.work42Invocation(extraArgs: args)
+
+        let outURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("meet42-mint-\(UUID().uuidString).json")
+        guard FileManager.default.createFile(atPath: outURL.path, contents: nil),
+              let outHandle = try? FileHandle(forWritingTo: outURL)
+        else { return nil }
+        defer {
+            try? outHandle.close()
+            try? FileManager.default.removeItem(at: outURL)
+        }
+
+        let process = Process()
+        process.executableURL = exe
+        process.arguments = arguments
+        process.standardOutput = outHandle
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return nil
+        }
+
+        // Poll rather than block on waitUntilExit() (which would tie up this
+        // Task's thread for ~11s) — up to ~30s to leave headroom above the
+        // observed ~11s mint time.
+        for _ in 0..<60 {
+            if !process.isRunning { break }
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+        guard !process.isRunning, process.terminationStatus == 0,
+              let data = try? Data(contentsOf: outURL)
+        else { return nil }
+        return try? JSONDecoder().decode(SessionStartResult.self, from: data)
+    }
+
+    /// A start attempt failed after the pill already flipped into its loader
+    /// state — revert to the DETECTED prompt (the call may still be live, so
+    /// the user can retry) rather than dismissing outright.
+    private func abortStart(_ meeting: DetectedMeeting, _ s: WidgetBackgroundServices) async {
+        CalendarDetectionState.shared.phase = .detected(meeting)
+    }
+
     /// No — permanently dismiss for this call session; a genuinely new call
     /// (new callId) prompts again.
     private func skip(callId: String, _ s: WidgetBackgroundServices) {
@@ -1827,7 +2124,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     }
 
     private func clearAndDismiss(_ s: WidgetBackgroundServices) async {
-        CalendarDetectionState.shared.detected = nil
+        CalendarDetectionState.shared.phase = .none
         try? await s.pill.dismiss(widgetId: "calendar")
     }
 
@@ -2068,15 +2365,26 @@ final class CalendarWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgrou
     // else the compact "next N events" agenda.
 
     func makePillView(services: SessionServices) -> AnyView? {
-        if let detected = CalendarDetectionState.shared.detected {
-            return AnyView(DetectedPillView(meeting: detected, services: services))
+        switch CalendarDetectionState.shared.phase {
+        case .detected(let meeting):
+            return AnyView(DetectedPillView(meeting: meeting, services: services))
+        case .settingUp:
+            return AnyView(SettingUpPillView(mode: .mint))
+        case .starting:
+            return AnyView(SettingUpPillView(mode: .starting))
+        case .none:
+            return AnyView(CalendarPillView(services: services))
         }
-        return AnyView(CalendarPillView(services: services))
     }
 
     var pillMetadata: WidgetPillMetadata {
         WidgetPillMetadata(
-            preferredSize: WidgetMinSize(width: 320, height: 260),
+            // Matches DetectedPillView's actual rendered size (412 wide,
+            // ~108 tall) — a mismatched preferredSize leaves dead space
+            // until the live onPreferenceChange resize catches up.
+            // SettingUpPillView reports its own (narrower) size, and the
+            // host panel live-resizes between the two automatically.
+            preferredSize: WidgetMinSize(width: 412, height: 108),
             title: title,
             icon: icon
         )
