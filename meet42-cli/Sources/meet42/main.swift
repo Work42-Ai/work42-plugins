@@ -33,6 +33,7 @@ enum Dispatcher {
         case "modes":    DataCommands.modes(args: args)
         case "sync":     await SyncCommand.sync(args: args)
         case "record":   await RecordCommand.record(args: args)
+        case "trace":    TraceCommand.trace(args: args)
         case "version", "--version", "-v":
             print("meet42 v\(meet42Version)")
         case "help", "--help", "-h", "":
@@ -97,13 +98,22 @@ enum Dispatcher {
           record stop --session-dir <dir>
                 Signal the capture daemon to finalize and exit.
 
+        Diagnostics:
+          trace [--tail N] [--call <callId>] [--json]
+                Pretty-print the last N pipeline events from
+                ~/.work42/meet42/trace.jsonl (default --tail 50).
+                --call <id> filters to one call session.
+                --json emits raw JSON lines. Reads always work regardless
+                of the MEET42_TRACE=0 env var (which only gates writes).
+
           version | --version
           help | --help
 
         Data lives under:
-          ~/.work42/meet42/calendar.db   (calendar mirror)
-          ~/.work42/meet42/modes.json    (assistance flags)
-          ~/.work42/peers42/people.db    (people graph)
+          ~/.work42/meet42/calendar.db    (calendar mirror)
+          ~/.work42/meet42/modes.json     (assistance flags)
+          ~/.work42/meet42/trace.jsonl    (pipeline trace log)
+          ~/.work42/peers42/people.db     (people graph)
         """)
     }
 }

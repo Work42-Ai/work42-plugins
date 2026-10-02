@@ -254,6 +254,40 @@ private func transcriptShellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+// MARK: - Meet42Trace (duplicated per widget — no shared target; same convention as shell-quote helpers)
+
+/// Append one JSON-line trace event to ~/.work42/meet42/trace.jsonl.
+/// Best-effort (never throws, never blocks). Disabled when MEET42_TRACE=0.
+private enum Meet42Trace {
+    static func log(_ src: String, _ evt: String, _ fields: [String: Any] = [:]) {
+        guard ProcessInfo.processInfo.environment["MEET42_TRACE"] != "0" else { return }
+        var row = fields
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        row["ts"]  = f.string(from: Date())
+        row["pid"] = Int(getpid())
+        row["src"] = src
+        row["evt"] = evt
+        guard let data = try? JSONSerialization.data(withJSONObject: row, options: [.sortedKeys]),
+              var line = String(data: data, encoding: .utf8) else { return }
+        line += "\n"
+        let root = (NSHomeDirectory() as NSString).appendingPathComponent(".work42/meet42")
+        let path = (root as NSString).appendingPathComponent("trace.jsonl")
+        // Rotate past 5 MB.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: path),
+           let size = attrs[.size] as? Int, size > 5 * 1024 * 1024 {
+            rename(path, path + ".1")
+        }
+        // Ensure the directory exists before opening.
+        try? FileManager.default.createDirectory(atPath: root, withIntermediateDirectories: true, attributes: nil)
+        // O_APPEND|O_CREAT|O_WRONLY: atomic across processes for small writes.
+        let fd = open(path, O_APPEND | O_CREAT | O_WRONLY, 0o644)
+        guard fd >= 0 else { return }
+        line.withCString { _ = write(fd, $0, strlen($0)) }
+        close(fd)
+    }
+}
+
 /// Parse an ISO 8601 timestamp, tolerating presence/absence of fractional secs.
 private func parseISO8601(_ ts: String) -> Date? {
     let f = ISO8601DateFormatter()
