@@ -302,14 +302,10 @@ private func parseISO8601(_ ts: String) -> Date? {
 
 /// Decode target for `meet42 record status --json`. `meet42 record` is now
 /// session-agnostic (meet42-recording-lifecycle-rework s1) — its status is
-/// keyed by `dir` (the recording's own directory), not a session id. `
-/// sessionId` is kept decodable (always nil against the real CLI now) ONLY
-/// because the manual Record/Stop intents below still reference it pending
-/// their own rewrite (s5) — remove once that lands.
+/// keyed by `dir` (the recording's own directory), not a session id.
 private struct TranscriptRecordStatusPayload: Decodable {
     let recording: Bool
     let dir: String?
-    let sessionId: String?
 }
 
 /// Unwrap a canonical-JSON-quoted string from `work42 storage get`'s raw
@@ -353,7 +349,7 @@ private struct RecordingSnapshot {
 }
 
 private func fetchRecordingSnapshot(services: SessionServices) async -> RecordingSnapshot {
-    guard services.sessionId != nil else {
+    guard let sessionId = services.sessionId else {
         return RecordingSnapshot(recordingDir: nil, isRecordingThisSession: false, startedAt: nil, hasEnded: false)
     }
     let recordingDir = await fetchRecordingDir(services: services)
@@ -375,6 +371,27 @@ private func fetchRecordingSnapshot(services: SessionServices) async -> Recordin
        case .string(let iso) = value, parseISO8601(iso) != nil {
         hasEnded = true
     }
+
+    // Ended-gate (AC10): the record daemon self-stops entirely on its own
+    // (meet42-recording-lifecycle-rework s2) — nobody may ever click Stop. If
+    // this session genuinely had a recording (recordingDir + startedAt both
+    // set — true for both the auto-detected and manual-record paths) that is
+    // NOT active right now and ended_at was never written, write it here so
+    // the session still advances to Summary. Guarded by `!hasEnded` so this
+    // fires only once — the next poll observes ended_at already set and
+    // skips it. A cross-session-shaped write even though it's this session's
+    // own: services.storage can't target the "meeting" namespace (restricted
+    // to this widget's own "transcript" namespace), so this goes through the
+    // shelled CLI, same as the manual Stop intent.
+    if recordingDir != nil, startedAt != nil, !isRecording, !hasEnded {
+        let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+        _ = try? await services.shell.run(
+            command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
+        )
+        hasEnded = true
+        Meet42Trace.log("transcript", "ended-gate-written", ["sessionId": sessionId])
+    }
+
     return RecordingSnapshot(
         recordingDir: recordingDir, isRecordingThisSession: isRecording, startedAt: startedAt, hasEnded: hasEnded
     )
@@ -394,20 +411,61 @@ private func transcriptMeet42Invocation(
     return (URL(fileURLWithPath: "/usr/bin/env"), ["meet42", verb] + extraArgs)
 }
 
-/// Launch `meet42 record start` as a detached, fire-and-forget process — NOT
-/// via `WidgetShellService` (bounded to 10s; `record start` daemonizes via
+/// `meet42 record start --manual --json`'s pre-daemonize stdout line.
+private struct TranscriptRecordStartResult: Decodable {
+    let recordingId: String
+    let dir: String
+}
+
+/// Launch `meet42 record start --manual` as a DETACHED process — NOT via
+/// `WidgetShellService` (bounded to 10s; `record start` daemonizes via
 /// setsid+execve with no fork, so it never exits on its own while recording,
-/// and the bounded shell service would kill it).
-private func fireTranscriptRecordStart(sessionDir: String) {
+/// and the bounded shell service would kill it). `--manual` means no trigger
+/// call to self-watch — only an explicit `record stop` ends it
+/// (meet42-recording-lifecycle-rework s2). Unlike the old fire-and-forget
+/// version, this DOES need the daemon's stdout (the {recordingId,dir} line
+/// it prints before daemonizing, per s1) so the caller can seed this
+/// session's storage pointer — mirrors the calendar widget's
+/// `fireRecordStart`: redirect to a temp file and poll for the line to
+/// appear (NOT for the process to exit, since it deliberately never does).
+private func fireTranscriptRecordStart() async -> TranscriptRecordStartResult? {
     let (exe, args) = transcriptMeet42Invocation(
-        verb: "record", extraArgs: ["start", "--session-dir", sessionDir]
+        verb: "record", extraArgs: ["start", "--manual", "--json"]
     )
+    let outURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("meet42-record-\(UUID().uuidString).json")
+    guard FileManager.default.createFile(atPath: outURL.path, contents: nil),
+          let outHandle = try? FileHandle(forWritingTo: outURL)
+    else { return nil }
+    defer {
+        try? outHandle.close()
+        try? FileManager.default.removeItem(at: outURL)
+    }
+
     let process = Process()
     process.executableURL = exe
     process.arguments = args
-    process.standardOutput = FileHandle.nullDevice
+    process.standardOutput = outHandle
     process.standardError = FileHandle.nullDevice
-    try? process.run()
+    do {
+        try process.run()
+    } catch {
+        return nil
+    }
+
+    // Poll for the stdout line to appear — it prints well under 1s after
+    // launch (before the slow capture init); 5s total budget leaves
+    // generous headroom. If the singleton is already held elsewhere, the
+    // daemon prints a refusal payload instead, which fails to decode as
+    // TranscriptRecordStartResult — correctly surfacing as "didn't start."
+    for _ in 0..<50 {
+        if let data = try? Data(contentsOf: outURL), !data.isEmpty,
+           let result = try? JSONDecoder().decode(TranscriptRecordStartResult.self, from: data) {
+            return result
+        }
+        try? await Task.sleep(for: .milliseconds(100))
+    }
+    return nil
 }
 
 /// Load just the meeting title from `<dir>/meeting.json` (best-effort) so the
@@ -495,11 +553,14 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
             ),
 
             // ── 2. record ────────────────────────────────────────────────────
-            // Shares the detection agent's start-sequence tail: fire the
-            // singleton daemon detached, confirm via `record status`, then
-            // write `meeting/started_at` for the workflow gate (via the CLI —
-            // `services.storage` is file-backed for a non-task session and
-            // never reaches work42.db).
+            // meet42-recording-lifecycle-rework s5: manual Record uses the
+            // SAME session-agnostic primitive the calendar detection agent
+            // uses. `fireTranscriptRecordStart` returning non-nil IS the
+            // confirmation (it only returns once the daemon's pre-daemonize
+            // stdout line appears, which only prints after the singleton
+            // check passes — no separate confirm-poll needed, unlike the old
+            // fire-and-forget version). `--manual` means no trigger call, so
+            // no auto-stop — only this Stop intent (or the pill's) ends it.
             WidgetIntentSpec(
                 name: "record",
                 title: "Record",
@@ -509,37 +570,29 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
                 actionAreaStyle: .icon,
                 isEnabled: { [weak self] in !(self?.isRecordingThisSession ?? false) },
                 perform: { [weak self] in
-                    guard let self, let svc = self.services,
-                          let dir = svc.worktreePath, let sessionId = svc.sessionId else { return }
-                    // Belt-and-suspenders registration — see
-                    // fetchRecordingSnapshot's comment: `work42 storage set
-                    // --session <id>` only resolves without this when the
-                    // override happens to match the CALLING process's own
-                    // WORK42_SESSION_ID, which is usually true here (clicking
-                    // Record on the session you're viewing) but not
-                    // guaranteed.
-                    try? ArtifactRuntime.register(sessionId: sessionId, directory: dir)
-                    fireTranscriptRecordStart(sessionDir: dir)
-
-                    // Compare against the dir's basename, not sessionId — see
-                    // fetchRecordingSnapshot's comment: `meet42 record start`
-                    // derives its own sessionId from the session DIRECTORY's
-                    // last path component, not the semantic session UUID.
-                    let recordSlug = (dir as NSString).lastPathComponent
-                    var confirmed = false
-                    for _ in 0..<4 {
-                        try? await Task.sleep(nanoseconds: 750_000_000)
-                        if let r = try? await svc.shell.run(command: "meet42 record status --json"),
-                           r.exitCode == 0, let data = r.stdout.data(using: .utf8),
-                           let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data),
-                           status.recording, status.sessionId == recordSlug {
-                            confirmed = true
-                            break
-                        }
+                    guard let self, let svc = self.services, let sessionId = svc.sessionId else { return }
+                    guard let started = await fireTranscriptRecordStart() else {
+                        Meet42Trace.log("transcript", "manual-record-aborted", ["sessionId": sessionId])
+                        return
                     }
-                    guard confirmed else { return }
+                    Meet42Trace.log("transcript", "manual-record-started",
+                        ["sessionId": sessionId, "recordingId": started.recordingId])
 
+                    // Seed THIS session's pointer + the started_at workflow
+                    // gate. A cross-process write into THIS widget's own
+                    // session's "meeting" namespace — services.storage can't
+                    // target it (restricted to the widget's own namespace,
+                    // "transcript"), so this goes through the shelled CLI,
+                    // which now resolves correctly via the WORK42_SESSION_ID
+                    // env-match (meet42-recording-lifecycle-rework s6 fixed
+                    // WidgetCommandRunner injecting the wrong directory for
+                    // this exact lookup — no ArtifactRuntime registration
+                    // needed here anymore).
+                    let dirJSON = transcriptShellQuote("\"\(started.dir)\"")
                     let startedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+                    _ = try? await svc.shell.run(
+                        command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/recording_dir \(dirJSON)"
+                    )
                     _ = try? await svc.shell.run(
                         command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/started_at \(startedAtJSON)"
                     )
@@ -565,17 +618,22 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
                 },
                 livePeriodicTick: 1,
                 perform: { [weak self] in
-                    guard let self, let svc = self.services,
-                          let dir = svc.worktreePath, let sessionId = svc.sessionId else { return }
+                    guard let self, let svc = self.services, let sessionId = svc.sessionId,
+                          let recordingDir = await fetchRecordingDir(services: svc)
+                    else { return }
                     // meet42 record stop just touches a marker file and
-                    // returns immediately — safe via the bounded shell service.
+                    // returns immediately — the daemon honors it in ~1s now
+                    // (s2's off-main stop-detection loop), safe via the
+                    // bounded shell service. --dir, not --session-dir (s1
+                    // dropped that flag — meet42 record is session-agnostic).
                     _ = try? await svc.shell.run(
-                        command: "meet42 record stop --session-dir \"\(dir)\""
+                        command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
                     )
                     let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
                     _ = try? await svc.shell.run(
                         command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
                     )
+                    Meet42Trace.log("transcript", "manual-stop", ["sessionId": sessionId])
                     await self.refreshRecordingState()
                 }
             ),
@@ -953,7 +1011,18 @@ private final class RecModel {
     func stopRecording() {
         Task { @MainActor [weak self] in
             guard let self, let sessionId = self.services.sessionId else { return }
-            _ = try? await self.services.shell.run(command: "meet42 record stop --session-dir \"$(pwd)\"")
+            guard let recordingDir = await fetchRecordingDir(services: self.services) else {
+                // No pointer to stop via the daemon (shouldn't happen once a
+                // recording has ever been attached) — still dismiss so the
+                // pill doesn't get stuck.
+                try? await self.services.pill.dismiss(widgetId: "transcript")
+                return
+            }
+            // --dir, not --session-dir (s1 dropped that flag — meet42 record
+            // is session-agnostic now).
+            _ = try? await self.services.shell.run(
+                command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
+            )
             let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
             _ = try? await self.services.shell.run(
                 command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
