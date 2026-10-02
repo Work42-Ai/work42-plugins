@@ -489,6 +489,14 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
                 perform: { [weak self] in
                     guard let self, let svc = self.services,
                           let dir = svc.worktreePath, let sessionId = svc.sessionId else { return }
+                    // Belt-and-suspenders registration — see
+                    // fetchRecordingSnapshot's comment: `work42 storage set
+                    // --session <id>` only resolves without this when the
+                    // override happens to match the CALLING process's own
+                    // WORK42_SESSION_ID, which is usually true here (clicking
+                    // Record on the session you're viewing) but not
+                    // guaranteed.
+                    try? ArtifactRuntime.register(sessionId: sessionId, directory: dir)
                     fireTranscriptRecordStart(sessionDir: dir)
 
                     // Compare against the dir's basename, not sessionId — see

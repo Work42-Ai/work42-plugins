@@ -1984,6 +1984,25 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
             }
             Meet42Trace.log("detect", "session-resolved", ["callId": callId, "sessionId": sessionId])
 
+            // Register this session with ArtifactRuntime's session registry
+            // (~/.work42/artifacts/sessions/<id>.json). `work42 storage set
+            // --session <id>` below (and the transcript pill's own
+            // `meeting/started_at` read) resolves its target session via
+            // SessionDiscovery: an explicit --session override is trusted
+            // immediately ONLY when it matches the CALLING process's own
+            // WORK42_SESSION_ID — never true here, since these shelled calls
+            // run from the calendar widget's background agent, a different
+            // session than the one being recorded — otherwise it falls back
+            // to this registry, which a calendar-detected session (no
+            // work42-runner agent of its own ever runs inside it to
+            // register implicitly) never populates on its own. Without this,
+            // every `storage set --session <id>` below silently fails ("No
+            // artifact session registered") and meeting/started_at never
+            // gets written — confirmed live as why the transcript pill's
+            // timer was stuck at 0:00 despite the recording genuinely being
+            // active.
+            try? ArtifactRuntime.register(sessionId: sessionId, directory: sessionDir)
+
             // 2. Fire the singleton recording daemon — DETACHED (not via
             // WidgetShellService: `meet42 record start` daemonizes via
             // setsid+execve with NO fork, so the process never exits while
