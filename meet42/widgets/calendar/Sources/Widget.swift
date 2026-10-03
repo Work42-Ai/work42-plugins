@@ -1349,6 +1349,33 @@ final class CalendarDetectionState {
     var phase: CalendarPillPhase = .none
 }
 
+/// Routes the ALREADY-FLOATED calendar pill's content by `phase` — and,
+/// critically, does so from an actual SwiftUI `View.body` rather than a plain
+/// function. `PillHost.present` calls `makePillView` exactly ONCE per
+/// `present()` call and freezes the resulting `AnyView`; `startRecording`
+/// below never calls `present` again, it only mutates
+/// `CalendarDetectionState.shared.phase` and relies on reactive re-render.
+/// Reading an `@Observable` property from a plain function (the old
+/// `makePillView` body) does NOT establish that dependency — only reading it
+/// from a real View's `body` does — so the loader states silently never
+/// appeared; this wrapper is what makes the phase transitions actually live.
+private struct CalendarPillRouter: View {
+    let services: SessionServices
+
+    var body: some View {
+        switch CalendarDetectionState.shared.phase {
+        case .detected(let meeting):
+            DetectedPillView(meeting: meeting, services: services)
+        case .settingUp:
+            SettingUpPillView(mode: .mint)
+        case .starting:
+            SettingUpPillView(mode: .starting)
+        case .none:
+            CalendarPillView(services: services)
+        }
+    }
+}
+
 // MARK: - DetectedPillView (ported "detected" accessory state)
 
 /// Plugin-local port of EventSessionAccessory's `detected` state: medallion +
@@ -2428,16 +2455,7 @@ final class CalendarWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgrou
     // else the compact "next N events" agenda.
 
     func makePillView(services: SessionServices) -> AnyView? {
-        switch CalendarDetectionState.shared.phase {
-        case .detected(let meeting):
-            return AnyView(DetectedPillView(meeting: meeting, services: services))
-        case .settingUp:
-            return AnyView(SettingUpPillView(mode: .mint))
-        case .starting:
-            return AnyView(SettingUpPillView(mode: .starting))
-        case .none:
-            return AnyView(CalendarPillView(services: services))
-        }
+        AnyView(CalendarPillRouter(services: services))
     }
 
     var pillMetadata: WidgetPillMetadata {
