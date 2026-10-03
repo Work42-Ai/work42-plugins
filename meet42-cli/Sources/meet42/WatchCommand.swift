@@ -157,15 +157,10 @@ enum WatchCommand {
 /// blocks. Every method (and therefore every state mutation) runs exclusively
 /// on `queue`, giving us lock-free safety without actors.
 ///
-/// Shared (meet42-recording-lifecycle-rework, s2) by two callers with the
-/// SAME proven listener + 1s-backstop machinery but different matching scope
-/// and edge action:
-///   - `meet42 watch` (WatchCommand.watch): `scopeBundleId == nil` matches
-///     the WHOLE call-app catalog; `onEdge` emits call-open/call-close JSON.
-///   - RecordCommand's daemon self-watch: `scopeBundleId` is the recording's
-///     OWN trigger bundle id — it must react to only ITS call, never an
-///     unrelated one elsewhere — and `onEdge` drives the self-stop grace
-///     timer instead of emitting anything.
+/// `meet42 watch` uses the same proven listener + 1s-backstop machinery for
+/// global detection and bundle-scoped widget lifecycle observation. Recording
+/// capture deliberately does not use this watcher; UI owners decide how mic
+/// edges affect a meeting.
 ///
 /// @unchecked Sendable: Swift can't verify the serial-queue discipline, but it
 /// is enforced by construction — all entry points dispatch onto `queue`.

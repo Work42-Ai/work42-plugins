@@ -20,16 +20,9 @@
 //
 // `stop` touches that marker; the daemon notices within ~250ms (see
 // waitForStop below), finalizes everything, clears the RecordingState slot,
-// and exits.
-//
-// SELF-STOP (meet42-recording-lifecycle-rework, s2): when a trigger bundle id
-// is known and `--manual` is not set, the daemon ALSO watches its own trigger
-// call via a scoped `MicWatcher` (shared with WatchCommand.swift) and touches
-// the SAME stop marker ~5s after that app's mic input closes (cancelled by a
-// re-open, mirroring the old app-side stop-grace) — so a recording's lifetime
-// always matches its call's lifetime, with zero dependence on any other
-// process being alive. Manual recordings (no trigger) only ever stop via an
-// explicit `record stop`.
+// and exits. Auto-detected recordings may also carry an owning Work42 PID;
+// owner exit enters the same finalization path. The daemon intentionally has
+// no microphone-lifecycle policy. Calendar and Transcript own those UI phases.
 //
 // The stop-detection loop runs on a DEDICATED DispatchQueue (waitForStop),
 // NOT as an async Task.sleep loop on the @MainActor/cooperative-thread-pool —
@@ -74,6 +67,7 @@ enum RecordCommand {
         let app: String?
         let bundleId: String?
         let startedAt: String?
+        let ownerPid: Int32?
     }
 
     static func record(args: [String]) async {
@@ -103,11 +97,9 @@ enum RecordCommand {
         // passes neither and defaults to "Manual".
         let app = CLI.argValue(args, "--app") ?? "Manual"
         let bundleId = CLI.argValue(args, "--bundle-id") ?? ""
-        // Manual recordings have no trigger call to watch — they only ever
-        // stop via an explicit `record stop` (self-stop lands in s2, gated
-        // on this flag so it's threaded through from the first entry).
         let isManual = args.contains("--manual")
         let isReexec = Meet42Daemon.isReexec(args)
+        let ownerPid = parseOwnerPid(args)
 
         // Resolve the recording's identity ONCE, on the true foreground
         // entry, and carry it through the re-exec argv (--recording-id/--dir)
@@ -156,6 +148,7 @@ enum RecordCommand {
         if !app.isEmpty { reexecArgv += ["--app", app] }
         if !bundleId.isEmpty { reexecArgv += ["--bundle-id", bundleId] }
         if isManual { reexecArgv += ["--manual"] }
+        if let ownerPid { reexecArgv += ["--owner-pid", String(ownerPid)] }
         reexecArgv += ["--reexec"]
         Meet42Daemon.daemonize(reexecArgv: reexecArgv, isReexec: isReexec)
 
@@ -163,8 +156,16 @@ enum RecordCommand {
         // fell through — in which case we run the loop in-place anyway).
         await runDaemon(
             recordingId: recordingId, dir: dir, device: device,
-            app: app, bundleId: bundleId, isManual: isManual
+            app: app, bundleId: bundleId, ownerPid: ownerPid
         )
+    }
+
+    private static func parseOwnerPid(_ args: [String]) -> Int32? {
+        guard let raw = CLI.argValue(args, "--owner-pid") else { return nil }
+        guard let pid = Int32(raw), pid > 0 else {
+            CLI.fail("meet42 record start: --owner-pid must be a positive process id")
+        }
+        return pid
     }
 
     /// The ONLY place `record start`'s stdout contract is written: one
@@ -181,7 +182,7 @@ enum RecordCommand {
 
     private static func runDaemon(
         recordingId: String, dir: String, device: String?, app: String,
-        bundleId: String, isManual: Bool
+        bundleId: String, ownerPid: Int32?
     ) async {
         let dirURL = URL(fileURLWithPath: dir)
         let marker = dirURL.appendingPathComponent(stopMarkerName).path
@@ -217,7 +218,7 @@ enum RecordCommand {
         let startedAt = CLI.nowISO()
         RecordingStateStore.write(
             recordingId: recordingId, dir: dir, app: app, bundleId: bundleId,
-            pid: getpid(), startedAt: startedAt
+            pid: getpid(), ownerPid: ownerPid, startedAt: startedAt
         )
         Meet42Trace.log("record", "start-claimed", ["recordingId": recordingId, "app": app])
         Meet42Trace.log("record", "state-written", ["recordingId": recordingId])
@@ -232,24 +233,11 @@ enum RecordCommand {
         }
         await MeetingCapture.diarizationStart(sessionDir: dirURL, sessionId: recordingId)
 
-        // Self-watch: when there's a real trigger call (not --manual), arm a
-        // MicWatcher scoped to its bundle id. Its onEdge runs on the
-        // watcher's own serial queue (never the MainActor) — a close touches
-        // the SAME marker `waitForStop` below is watching for, after a 5s
-        // grace cancellable by a re-open. Armed via a `nonisolated` helper
-        // (see armSelfWatch below) so its closures aren't inferred as
-        // @MainActor-isolated — they're actually invoked from MicWatcher's
-        // and SelfStopGrace's own dedicated queues, and a @MainActor-isolated
-        // closure invoked off the Main queue traps at runtime (the exact
-        // crash this fixes, confirmed live in waitForStop's identical
-        // pattern — see its doc comment).
-        let selfWatcher: MicWatcher? = (!isManual && !bundleId.isEmpty)
-            ? Self.armSelfWatch(bundleId: bundleId, recordingId: recordingId, marker: marker)
-            : nil
-
         CLI.warn("meet42 record: capturing — watching for stop marker at \(marker)")
-        await waitForStop(marker: marker)
-        withExtendedLifetime(selfWatcher) {}
+        let stopReason = await waitForStop(marker: marker, ownerPid: ownerPid)
+        Meet42Trace.log("record", "stop-requested", [
+            "recordingId": recordingId, "reason": stopReason.rawValue,
+        ])
 
         // Finalize in reverse order.
         await MeetingCapture.transcriptionStop()
@@ -263,35 +251,8 @@ enum RecordCommand {
         exit(0)
     }
 
-    /// Arms the self-watch `MicWatcher` + its `SelfStopGrace` for the daemon's
-    /// self-stop (s2). `nonisolated`: the closures built here are invoked by
-    /// MicWatcher/SelfStopGrace on their OWN dedicated dispatch queues, never
-    /// the MainActor. If this were a (default-isolated) member of the
-    /// @MainActor RecordCommand enum, Swift would infer these closures as
-    /// @MainActor-isolated purely from their lexical context, and the
-    /// runtime's actor-isolation check traps the first time one actually
-    /// runs off the Main queue — the exact crash fixed by waitForStop's own
-    /// `nonisolated` below; this mirrors that fix for the self-watch path
-    /// before it has a chance to crash the same way.
-    nonisolated private static func armSelfWatch(
-        bundleId: String, recordingId: String, marker: String
-    ) -> MicWatcher {
-        let grace = SelfStopGrace()
-        let watcher = MicWatcher(scopeBundleId: bundleId) { active, _ in
-            if active {
-                grace.reopened()
-            } else {
-                grace.closed {
-                    Meet42Trace.log("record", "self-stop-triggered", ["recordingId": recordingId])
-                    _ = FileManager.default.createFile(atPath: marker, contents: Data())
-                }
-            }
-        }
-        watcher.start()
-        return watcher
-    }
-
-    /// Suspend until `marker` exists, checked every 250ms on a DEDICATED
+    /// Suspend until `marker` exists or the optional owner exits, checked every
+    /// 250ms on a DEDICATED
     /// DispatchQueue — NOT Swift's cooperative thread pool / the MainActor
     /// executor, which capture/transcription CPU load can starve for 4s+
     /// (confirmed live: an explicit `record stop` sat ignored that long and
@@ -309,15 +270,21 @@ enum RecordCommand {
     /// mismatch is observed, i.e. the first time the marker file appears.
     /// `nonisolated` removes the (wrong) inferred isolation; nothing in the
     /// body needs MainActor anyway.
-    nonisolated private static func waitForStop(marker: String) async {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+    nonisolated private static func waitForStop(
+        marker: String, ownerPid: Int32?
+    ) async -> RecordingStopReason {
+        await withCheckedContinuation {
+            (continuation: CheckedContinuation<RecordingStopReason, Never>) in
             let queue = DispatchQueue(label: "meet42.record.stop-poll")
             let timer = DispatchSource.makeTimerSource(queue: queue)
             timer.schedule(deadline: .now() + 0.25, repeating: 0.25, leeway: .milliseconds(50))
             timer.setEventHandler {
-                guard FileManager.default.fileExists(atPath: marker) else { return }
+                guard let reason = RecordingStopPolicy.stopReason(
+                    markerExists: FileManager.default.fileExists(atPath: marker),
+                    ownerPid: ownerPid
+                ) else { return }
                 timer.cancel()
-                continuation.resume()
+                continuation.resume(returning: reason)
             }
             timer.resume()
         }
@@ -363,7 +330,8 @@ enum RecordCommand {
         if CLI.wantsJSON(args) {
             CLI.emitJSON(StatusResult(
                 recording: true, recordingId: active.recordingId, dir: active.dir,
-                app: active.app, bundleId: active.bundleId, startedAt: active.startedAt
+                app: active.app, bundleId: active.bundleId, startedAt: active.startedAt,
+                ownerPid: active.ownerPid
             ))
         } else {
             print("meet42 record: recording — '\(active.recordingId)' (\(active.app)), started \(active.startedAt).")
@@ -373,46 +341,11 @@ enum RecordCommand {
     private static func emitNotRecording(_ args: [String]) {
         if CLI.wantsJSON(args) {
             CLI.emitJSON(StatusResult(
-                recording: false, recordingId: nil, dir: nil, app: nil, bundleId: nil, startedAt: nil
+                recording: false, recordingId: nil, dir: nil, app: nil,
+                bundleId: nil, startedAt: nil, ownerPid: nil
             ))
         } else {
             print("meet42 record: not recording.")
-        }
-    }
-}
-
-// MARK: - SelfStopGrace
-
-/// Owns the ~5s self-stop grace timer for RecordCommand's self-watch: armed
-/// on the trigger mic's close edge, cancelled on a reopen edge (so a brief
-/// mute/hold doesn't end the recording) — mirrors the old app-side detection
-/// agent's 5s stop-grace. Runs its own dedicated serial queue so `reopened()`
-/// /`closed()` (called from MicWatcher's own queue on each edge) and the
-/// timer's callback never race each other regardless of which thread calls in.
-///
-/// @unchecked Sendable: enforced by construction, like MicWatcher.
-private final class SelfStopGrace: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "meet42.record.self-stop-grace")
-    private var timer: DispatchSourceTimer?
-
-    /// Mic reopened — cancel any pending grace.
-    func reopened() {
-        queue.async { [self] in
-            timer?.cancel()
-            timer = nil
-        }
-    }
-
-    /// Mic closed — arm a 5s grace; `onElapsed` fires if nothing cancels it
-    /// first (a reopen, or the recording stopping for some other reason).
-    func closed(onElapsed: @escaping @Sendable () -> Void) {
-        queue.async { [self] in
-            timer?.cancel()
-            let t = DispatchSource.makeTimerSource(queue: queue)
-            t.schedule(deadline: .now() + 5.0)
-            t.setEventHandler { onElapsed() }
-            t.resume()
-            timer = t
         }
     }
 }

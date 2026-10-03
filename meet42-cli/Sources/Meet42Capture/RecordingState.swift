@@ -27,14 +27,20 @@ public nonisolated struct RecordingState: Sendable, Equatable, Codable {
     public let app: String
     public let bundleId: String
     public let pid: Int32
+    /// Optional owning app process. Absent for manual standalone recordings.
+    public let ownerPid: Int32?
     public let startedAt: String
 
-    public init(recordingId: String, dir: String, app: String, bundleId: String, pid: Int32, startedAt: String) {
+    public init(
+        recordingId: String, dir: String, app: String, bundleId: String,
+        pid: Int32, ownerPid: Int32? = nil, startedAt: String
+    ) {
         self.recordingId = recordingId
         self.dir = dir
         self.app = app
         self.bundleId = bundleId
         self.pid = pid
+        self.ownerPid = ownerPid
         self.startedAt = startedAt
     }
 
@@ -70,11 +76,11 @@ public enum RecordingStateStore {
     /// readers never observe a partial write.
     public nonisolated static func write(
         recordingId: String, dir: String, app: String, bundleId: String,
-        pid: Int32, startedAt: String
+        pid: Int32, ownerPid: Int32? = nil, startedAt: String
     ) {
         let state = RecordingState(
             recordingId: recordingId, dir: dir, app: app,
-            bundleId: bundleId, pid: pid, startedAt: startedAt
+            bundleId: bundleId, pid: pid, ownerPid: ownerPid, startedAt: startedAt
         )
         let path = statePath()
         let dir = (path as NSString).deletingLastPathComponent
@@ -98,5 +104,36 @@ public enum RecordingStateStore {
     /// Release the singleton slot — back to idle.
     public nonisolated static func clear() {
         try? FileManager.default.removeItem(atPath: statePath())
+    }
+}
+
+/// The two reasons the capture worker may finalize. Mic lifecycle is
+/// intentionally absent: widgets own that product policy.
+public nonisolated enum RecordingStopReason: String, Sendable, Equatable {
+    case marker
+    case ownerExited = "owner-exited"
+}
+
+public nonisolated enum RecordingStopPolicy {
+    /// `kill(pid, 0)` returns EPERM for an existing process we cannot inspect.
+    /// Treat every error except ESRCH conservatively as alive.
+    public static func processExists(killResult: Int32, errorNumber: Int32) -> Bool {
+        killResult == 0 || errorNumber != ESRCH
+    }
+
+    public static func ownerIsAlive(_ pid: Int32) -> Bool {
+        guard pid > 0 else { return false }
+        let result = kill(pid, 0)
+        return processExists(killResult: result, errorNumber: errno)
+    }
+
+    public static func stopReason(
+        markerExists: Bool,
+        ownerPid: Int32?,
+        ownerIsAlive: (Int32) -> Bool = RecordingStopPolicy.ownerIsAlive
+    ) -> RecordingStopReason? {
+        if markerExists { return .marker }
+        guard let ownerPid else { return nil }
+        return ownerIsAlive(ownerPid) ? nil : .ownerExited
     }
 }

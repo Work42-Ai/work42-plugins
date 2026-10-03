@@ -61,5 +61,10 @@ let package = Package(
             dependencies: ["Meet42Kit", "Meet42CalendarSync", "Meet42Capture"],
             path: "Sources/meet42"
         ),
+        .testTarget(
+            name: "Meet42CaptureTests",
+            dependencies: ["Meet42Capture"],
+            path: "Tests/Meet42CaptureTests"
+        ),
     ]
 )

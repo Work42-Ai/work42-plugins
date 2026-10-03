@@ -94,7 +94,7 @@ enum Dispatcher {
           sync
                 Request Calendar access + run one full EventKit sync.
           record start [--dir <dir>] [--device <uid>] [--app <name>]
-                       [--bundle-id <id>] [--manual] [--json]
+                       [--bundle-id <id>] [--owner-pid <pid>] [--manual] [--json]
                 Session-agnostic: allocates its OWN recordings dir under
                 ~/.work42/meet42/recordings/<recordingId>/ (or uses --dir if
                 given), daemonizes, and captures (transcription +
@@ -103,14 +103,15 @@ enum Dispatcher {
                 immediately. Machine-wide singleton: refuses if a recording
                 is already active elsewhere. --app/--bundle-id label the
                 claim (for `record status`); default --app is "Manual".
-                --manual marks a recording with no trigger call to watch
-                (no auto-stop — only an explicit `record stop` ends it).
+                --owner-pid ties an auto-detected capture to its Work42 app
+                process so app exit finalizes it. --manual omits ownership and
+                continues until an explicit `record stop`.
           record stop [--dir <dir>]
                 Signal the capture daemon to finalize and exit. --dir
                 defaults to the active recording's dir when omitted.
           record status [--json]
                 Print whether a recording is active and, if so, its
-                recordingId/dir/app/startedAt — the single source of truth
+                recordingId/dir/app/startedAt/ownerPid — the single source of truth
                 every surface reads instead of session storage.
 
         Diagnostics:
