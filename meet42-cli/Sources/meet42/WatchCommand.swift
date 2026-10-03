@@ -54,11 +54,12 @@ enum WatchCommand {
 
     /// Never returns — registers CoreAudio property listeners and calls dispatchMain().
     static func watch(args: [String]) -> Never {
+        let scopeBundleId = CLI.argValue(args, "--bundle-id")
         // callId bookkeeping across the close edge — captured by the closure
         // below (a `var` local, mutated only from MicWatcher's own serial
         // queue since `onEdge` is invoked exclusively from recompute()).
         var activeCallId: String?
-        let watcher = MicWatcher(onEdge: { active, match in
+        let watcher = MicWatcher(scopeBundleId: scopeBundleId, onEdge: { active, match in
             if active, let match {
                 let callId = "\(match.bundleId)-\(Int(Date().timeIntervalSince1970 * 1000))"
                 activeCallId = callId
@@ -179,6 +180,7 @@ final class MicWatcher: @unchecked Sendable {
     // Guarded by `queue` — only ever mutated in methods called from `queue`.
     var registered = Set<AudioObjectID>()
     var wasActive  = false
+    var hasComputed = false
 
     /// Backstop re-scan timer (see start()). Held so it stays alive.
     var backstopTimer: DispatchSourceTimer?
@@ -260,7 +262,9 @@ final class MicWatcher: @unchecked Sendable {
                 return (entry.name, entry.id)
             }
         let active = !holders.isEmpty
-        guard active != wasActive else { return }   // no edge → no action
+        let isInitialScopedClose = !hasComputed && scopeBundleId != nil && !active
+        hasComputed = true
+        guard active != wasActive || isInitialScopedClose else { return }
         wasActive = active
         onEdge(active, holders.first)
     }

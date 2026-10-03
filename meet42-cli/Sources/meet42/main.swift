@@ -82,9 +82,10 @@ enum Dispatcher {
           mics select <uid>
                 Persist a microphone selection (writes
                 ~/.work42/meet42/mic-input-device.json).
-          watch [--json]
-                Long-lived; emits {"event":"mic-open"} / {"event":"mic-close"}
-                line-delimited JSON on default-input transitions.
+          watch [--bundle-id <id>] [--json]
+                Long-lived; emits {"event":"call-open"} / {"event":"call-close"}
+                line-delimited JSON on call-app input transitions. --bundle-id
+                restricts observation to one detected meeting app.
           modes get [--json]
                 Per-calendar / per-event assistance flags.
           modes set <calendar|event> <id> <view_only|assisted|ai_scheduled>

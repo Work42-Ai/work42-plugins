@@ -1,12 +1,9 @@
 // Widget.swift — meet42's Transcript widget (meet42-plugin-conversion, s14;
 // meet42-detection-rework).
 //
-// A TILE (conversation.jsonl → chat bubbles) + a stateful PILL (RECORDING /
-// ENDED / idle recording accessory). No background agent — the calendar
-// widget's detection agent (meet42-detection-rework) now owns the ENTIRE
-// recording lifecycle (start on Yes/auto-start, stop on its own 5s
-// stop-grace) for calls it detects; this widget only drives the MANUAL
-// Record/Stop controls and renders truth.
+// A TILE (conversation.jsonl → chat bubbles), a stateful active-meeting PILL,
+// and a session-scoped background agent. Calendar detects and starts meetings;
+// Transcript owns the active recording UI and mic-close decision after handoff.
 //
 //   • Tile — Work42App/Meetings/TranscriptWidgetView. Reads
 //            `<dir>/conversation.jsonl` (+ optional `speakers.json`) and
@@ -15,25 +12,22 @@
 //            neutral, unknown = leading/neutral). The Flow42Core
 //            `TranscriptStore` parser + `FileWatcher` are reimplemented
 //            locally (no Flow42Core import).
-//   • Pill  — Work42App/Dictation/EventSessionAccessory, RECORDING + ENDED
-//            states only (+ a plain idle). The DETECTED state is dropped —
-//            the calendar widget owns it. Visuals kept: purple #7C3AED, the
-//            Stop capsule with a live monospaced `M:SS` timer.
+//   • Pill  — two-row active state with source-app identity, Open Session,
+//            scheduled-time rail, Stop timer, and 10-second Stay/Stop prompt.
 //
 // RECORDING TRUTH, per meet42-detection-rework's singleton redesign: `meet42
 // record status` is the single source of truth for "is MY session the one
 // currently recording" (AC7) — NOT session storage. `SessionServices.storage`
 // is FILE-backed for a non-task session (`SessionStorageBackend`), a
 // DIFFERENT store than `work42 storage set/get` (always work42.db) — so
-// `meeting/started_at`/`ended_at` (written for the workflow gate, AC9) are
-// read back via the SHELLED CLI (`work42 storage get --session <id> ...`),
-// never via `services.storage`, to distinguish "never recorded" from
-// "recorded, then ended" for the pill's transitional ENDED state. Manual
-// Record/Stop share the SAME start-sequence tail the detection agent uses:
+// Stable `meeting/*` metadata is read through `services.storage`; writes to
+// that cross-widget namespace use the shelled `work42 storage` command.
+// Manual Record/Stop share the same capture primitive as Calendar:
 // `meet42 record start` is a detached, fire-and-forget process (not via
 // `WidgetShellService`, which is bounded to 10s and would kill the
 // never-exiting daemon), confirmed via a bounded `meet42 record status` poll.
 
+import AppKit
 import CoreGraphics
 import Foundation
 import Observation
@@ -336,7 +330,7 @@ private func fetchRecordingDir(services: SessionServices) async -> String? {
 /// source of truth for "is MY session's recording the one currently active"
 /// (AC7) — compared by DIRECTORY, since `meet42 record` is session-agnostic
 /// (meet42-recording-lifecycle-rework s1) and no longer knows about session
-/// ids or worktree slugs at all. `recordingDir`/`startedAt`/`hasEnded` are
+/// ids or worktree slugs at all. `recordingDir` and `startedAt` are
 /// read via `services.storage` (see `fetchRecordingDir`'s doc for why that's
 /// the correct API, not the shelled CLI, for a non-task session).
 private struct RecordingSnapshot {
@@ -345,12 +339,11 @@ private struct RecordingSnapshot {
     let recordingDir: String?
     let isRecordingThisSession: Bool
     let startedAt: Date?
-    let hasEnded: Bool
 }
 
 private func fetchRecordingSnapshot(services: SessionServices) async -> RecordingSnapshot {
-    guard let sessionId = services.sessionId else {
-        return RecordingSnapshot(recordingDir: nil, isRecordingThisSession: false, startedAt: nil, hasEnded: false)
+    guard services.sessionId != nil else {
+        return RecordingSnapshot(recordingDir: nil, isRecordingThisSession: false, startedAt: nil)
     }
     let recordingDir = await fetchRecordingDir(services: services)
     var isRecording = false
@@ -366,34 +359,8 @@ private func fetchRecordingSnapshot(services: SessionServices) async -> Recordin
        case .string(let iso) = value {
         startedAt = parseISO8601(iso)
     }
-    var hasEnded = false
-    if let value = try? await services.storage.get(namespace: "meeting", key: "ended_at"),
-       case .string(let iso) = value, parseISO8601(iso) != nil {
-        hasEnded = true
-    }
-
-    // Ended-gate (AC10): the record daemon self-stops entirely on its own
-    // (meet42-recording-lifecycle-rework s2) — nobody may ever click Stop. If
-    // this session genuinely had a recording (recordingDir + startedAt both
-    // set — true for both the auto-detected and manual-record paths) that is
-    // NOT active right now and ended_at was never written, write it here so
-    // the session still advances to Summary. Guarded by `!hasEnded` so this
-    // fires only once — the next poll observes ended_at already set and
-    // skips it. A cross-session-shaped write even though it's this session's
-    // own: services.storage can't target the "meeting" namespace (restricted
-    // to this widget's own "transcript" namespace), so this goes through the
-    // shelled CLI, same as the manual Stop intent.
-    if recordingDir != nil, startedAt != nil, !isRecording, !hasEnded {
-        let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
-        _ = try? await services.shell.run(
-            command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
-        )
-        hasEnded = true
-        Meet42Trace.log("transcript", "ended-gate-written", ["sessionId": sessionId])
-    }
-
     return RecordingSnapshot(
-        recordingDir: recordingDir, isRecordingThisSession: isRecording, startedAt: startedAt, hasEnded: hasEnded
+        recordingDir: recordingDir, isRecordingThisSession: isRecording, startedAt: startedAt
     )
 }
 
@@ -420,10 +387,9 @@ private struct TranscriptRecordStartResult: Decodable {
 /// Launch `meet42 record start --manual` as a DETACHED process — NOT via
 /// `WidgetShellService` (bounded to 10s; `record start` daemonizes via
 /// setsid+execve with no fork, so it never exits on its own while recording,
-/// and the bounded shell service would kill it). `--manual` means no trigger
-/// call to self-watch — only an explicit `record stop` ends it
-/// (meet42-recording-lifecycle-rework s2). Unlike the old fire-and-forget
-/// version, this DOES need the daemon's stdout (the {recordingId,dir} line
+/// and the bounded shell service would kill it). `--manual` leaves stop policy
+/// with the explicit Transcript controls. Unlike the old fire-and-forget
+/// version, this DOES need the daemon's stdout (the `{recordingId,dir}` line
 /// it prints before daemonizing, per s1) so the caller can seed this
 /// session's storage pointer — mirrors the calendar widget's
 /// `fireRecordStart`: redirect to a temp file and poll for the line to
@@ -468,26 +434,253 @@ private func fireTranscriptRecordStart() async -> TranscriptRecordStartResult? {
     return nil
 }
 
-/// Load just the meeting title from `<dir>/meeting.json` (best-effort) so the
-/// pill can name the call. Falls back to "Meeting".
-private func meetingTitle(dir: String?) -> String {
-    guard let dir else { return "Meeting" }
-    let path = (dir as NSString).appendingPathComponent("meeting.json")
-    guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
-          let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-          let event = obj["event"] as? [String: Any],
-          let title = event["title"] as? String,
-          !title.isEmpty else {
-        return "Meeting"
+// MARK: - Active meeting ownership
+
+@Observable
+@MainActor
+private final class TranscriptMeetingModel {
+    enum Phase { case inactive, active, endPrompt, stopped }
+
+    let sessionId: String
+    var phase: Phase = .inactive
+    var title = "Meeting"
+    var sourceApp = "Meeting"
+    var sourceBundleId: String?
+    var sourceIcon: NSImage?
+    var recordingDir: String?
+    var startedAt: Date?
+    var scheduledStart: Date?
+    var scheduledEnd: Date?
+    var promptStartedAt: Date?
+
+    @ObservationIgnored private var services: WidgetBackgroundServices?
+    @ObservationIgnored private var reconcileTask: Task<Void, Never>?
+    @ObservationIgnored private var watchTask: Task<Void, Never>?
+    @ObservationIgnored private var countdownTask: Task<Void, Never>?
+    @ObservationIgnored private var watchProcess: Process?
+    @ObservationIgnored private var watchedBundleId: String?
+    @ObservationIgnored private var suppressCloseUntilOpen = false
+
+    init(sessionId: String) {
+        self.sessionId = sessionId
     }
-    return title
+
+    func start(services: WidgetBackgroundServices) {
+        stopTasks()
+        if phase == .endPrompt { phase = .active }
+        promptStartedAt = nil
+        suppressCloseUntilOpen = false
+        self.services = services
+        reconcileTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.reconcile()
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    func stop() {
+        stopTasks()
+        services = nil
+    }
+
+    private func stopTasks() {
+        reconcileTask?.cancel(); reconcileTask = nil
+        watchTask?.cancel(); watchTask = nil
+        countdownTask?.cancel(); countdownTask = nil
+        watchProcess?.terminate(); watchProcess = nil
+        watchedBundleId = nil
+    }
+
+    private func string(_ key: String, services: WidgetBackgroundServices) async -> String? {
+        guard let value = try? await services.storage.get(namespace: "meeting", key: key),
+              case .string(let value) = value, !value.isEmpty else { return nil }
+        return value
+    }
+
+    private func reconcile() async {
+        guard let services else { return }
+
+        let newTitle = await string("title", services: services)
+        let newSourceApp = await string("source_app", services: services)
+        let newBundleId = await string("source_bundle_id", services: services)
+        recordingDir = await string("recording_dir", services: services)
+        startedAt = await string("started_at", services: services).flatMap(parseISO8601)
+        scheduledStart = await string("scheduled_start", services: services).flatMap(parseISO8601)
+        scheduledEnd = await string("scheduled_end", services: services).flatMap(parseISO8601)
+        title = newTitle ?? "Meeting"
+        sourceApp = newSourceApp ?? "Meeting"
+        if sourceBundleId != newBundleId {
+            sourceBundleId = newBundleId
+            sourceIcon = Self.icon(bundleId: newBundleId)
+        }
+
+        guard let recordingDir,
+              let result = try? await services.shell.run(command: "meet42 record status --json"),
+              result.exitCode == 0,
+              let data = result.stdout.data(using: .utf8),
+              let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data)
+        else { return }
+
+        if status.recording, status.dir == recordingDir {
+            if phase == .inactive || phase == .stopped { phase = .active }
+            try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
+            startWatchIfNeeded()
+        } else if await string("ended_at", services: services).flatMap(parseISO8601) != nil {
+            phase = .stopped
+            cancelPrompt()
+            stopWatch()
+            try? await services.pill.dismiss(widgetId: "transcript")
+        }
+    }
+
+    private static func icon(bundleId: String?) -> NSImage? {
+        guard let bundleId,
+              let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+        else { return nil }
+        return NSWorkspace.shared.icon(forFile: appURL.path)
+    }
+
+    private func startWatchIfNeeded() {
+        guard let bundleId = sourceBundleId, !bundleId.isEmpty,
+              watchedBundleId != bundleId else { return }
+        stopWatch()
+        watchedBundleId = bundleId
+        watchTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.runWatchOnce(bundleId: bundleId)
+                guard !Task.isCancelled else { return }
+                try? await Task.sleep(for: .seconds(2))
+            }
+        }
+    }
+
+    private func stopWatch() {
+        watchTask?.cancel(); watchTask = nil
+        watchProcess?.terminate(); watchProcess = nil
+        watchedBundleId = nil
+    }
+
+    private func runWatchOnce(bundleId: String) async {
+        let invocation = transcriptMeet42Invocation(
+            verb: "watch", extraArgs: ["--bundle-id", bundleId, "--json"]
+        )
+        let process = Process()
+        let output = Pipe()
+        process.executableURL = invocation.executable
+        process.arguments = invocation.arguments
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return }
+        watchProcess = process
+        do {
+            for try await line in output.fileHandleForReading.bytes.lines {
+                guard !Task.isCancelled else { break }
+                await handleWatchLine(line)
+            }
+        } catch {
+            // A closed pipe simply lets the outer task respawn the watcher.
+        }
+        if watchProcess === process { watchProcess = nil }
+    }
+
+    private func handleWatchLine(_ line: String) async {
+        guard let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let event = object["event"] as? String else { return }
+        switch event {
+        case "call-open": micOpened()
+        case "call-close": micClosed()
+        default: break
+        }
+    }
+
+    private func micOpened() {
+        suppressCloseUntilOpen = false
+        guard phase == .endPrompt else { return }
+        cancelPrompt()
+        phase = .active
+    }
+
+    private func micClosed() {
+        guard phase == .active, !suppressCloseUntilOpen else { return }
+        promptStartedAt = Date()
+        phase = .endPrompt
+        countdownTask?.cancel()
+        countdownTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            await self?.stopMeeting(reason: "countdown")
+        }
+    }
+
+    func stay() {
+        guard phase == .endPrompt else { return }
+        suppressCloseUntilOpen = true
+        cancelPrompt()
+        phase = .active
+    }
+
+    private func cancelPrompt() {
+        countdownTask?.cancel(); countdownTask = nil
+        promptStartedAt = nil
+    }
+
+    func stopMeeting(reason: String = "pill") async {
+        guard let services, phase != .stopped else { return }
+        cancelPrompt()
+        if let recordingDir {
+            _ = try? await services.shell.run(
+                command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
+            )
+        }
+        let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+        _ = try? await services.shell.run(
+            command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
+        )
+        phase = .stopped
+        stopWatch()
+        try? await services.pill.dismiss(widgetId: "transcript")
+        Meet42Trace.log("transcript", "recording-stopped", ["sessionId": sessionId, "reason": reason])
+    }
+}
+
+@MainActor
+private final class TranscriptMeetingRegistry {
+    static let shared = TranscriptMeetingRegistry()
+    private var models: [String: TranscriptMeetingModel] = [:]
+
+    func model(for sessionId: String) -> TranscriptMeetingModel {
+        if let model = models[sessionId] { return model }
+        let model = TranscriptMeetingModel(sessionId: sessionId)
+        models[sessionId] = model
+        return model
+    }
+}
+
+@Observable
+@MainActor
+private final class TranscriptMeetingAgent: WidgetBackgroundAgent {
+    var headerLabels: [WidgetHeaderLabel] = []
+    private var model: TranscriptMeetingModel?
+
+    func start(services: WidgetBackgroundServices) {
+        let model = TranscriptMeetingRegistry.shared.model(for: services.sessionId)
+        self.model = model
+        model.start(services: services)
+    }
+
+    func stop() {
+        model?.stop()
+        model = nil
+    }
 }
 
 // MARK: - TranscriptWidget
 
 @Observable
 @MainActor
-final class TranscriptWidget: Work42Widget, Work42WidgetPill {
+final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackground {
 
     let id = "transcript"
     let title = "Transcript"
@@ -507,10 +700,6 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
     /// `meeting/started_at`, read via the shelled CLI; drives the stop
     /// intent's live mm:ss timer.
     private(set) var recordingStartedAt: Date? = nil
-
-    /// `meeting/ended_at` is set but this session isn't the active recording
-    /// — drives the reconcile-on-activate re-present (AC8).
-    private(set) var hasEndedThisSession: Bool = false
 
     /// Pre-fetched microphone list for the selectMic menu `options` closure,
     /// which is synchronous and reads this cached value.
@@ -597,6 +786,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
                         command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/started_at \(startedAtJSON)"
                     )
                     await self.refreshRecordingState()
+                    try? await svc.pill.present(widgetId: "transcript", sessionId: sessionId)
                 }
             ),
 
@@ -633,6 +823,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
                     _ = try? await svc.shell.run(
                         command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
                     )
+                    try? await svc.pill.dismiss(widgetId: "transcript")
                     Meet42Trace.log("transcript", "manual-stop", ["sessionId": sessionId])
                     await self.refreshRecordingState()
                 }
@@ -649,14 +840,9 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
             guard let self else { return }
             await self.refreshRecordingState()
             await self.refreshMicOptions()
-            // Reconcile on activate (AC8): a recording's lifetime is no
-            // longer tied to this widget (or the app) being alive — the
-            // record daemon self-watches its own trigger call and self-stops
-            // independent of everything else (meet42-recording-lifecycle-
-            // rework s2) — so if THIS session's recording survived an app
-            // relaunch/crash, or ended while nothing was watching, re-float
-            // its pill rather than leaving the user with no visible state.
-            if self.isRecordingThisSession || self.hasEndedThisSession,
+            // The background agent is the lifecycle owner. This activation
+            // reconciliation is only a fast path for a newly-mounted view.
+            if self.isRecordingThisSession,
                let sessionId = services.sessionId {
                 try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
             }
@@ -674,21 +860,18 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
         services = nil
         isRecordingThisSession = false
         recordingStartedAt = nil
-        hasEndedThisSession = false
         micOptions = []
     }
 
     // MARK: - State refresh helpers
 
-    /// Refresh `isRecordingThisSession`/`recordingStartedAt`/
-    /// `hasEndedThisSession` from the single source of truth (`meet42 record
-    /// status` + the workflow-gate storage).
+    /// Refresh the action-area controls from recording truth. Meeting close
+    /// policy belongs to `TranscriptMeetingAgent`, not this UI poll.
     private func refreshRecordingState() async {
         guard let svc = services else { return }
         let snapshot = await fetchRecordingSnapshot(services: svc)
         isRecordingThisSession = snapshot.isRecordingThisSession
         recordingStartedAt = snapshot.startedAt
-        hasEndedThisSession = snapshot.hasEnded
     }
 
     /// Shell `meet42 mics --json` and refresh the cached `micOptions` list.
@@ -717,6 +900,10 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill {
 
     func makePillView(services: SessionServices) -> AnyView? {
         AnyView(RecordingAccessory(services: services))
+    }
+
+    func makeBackgroundAgent() -> any WidgetBackgroundAgent {
+        TranscriptMeetingAgent()
     }
 
     var pillMetadata: WidgetPillMetadata {
@@ -948,137 +1135,43 @@ private struct TranscriptTileView: View {
     }
 }
 
-// MARK: - RecModel (pill state — the single source of truth)
+// MARK: - RecordingAccessory
 
-/// Drives the recording accessory. `state` + `startedAt`/`endedAt` are derived
-/// by polling `meeting/started_at` + `meeting/ended_at` storage: `ended` when
-/// ended_at is set, `recording` when started_at is set and not ended, else
-/// `idle`. The pill's Stop button writes through the same storage.
-@Observable
-@MainActor
-private final class RecModel {
-
-    enum State { case idle, recording, ended }
-
-    var state: State = .idle
-    var startedAt: Date?
-    var endedAt: Date?
-    var title: String = "Meeting"
-
-    @ObservationIgnored private let services: SessionServices
-    @ObservationIgnored private var pollTask: Task<Void, Never>?
-
-    init(services: SessionServices) {
-        self.services = services
-        self.title = meetingTitle(dir: services.worktreePath)
-    }
-
-    func start() {
-        pollTask?.cancel()
-        pollTask = Task { @MainActor [weak self] in
-            while !Task.isCancelled {
-                await self?.refresh()
-                try? await Task.sleep(nanoseconds: 1_000_000_000)
-            }
-        }
-    }
-
-    func stopPolling() {
-        pollTask?.cancel()
-        pollTask = nil
-    }
-
-    /// `meet42 record status` is the single source of truth for `.recording`
-    /// (AC7); `meeting/ended_at` (read via the shelled CLI — `services.storage`
-    /// is file-backed for a non-task session and never reaches the
-    /// work42.db write the workflow gate / this check both need) distinguishes
-    /// `.ended` from `.idle` once it's no longer the active recording.
-    private func refresh() async {
-        let snapshot = await fetchRecordingSnapshot(services: services)
-        startedAt = snapshot.startedAt
-        if snapshot.isRecordingThisSession {
-            state = .recording
-            endedAt = nil
-        } else if snapshot.hasEnded {
-            state = .ended
-        } else {
-            state = .idle
-        }
-    }
-
-    /// Stop capture now: `meet42 record stop` + write ended_at + dismiss the
-    /// pill. Reused by both the RECORDING Stop and the ENDED Stop controls.
-    func stopRecording() {
-        Task { @MainActor [weak self] in
-            guard let self, let sessionId = self.services.sessionId else { return }
-            guard let recordingDir = await fetchRecordingDir(services: self.services) else {
-                // No pointer to stop via the daemon (shouldn't happen once a
-                // recording has ever been attached) — still dismiss so the
-                // pill doesn't get stuck.
-                try? await self.services.pill.dismiss(widgetId: "transcript")
-                return
-            }
-            // --dir, not --session-dir (s1 dropped that flag — meet42 record
-            // is session-agnostic now).
-            _ = try? await self.services.shell.run(
-                command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
-            )
-            let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
-            _ = try? await self.services.shell.run(
-                command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
-            )
-            try? await self.services.pill.dismiss(widgetId: "transcript")
-            await self.refresh()
-        }
-    }
-}
-
-// MARK: - RecordingAccessory (the pill — RECORDING / ENDED / idle)
-
-/// The recording accessory pill. Ports `EventSessionAccessory`'s recording +
-/// endedPrompt visuals (the DETECTED state belongs to the calendar widget) plus
-/// a plain idle state, rendered on a self-contained dark card so the white-on-
-/// dark visuals stay legible regardless of the host panel's surface.
-///
-/// Dropped vs the app accessory (need app-internal plumbing a plugin pill lacks,
-/// documented): the secondary buttons — "Open Session" (recording), the ＋ float
-/// menu, and "Stay" (ended). The medallion resolves no source-app icon (that
-/// bundle id came from the app-side detection coordinator); it shows the purple
-/// video fallback.
 private struct RecordingAccessory: View {
     let services: SessionServices
-
-    @State private var model: RecModel
+    @State private var model: TranscriptMeetingModel
 
     init(services: SessionServices) {
         self.services = services
-        _model = State(wrappedValue: RecModel(services: services))
+        _model = State(wrappedValue: TranscriptMeetingRegistry.shared.model(
+            for: services.sessionId ?? "unbound"
+        ))
     }
 
     private let cardWidth: CGFloat = 412
-
-    private var isEnded: Bool { model.state == .ended }
+    private let warningColor = Color(red: 0xF5 / 255, green: 0x9E / 255, blue: 0x0B / 255)
+    private let overtimeColor = Color(red: 0xEF / 255, green: 0x44 / 255, blue: 0x44 / 255)
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             VStack(alignment: .leading, spacing: 12) {
                 header
-                if isEnded { endedRow }
+                if model.phase == .endPrompt { promptRow } else { activeRow }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
 
-            if isEnded { countdownBar }
+            if model.phase == .endPrompt {
+                countdownBar
+            } else if model.scheduledStart != nil, model.scheduledEnd != nil {
+                scheduleBar
+            }
         }
         .frame(width: cardWidth, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.state)
+        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.phase)
         .environment(\.controlActiveState, .active)
-        .task { model.start() }
-        .onDisappear { model.stopPolling() }
     }
-
-    // MARK: Header (medallion + name/subtitle, + inline Stop while recording)
 
     private var header: some View {
         HStack(spacing: 11) {
@@ -1096,22 +1189,33 @@ private struct RecordingAccessory: View {
                     .truncationMode(.tail)
             }
             Spacer(minLength: 8)
-            if model.state == .recording { stopControl }
         }
         .frame(height: 36)
     }
 
     private var subtitle: String {
-        switch model.state {
-        case .idle: return "Not recording"
-        case .recording: return "Recording"
-        case .ended: return "Recording ended"
+        model.phase == .endPrompt
+            ? "\(model.sourceApp) · Microphone closed"
+            : model.sourceApp
+    }
+
+    private var activeRow: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let schedule = scheduleState(at: context.date)
+            HStack(spacing: 8) {
+                Text(schedule.label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(schedule.labelColor)
+                    .lineLimit(1)
+                Spacer(minLength: 4)
+                openSessionButton
+                stopControl
+            }
+            .frame(height: 32)
         }
     }
 
-    // MARK: Ended row ("Auto-stopping in Ns" + Stop) + countdown bar
-
-    private var endedRow: some View {
+    private var promptRow: some View {
         HStack(spacing: 10) {
             TimelineView(.animation) { ctx in
                 Text("Auto-stopping in \(countdownSeconds(at: ctx.date))s")
@@ -1120,12 +1224,22 @@ private struct RecordingAccessory: View {
                     .lineLimit(1)
             }
             Spacer(minLength: 8)
-            stopControl
+            Button("Stay") { model.stay() }
+                .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .glassCapsuleSurface()
+            Button("Stop") { Task { await model.stopMeeting(reason: "prompt") } }
+                .font(.system(size: 12, weight: .semibold))
+                .buttonStyle(.plain)
+                .padding(.horizontal, 12)
+                .frame(height: 30)
+                .meetingPurpleCapsule()
         }
         .frame(height: 32)
     }
 
-    /// Fixed-size purple grace bar flush along the bottom (no GeometryReader).
     private var countdownBar: some View {
         TimelineView(.animation) { ctx in
             let frac = countdownFraction(at: ctx.date)
@@ -1140,22 +1254,61 @@ private struct RecordingAccessory: View {
         }
     }
 
-    // MARK: Medallion (purple video fallback — no source-app icon in a plugin)
+    private var scheduleBar: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let schedule = scheduleState(at: context.date)
+            ZStack(alignment: .leading) {
+                Rectangle().fill(Color.white.opacity(0.08))
+                Rectangle()
+                    .fill(schedule.railColor)
+                    .frame(width: max(0, cardWidth * schedule.remainingFraction))
+            }
+            .frame(width: cardWidth, height: 3)
+        }
+    }
 
     private var medallion: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(meetingRecordingPurple.opacity(0.9))
-            .overlay(
+        Group {
+            if let icon = model.sourceIcon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .scaledToFit()
+                    .padding(3)
+            } else {
                 Image(systemName: "video.fill")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.white)
-            )
-            .frame(width: 36, height: 36)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(meetingRecordingPurple.opacity(0.9))
+            }
+        }
+        .frame(width: 36, height: 36)
+        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
     }
 
-    // MARK: Stop control (white stop.fill + live monospaced M:SS, purple capsule)
+    private var openSessionButton: some View {
+        Button {
+            guard let sessionId = services.sessionId else { return }
+            Task {
+                try? await services.intents.execute(
+                    id: "global.openLink",
+                    params: ["url": .string("work42://session/\(sessionId)")]
+                )
+            }
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: "arrow.up.forward.app")
+                Text("Open Session")
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .padding(.horizontal, 10)
+            .frame(height: 30)
+        }
+        .buttonStyle(.plain)
+        .glassCapsuleSurface()
+        .help("Open meeting session")
+    }
 
     @ViewBuilder
     private var stopControl: some View {
@@ -1173,7 +1326,7 @@ private struct RecordingAccessory: View {
     }
 
     private func stopButton(elapsed: Int) -> some View {
-        Button(action: { model.stopRecording() }) {
+        Button(action: { Task { await model.stopMeeting() } }) {
             HStack(spacing: 5) {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 14, weight: .medium))
@@ -1196,18 +1349,53 @@ private struct RecordingAccessory: View {
         String(format: "%d:%02d", s / 60, s % 60)
     }
 
-    // MARK: Countdown math (10s grace, anchored at ended_at)
-
     private func countdownFraction(at date: Date) -> CGFloat {
-        guard let start = model.endedAt else { return 0 }
+        guard let start = model.promptStartedAt else { return 0 }
         let remaining = max(0, 10 - date.timeIntervalSince(start))
         return CGFloat(remaining / 10)
     }
 
     private func countdownSeconds(at date: Date) -> Int {
-        guard let start = model.endedAt else { return 0 }
+        guard let start = model.promptStartedAt else { return 0 }
         let remaining = max(0, 10 - date.timeIntervalSince(start))
         return max(1, Int(ceil(remaining)))
+    }
+
+    private struct ScheduleState {
+        let label: String
+        let labelColor: Color
+        let railColor: Color
+        let remainingFraction: CGFloat
+    }
+
+    private func scheduleState(at date: Date) -> ScheduleState {
+        guard let start = model.scheduledStart, let end = model.scheduledEnd, end > start else {
+            return ScheduleState(
+                label: "In Progress",
+                labelColor: .white.opacity(0.65),
+                railColor: .clear,
+                remainingFraction: 0
+            )
+        }
+        let remaining = end.timeIntervalSince(date)
+        if remaining <= 0 {
+            let minutes = max(1, Int(ceil(abs(remaining) / 60)))
+            return ScheduleState(
+                label: "Over by \(minutes) min",
+                labelColor: overtimeColor,
+                railColor: .clear,
+                remainingFraction: 0
+            )
+        }
+        let minutes = max(1, Int(ceil(remaining / 60)))
+        let isWarning = remaining <= 5 * 60
+        let fraction = min(1, max(0, remaining / end.timeIntervalSince(start)))
+        return ScheduleState(
+            label: "\(minutes) min left",
+            labelColor: isWarning ? warningColor : meetingRecordingPurpleLight,
+            railColor: isWarning ? warningColor : meetingRecordingPurple,
+            remainingFraction: CGFloat(fraction)
+        )
     }
 }
 
@@ -1236,13 +1424,6 @@ private extension View {
 }
 
 // MARK: - Widget entry-point ABI
-//
-// No background agent: the calendar widget's detection agent
-// (meet42-detection-rework) owns the whole recording lifecycle for calls it
-// detects (start via meet42 record start, stop via its own 5s stop-grace on
-// the event-driven meet42 watch stream). This widget only drives the MANUAL
-// Record/Stop controls (above) and renders recording truth — no polling, no
-// bounded single-shot `meet42 watch` probe hack.
 
 @_cdecl("work42_widget_sdk_version")
 public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }

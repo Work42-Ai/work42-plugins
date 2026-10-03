@@ -1,148 +1,90 @@
 ---
 name: widget-transcript
 description: |
-  How the Transcript widget (session tab kindId widget:transcript) works on a
-  meet42 meeting session. It renders the live meeting transcript as chat
-  bubbles and owns the RECORDING / ENDED / idle recording pill. It has no
-  background agent — `meet42 record` (the session-agnostic recording daemon)
-  owns its own stop; this widget reads the recording via a storage pointer,
-  drives the manual Record/Stop controls, and reconciles its pill across
-  relaunch.
+  How the meet42 Transcript widget renders live conversation, owns the active
+  meeting pill, and decides when an auto-detected recording stops.
 ---
 
 # Transcript widget
 
-A tile + a stateful pill. No background agent — `meet42 record`
-(meet42-recording-lifecycle-rework) is a session-agnostic primitive that owns
-its OWN recordings directory and its OWN stop (it self-watches its trigger
-call and self-stops independent of this widget, the calendar widget, or the
-app being alive at all). This session's storage just holds a POINTER
-(`meeting/recording_dir`) at that directory, seeded either by the calendar
-widget's detection agent (auto-detected calls) or by this widget's own manual
-Record intent. This widget reads the transcript from that pointer, renders
-recording truth from it, and drives the manual Record/Stop action-area
-intents.
+Transcript has three responsibilities after Calendar hands off a detected
+meeting session:
+
+1. Render `<meeting/recording_dir>/conversation.jsonl` as live chat bubbles.
+2. Present the active-meeting pill with the detected app identity and session.
+3. Watch that app's mic state and own the 10-second Stay/Stop decision.
+
+Calendar owns global mic-open detection and session creation. The `meet42
+record` daemon only captures and responds to an explicit stop marker (plus its
+optional Work42 owner PID); it has no mic-close or UI policy.
 
 ## Tile
 
-Renders `<meeting/recording_dir>/conversation.jsonl` live as chat bubbles,
-reloaded via a ~0.5s file watcher as the capture daemon appends lines. The
-pointer itself is resolved once per tile mount (a ~1s poll loop that stops the
-moment it finds a non-nil value — handles both the common case, where the
-pointer is already seeded before the tile ever mounts, and opening the tile
-on a plain session BEFORE Record has been clicked). Each utterance becomes a
-Work42UI `ChatBubble`:
+The tile reads the session's `meeting/recording_dir` pointer, then tails
+`conversation.jsonl`. `You` renders as a trailing accent bubble. `Them`
+renders leading and uses `speakers.json` when a resolved speaker is available.
+System-event rows render as centered cards. A missing pointer or empty file
+shows the waiting state.
 
-- `"You"` (mic) → trailing / accent bubble.
-- `"Them"` (system audio) → leading bubble; neutral grey until the speaker is
-  MATCHED to a person in the optional `speakers.json` sidecar, then painted with
-  that person's stable palette color (avatar + name + bubble tint).
-- unknown speaker → leading / neutral.
+## Stable meeting metadata
 
-System-event lines (`{"type":"system_event", …}`) render as centered cards
-(app name + OCR text + timestamp). The image thumbnail the app showed is
-omitted (loading a file image needs AppKit/ImageIO, outside a plugin widget's
-allowed imports). An empty transcript shows a "Waiting to listen…" state.
+The Calendar handoff writes these `meeting/*` keys before presenting
+Transcript:
 
-The app's "who is this?" speaker-resolver popover is dropped (it required
-Flow42Core's `PeopleStore`); the avatar is inert here.
+| Key | Meaning |
+|---|---|
+| `recording_dir` | Recording directory returned by `meet42 record start`. |
+| `started_at` | ISO 8601 capture start. |
+| `title` | Matched calendar title, or detected app name for ad-hoc calls. |
+| `source_app` | Detected meeting app display name. |
+| `source_bundle_id` | Bundle id used for the native icon and scoped mic watch. |
+| `scheduled_start` / `scheduled_end` | Optional matched-event bounds. |
+| `ended_at` | Written only when Transcript/manual controls explicitly stop. |
 
-## Session files
+`meet42 record status --json` remains recording truth. Transcript compares its
+stored `recording_dir` with the active status directory before presenting or
+controlling the pill.
 
-| File | Access | Description |
-|------|--------|-------------|
-| `<meeting/recording_dir>/conversation.jsonl` | read-only | Append-only transcript. Speaker line: `{ "ts", "speaker": "You"\|"Them", "text", "lineId", "speakerLabel"? }`; system-event line: `{ "ts", "type":"system_event", "event", "app"?, "ocr_text"?, "rect" }` (a missing `type` ⇒ speaker line). Written by meet42's `MeetingTranscriptionEngine` into the RECORDING's own directory — NOT the session's worktree. |
-| `<meeting/recording_dir>/speakers.json` | read-only | Optional `{ "<speakerKey>": "<Name>" }` or `{ "<speakerKey>": { "person_id", "name" } }` sidecar mapping speaker keys to display names. |
-| `<session worktree>/meeting.json` | read-only | Read only for the meeting title shown on the pill — this one IS session-worktree-scoped (seeded by the plugin's `onCreate` from the matched calendar event), unrelated to the recording. |
+## Background agent
 
-## Recording truth
+`TranscriptMeetingAgent` is one agent per session. On activation and relaunch
+it reconciles storage with recording status, re-presents the pill for an active
+recording, and starts:
 
-`meet42 record status` is session-agnostic (meet42-recording-lifecycle-rework
-s1) — it reports the active recording's own `dir`, not a session id or
-worktree slug. The widget reads its OWN session's `meeting/recording_dir`
-pointer and `meeting/started_at` via **`services.storage.get`** — the SDK's
-native `WidgetStorageService`, NOT the shelled `work42 storage get` CLI. This
-matters: for a non-task session (exactly what an "event" meeting session is),
-`WidgetCommandRunner` used to inject `WORK42_SESSION_DIR` as the session's
-WORKTREE path, but `storage.json` actually lives in the chat-session metadata
-directory — a work42-core bug in `SessionDiscovery`/`StorageCommand` that
-made the shelled CLI resolve the wrong file for a non-task session (confirmed
-live; fixed in the work42 repo, s6 — `WidgetCommandRunner.Context` now carries
-a separate `sessionDirectory` field injected as `WORK42_SESSION_DIR`,
-distinct from the worktree used for `cwd`). `services.storage` sidesteps the
-whole question regardless — it's backed directly by `SessionStorageBackend
-(sessionDirectory: resolved.sessionDirectory)`, the CORRECT directory, no
-shell/CLI indirection at all — but `meeting/recording_dir`/`started_at`/
-`ended_at` all live in the `meeting` namespace, NOT this widget's own
-`transcript` namespace, so WRITING them (see Manual Record/Stop below) still
-has to go through the shelled CLI (`services.storage.set` is restricted to a
-widget's own namespace) — now safe post-s6. The widget compares the
-recording_dir pointer against `status.dir` to determine "is MY session's
-recording the active one," and reads `started_at`/`ended_at` the same way to
-distinguish "never recorded" from "recorded, then ended" for the pill's
-transitional ENDED state.
+```text
+meet42 watch --bundle-id <meeting/source_bundle_id> --json
+```
 
-| Key | Written by | Meaning |
-|-----|-----------|---------|
-| `meeting/recording_dir` | whoever starts the recording (the calendar widget's detection agent at mint/attach time, or this widget's manual Record intent) | Points at `meet42 record`'s own recordings directory — the single source of truth for where the transcript actually lives. |
-| `meeting/started_at` | same as above, via `work42 storage set --session <id> ...` | ISO 8601 start time → the "In Meeting" workflow gate. |
-| `meeting/ended_at` | whoever observes the recording has stopped (the record daemon self-stops entirely on its own; this widget's Stop intent/pill Stop writes the gate, or — if the daemon self-stopped with nobody watching — the next `fetchRecordingSnapshot` poll notices and writes it) | ISO 8601 end time → advances to Summary. |
+The scoped watcher emits the initial state and later open/close edges for only
+that detected app. All watcher, reconciliation, and countdown tasks are
+cancelled when the agent stops or hot-reloads.
 
-## Reconcile on activate (survives relaunch)
-
-Because the record daemon's lifetime is independent of this widget (or the
-app) being alive, `TranscriptWidget.activate` reconciles on EVERY activation:
-it reads recording truth once, and if this session's recording is still
-active (survived an app relaunch/crash) or has ended with nobody having seen
-it yet, it re-presents this widget's pill — so a live or just-finished
-recording always surfaces its pill again rather than leaving the user with no
-visible state.
+Mic-open keeps or restores the active state. Mic-close shows a 10-second
+`Auto-stopping` prompt. `Stay` suppresses further close handling until the app
+opens its mic again; `Stop` or countdown expiry runs `meet42 record stop`,
+writes `meeting/ended_at`, and dismisses the pill.
 
 ## Pill
 
-`makePillView` renders the recording accessory, ported from the app's Event
-accessory with the **RECORDING** + **ENDED** states (+ a plain **idle**). The
-DETECTED state is NOT here — the calendar widget owns it. Visuals: purple
-`#7C3AED`, a Stop capsule with a live monospaced `M:SS` timer. State is derived
-every ~1s from `meet42 record status` (recording) + the `meeting/started_at`/
-`ended_at` storage reads above (ended vs idle). The Stop button runs `meet42
-record stop`, writes `ended_at`, and dismisses the pill.
+The active pill keeps a stable two-row layout:
 
-## Manual Record/Stop (action-area intents)
+- Row 1: native macOS icon resolved from `source_bundle_id` (generic video only
+  when resolution fails), exact meeting title, and source app.
+- Row 2: schedule status, Liquid Glass **Open Session**, and a live Stop timer.
 
-Both intents use the SAME session-agnostic `meet42 record` primitive the
-calendar detection agent uses (meet42-recording-lifecycle-rework s5) — this
-widget doesn't own a different start/stop mechanism, just a different
-trigger (a button click, not a detected call).
+Matched meetings show a remaining-time rail that drains from right to left.
+It is violet normally, amber during the final five minutes, and empty after the
+scheduled end while the label becomes red `Over by X min`. Ad-hoc meetings
+show `In Progress` and no rail.
 
-**Record**: launches `meet42 record start --manual --json` as a DETACHED
-process (not via `WidgetShellService`, which is bounded to a 10s timeout —
-`record start` daemonizes via `setsid`+`execve` with no `fork`, so it never
-exits on its own while recording and the bounded shell service would kill
-it). `--manual` means there's no trigger call for the daemon to self-watch —
-only an explicit Stop ends it. Unlike the old fire-and-forget version, this
-redirects stdout to a temp file and polls for the daemon's pre-daemonize
-`{recordingId, dir}` line (s1) — that line appearing IS the confirmation (it
-only prints once the singleton check passes), no separate `record status`
-poll needed. On success, seeds THIS session's `meeting/recording_dir`
-pointer + `meeting/started_at` gate via the shelled CLI (`work42 storage
-set --session <id> meeting/... ...` — `services.storage` can't target the
-`meeting` namespace, only this widget's own `transcript` namespace), then
-refreshes to show the RECORDING pill.
+**Open Session** invokes `global.openLink` with
+`work42://session/<session-id>`. The prompt preserves the same app icon and
+title, replacing row 2 with `Auto-stopping in Ns`, **Stay**, and **Stop**.
 
-**Stop** (the action-area intent, and the pill's own Stop button —
-`RecModel.stopRecording`, reused by both the RECORDING and ENDED states):
-reads this session's `meeting/recording_dir` pointer, runs `meet42 record
-stop --dir <dir>` (`--dir`, not the old `--session-dir` — `meet42 record` is
-session-agnostic now; safe via the bounded shell service, it just touches a
-marker file and returns immediately — the daemon now honors it within ~1s
-regardless of capture load, s2's off-main stop-detection fix), and writes
-`meeting/ended_at`.
+## Manual controls
 
-**The ended-gate** (`fetchRecordingSnapshot`, AC10): the record daemon can
-also self-stop entirely on its own when its trigger call ends (s2) — nobody
-necessarily ever clicks Stop. Every recording-truth poll checks for exactly
-that: a session with a recording attached (`recording_dir` + `started_at`
-both set) that is NOT currently active and has no `ended_at` yet — if so, it
-writes `meeting/ended_at` itself, so the session still advances to Summary.
-Guarded by `!hasEnded` so it only fires once per transition.
+The action-area microphone picker and manual Record/Stop remain available.
+Manual Record uses `meet42 record start --manual --json`, stores
+`recording_dir` and `started_at`, and presents Transcript. Because manual
+recordings have no `source_bundle_id`, they show `In Progress` and do not run a
+mic watcher. Manual Stop uses the same explicit stop and `ended_at` path.
