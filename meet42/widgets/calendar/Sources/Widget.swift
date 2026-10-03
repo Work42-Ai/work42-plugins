@@ -96,6 +96,56 @@ func calShellQuote(_ s: String) -> String {
     "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+/// Line-buffered stdout reader driven by `FileHandle.readabilityHandler`
+/// (callback on read-readiness) rather than `FileHandle.bytes.lines`, whose
+/// `for await` performs a synchronous blocking `read()` on whichever thread
+/// picks up the continuation — pinning one of Swift Concurrency's limited,
+/// process-wide cooperative threads for as long as the pipe stays open
+/// (here, the lifetime of a `meet42 watch` process, which by design never
+/// exits on its own).
+func calAsyncLines(from fileHandle: FileHandle) -> AsyncStream<String> {
+    // GCD serializes a single FileHandle's readabilityHandler invocations
+    // (one event-source callback at a time), so this buffer is never
+    // touched concurrently despite the compiler being unable to prove it.
+    nonisolated final class LineBuffer: @unchecked Sendable {
+        private var data = Data()
+        nonisolated func extractLines(appending chunk: Data) -> [String] {
+            data.append(chunk)
+            var lines: [String] = []
+            while let newline = data.firstIndex(of: 0x0A) {
+                if let line = String(data: data[..<newline], encoding: .utf8) {
+                    lines.append(line)
+                }
+                data.removeSubrange(...newline)
+            }
+            return lines
+        }
+        nonisolated func drainRemainder() -> String? {
+            guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return nil }
+            return line
+        }
+    }
+
+    return AsyncStream { continuation in
+        let buffer = LineBuffer()
+        fileHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                if let line = buffer.drainRemainder() { continuation.yield(line) }
+                continuation.finish()
+                return
+            }
+            for line in buffer.extractLines(appending: chunk) {
+                continuation.yield(line)
+            }
+        }
+        continuation.onTermination = { _ in
+            fileHandle.readabilityHandler = nil
+        }
+    }
+}
+
 // MARK: - Meet42Trace (duplicated per widget — no shared target; same convention as shell-quote helpers)
 
 /// Append one JSON-line trace event to ~/.work42/meet42/trace.jsonl.
@@ -1814,16 +1864,11 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         }
         watchProcess = process
 
-        // AsyncLineSequence throws on an I/O error (e.g. the pipe closing
-        // when the child dies) — that's just our cue to fall through and let
-        // the caller's loop respawn it, not a real failure to surface.
-        do {
-            for try await line in outPipe.fileHandleForReading.bytes.lines {
-                if Task.isCancelled { break }
-                await handleWatchLine(line, s)
-            }
-        } catch {
-            // Pipe closed / read error — fall through to respawn.
+        // The pipe closing (child dies) ends the stream — that's just our
+        // cue to fall through and let the caller's loop respawn it.
+        for await line in calAsyncLines(from: outPipe.fileHandleForReading) {
+            if Task.isCancelled { break }
+            await handleWatchLine(line, s)
         }
         watchProcess = nil
     }

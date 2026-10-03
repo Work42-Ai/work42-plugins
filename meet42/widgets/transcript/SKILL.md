@@ -47,17 +47,18 @@ controlling the pill.
 
 ## Background agent
 
-`TranscriptMeetingAgent` is one agent per session. On activation and relaunch
-it reconciles storage with recording status, re-presents the pill for an active
-recording, and starts:
+`TranscriptMeetingAgent` is one agent per session. It reconciles storage with
+recording status once on activation/relaunch and once when the pill mounts,
+then presents the pill for an active recording and starts:
 
 ```text
 meet42 watch --bundle-id <meeting/source_bundle_id> --json
 ```
 
 The scoped watcher emits the initial state and later open/close edges for only
-that detected app. All watcher, reconciliation, and countdown tasks are
-cancelled when the agent stops or hot-reloads.
+that detected app. There is no perpetual per-session storage polling. All
+watcher, reconciliation, and countdown tasks are cancelled when the agent
+stops or hot-reloads.
 
 Mic-open keeps or restores the active state. Mic-close shows a 10-second
 `Auto-stopping` prompt. `Stay` suppresses further close handling until the app

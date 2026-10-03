@@ -248,6 +248,56 @@ private func transcriptShellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
+/// Line-buffered stdout reader driven by `FileHandle.readabilityHandler`
+/// (callback on read-readiness) rather than `FileHandle.bytes.lines`, whose
+/// `for await` performs a synchronous blocking `read()` on whichever thread
+/// picks up the continuation — pinning one of Swift Concurrency's limited,
+/// process-wide cooperative threads for as long as the pipe stays open
+/// (here, the lifetime of a `meet42 watch` process, which by design never
+/// exits on its own). Mirrors the calendar widget's `calAsyncLines`.
+private func transcriptAsyncLines(from fileHandle: FileHandle) -> AsyncStream<String> {
+    // GCD serializes a single FileHandle's readabilityHandler invocations
+    // (one event-source callback at a time), so this buffer is never
+    // touched concurrently despite the compiler being unable to prove it.
+    nonisolated final class LineBuffer: @unchecked Sendable {
+        private var data = Data()
+        nonisolated func extractLines(appending chunk: Data) -> [String] {
+            data.append(chunk)
+            var lines: [String] = []
+            while let newline = data.firstIndex(of: 0x0A) {
+                if let line = String(data: data[..<newline], encoding: .utf8) {
+                    lines.append(line)
+                }
+                data.removeSubrange(...newline)
+            }
+            return lines
+        }
+        nonisolated func drainRemainder() -> String? {
+            guard !data.isEmpty, let line = String(data: data, encoding: .utf8) else { return nil }
+            return line
+        }
+    }
+
+    return AsyncStream { continuation in
+        let buffer = LineBuffer()
+        fileHandle.readabilityHandler = { handle in
+            let chunk = handle.availableData
+            guard !chunk.isEmpty else {
+                handle.readabilityHandler = nil
+                if let line = buffer.drainRemainder() { continuation.yield(line) }
+                continuation.finish()
+                return
+            }
+            for line in buffer.extractLines(appending: chunk) {
+                continuation.yield(line)
+            }
+        }
+        continuation.onTermination = { _ in
+            fileHandle.readabilityHandler = nil
+        }
+    }
+}
+
 // MARK: - Meet42Trace (duplicated per widget — no shared target; same convention as shell-quote helpers)
 
 /// Append one JSON-line trace event to ~/.work42/meet42/trace.jsonl.
@@ -472,11 +522,15 @@ private final class TranscriptMeetingModel {
         suppressCloseUntilOpen = false
         self.services = services
         reconcileTask = Task { [weak self] in
-            while !Task.isCancelled {
-                await self?.reconcile()
-                try? await Task.sleep(for: .seconds(2))
-            }
+            await self?.reconcile()
         }
+    }
+
+    /// Refresh once when the pill mounts. Calendar persists the handoff metadata
+    /// before presenting this view, so an existing session does not need a
+    /// process-wide polling loop to notice a newly attached recording.
+    func reconcileOnPillMount() async {
+        await reconcile()
     }
 
     func stop() {
@@ -504,12 +558,22 @@ private final class TranscriptMeetingModel {
         let newTitle = await string("title", services: services)
         let newSourceApp = await string("source_app", services: services)
         let newBundleId = await string("source_bundle_id", services: services)
-        recordingDir = await string("recording_dir", services: services)
-        startedAt = await string("started_at", services: services).flatMap(parseISO8601)
-        scheduledStart = await string("scheduled_start", services: services).flatMap(parseISO8601)
-        scheduledEnd = await string("scheduled_end", services: services).flatMap(parseISO8601)
-        title = newTitle ?? "Meeting"
-        sourceApp = newSourceApp ?? "Meeting"
+        let newRecordingDir = await string("recording_dir", services: services)
+        let newStartedAt = await string("started_at", services: services).flatMap(parseISO8601)
+        let newScheduledStart = await string("scheduled_start", services: services).flatMap(parseISO8601)
+        let newScheduledEnd = await string("scheduled_end", services: services).flatMap(parseISO8601)
+        let resolvedTitle = newTitle ?? "Meeting"
+        let resolvedSourceApp = newSourceApp ?? "Meeting"
+
+        // Reconciliation can run from both agent startup and pill mounting.
+        // Avoid dirtying the observable model when persisted metadata has not
+        // changed: each write otherwise invalidates the live pill's SwiftUI graph.
+        if recordingDir != newRecordingDir { recordingDir = newRecordingDir }
+        if startedAt != newStartedAt { startedAt = newStartedAt }
+        if scheduledStart != newScheduledStart { scheduledStart = newScheduledStart }
+        if scheduledEnd != newScheduledEnd { scheduledEnd = newScheduledEnd }
+        if title != resolvedTitle { title = resolvedTitle }
+        if sourceApp != resolvedSourceApp { sourceApp = resolvedSourceApp }
         if sourceBundleId != newBundleId {
             sourceBundleId = newBundleId
             sourceIcon = Self.icon(bundleId: newBundleId)
@@ -523,8 +587,10 @@ private final class TranscriptMeetingModel {
         else { return }
 
         if status.recording, status.dir == recordingDir {
-            if phase == .inactive || phase == .stopped { phase = .active }
-            try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
+            if phase == .inactive || phase == .stopped {
+                phase = .active
+                try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
+            }
             startWatchIfNeeded()
         } else if await string("ended_at", services: services).flatMap(parseISO8601) != nil {
             phase = .stopped
@@ -573,13 +639,10 @@ private final class TranscriptMeetingModel {
         process.standardError = FileHandle.nullDevice
         do { try process.run() } catch { return }
         watchProcess = process
-        do {
-            for try await line in output.fileHandleForReading.bytes.lines {
-                guard !Task.isCancelled else { break }
-                await handleWatchLine(line)
-            }
-        } catch {
-            // A closed pipe simply lets the outer task respawn the watcher.
+        // A closed pipe simply ends the stream, letting the outer task respawn the watcher.
+        for await line in transcriptAsyncLines(from: output.fileHandleForReading) {
+            guard !Task.isCancelled else { break }
+            await handleWatchLine(line)
         }
         if watchProcess === process { watchProcess = nil }
     }
@@ -1171,6 +1234,7 @@ private struct RecordingAccessory: View {
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.phase)
         .environment(\.controlActiveState, .active)
+        .task { await model.reconcileOnPillMount() }
     }
 
     private var header: some View {
