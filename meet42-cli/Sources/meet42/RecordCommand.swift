@@ -236,23 +236,16 @@ enum RecordCommand {
         // MicWatcher scoped to its bundle id. Its onEdge runs on the
         // watcher's own serial queue (never the MainActor) — a close touches
         // the SAME marker `waitForStop` below is watching for, after a 5s
-        // grace cancellable by a re-open.
-        var selfWatcher: MicWatcher?
-        if !isManual, !bundleId.isEmpty {
-            let grace = SelfStopGrace()
-            let watcher = MicWatcher(scopeBundleId: bundleId) { active, _ in
-                if active {
-                    grace.reopened()
-                } else {
-                    grace.closed {
-                        Meet42Trace.log("record", "self-stop-triggered", ["recordingId": recordingId])
-                        _ = FileManager.default.createFile(atPath: marker, contents: Data())
-                    }
-                }
-            }
-            watcher.start()
-            selfWatcher = watcher
-        }
+        // grace cancellable by a re-open. Armed via a `nonisolated` helper
+        // (see armSelfWatch below) so its closures aren't inferred as
+        // @MainActor-isolated — they're actually invoked from MicWatcher's
+        // and SelfStopGrace's own dedicated queues, and a @MainActor-isolated
+        // closure invoked off the Main queue traps at runtime (the exact
+        // crash this fixes, confirmed live in waitForStop's identical
+        // pattern — see its doc comment).
+        let selfWatcher: MicWatcher? = (!isManual && !bundleId.isEmpty)
+            ? Self.armSelfWatch(bundleId: bundleId, recordingId: recordingId, marker: marker)
+            : nil
 
         CLI.warn("meet42 record: capturing — watching for stop marker at \(marker)")
         await waitForStop(marker: marker)
@@ -270,6 +263,34 @@ enum RecordCommand {
         exit(0)
     }
 
+    /// Arms the self-watch `MicWatcher` + its `SelfStopGrace` for the daemon's
+    /// self-stop (s2). `nonisolated`: the closures built here are invoked by
+    /// MicWatcher/SelfStopGrace on their OWN dedicated dispatch queues, never
+    /// the MainActor. If this were a (default-isolated) member of the
+    /// @MainActor RecordCommand enum, Swift would infer these closures as
+    /// @MainActor-isolated purely from their lexical context, and the
+    /// runtime's actor-isolation check traps the first time one actually
+    /// runs off the Main queue — the exact crash fixed by waitForStop's own
+    /// `nonisolated` below; this mirrors that fix for the self-watch path
+    /// before it has a chance to crash the same way.
+    nonisolated private static func armSelfWatch(
+        bundleId: String, recordingId: String, marker: String
+    ) -> MicWatcher {
+        let grace = SelfStopGrace()
+        let watcher = MicWatcher(scopeBundleId: bundleId) { active, _ in
+            if active {
+                grace.reopened()
+            } else {
+                grace.closed {
+                    Meet42Trace.log("record", "self-stop-triggered", ["recordingId": recordingId])
+                    _ = FileManager.default.createFile(atPath: marker, contents: Data())
+                }
+            }
+        }
+        watcher.start()
+        return watcher
+    }
+
     /// Suspend until `marker` exists, checked every 250ms on a DEDICATED
     /// DispatchQueue — NOT Swift's cooperative thread pool / the MainActor
     /// executor, which capture/transcription CPU load can starve for 4s+
@@ -277,7 +298,18 @@ enum RecordCommand {
     /// needed a hard kill). The timer only WATCHES; once it sees the marker
     /// it cancels itself and resumes the continuation, handing control back
     /// to this (async) function to run the actual finalize sequence.
-    private static func waitForStop(marker: String) async {
+    ///
+    /// `nonisolated`: CRASHED IN PRODUCTION without this (2026-10-03 crash
+    /// report, EXC_BREAKPOINT in dispatch_assert_queue_fail). As a default
+    /// member of the @MainActor RecordCommand enum, the DispatchSourceTimer's
+    /// event-handler closure below was inferred @MainActor-isolated purely
+    /// from lexical context — but libdispatch actually invokes it on the
+    /// dedicated `meet42.record.stop-poll` queue, never the Main queue. The
+    /// Swift runtime's dynamic isolation check traps the instant that
+    /// mismatch is observed, i.e. the first time the marker file appears.
+    /// `nonisolated` removes the (wrong) inferred isolation; nothing in the
+    /// body needs MainActor anyway.
+    nonisolated private static func waitForStop(marker: String) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let queue = DispatchQueue(label: "meet42.record.stop-poll")
             let timer = DispatchSource.makeTimerSource(queue: queue)
