@@ -52,6 +52,7 @@ let package = Package(
                 "task42/widgets/qa/Sources/Widget.swift",
                 "task42/widgets/testing-plan/SKILL.md",
                 "task42/widgets/testing-plan/Sources/Widget.swift",
+                "flow42",
                 // patrol42 ships no compiled LinkSupport (it reuses the github
                 // plugin's widget) — its Plugin.swift compiles at install time,
                 // so the whole bundle is excluded from this package build.
@@ -66,6 +67,11 @@ let package = Package(
             name: "PluginLinkSupportTests",
             dependencies: ["PluginLinkSupport"],
             path: "Tests/PluginLinkSupportTests"
+        ),
+        .testTarget(
+            name: "Flow42CreatorContractTests",
+            path: "Tests/Flow42CreatorContractTests",
+            resources: [.copy("Fixtures")]
         ),
     ]
 )

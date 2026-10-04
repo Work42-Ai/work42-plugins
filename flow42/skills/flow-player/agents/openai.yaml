@@ -1,0 +1,4 @@
+interface:
+  display_name: "Flow Player"
+  short_description: "Run a Flow42 definition on a Work42 device"
+  default_prompt: "Use $flow-player to run the selected flow and variant with Work42 recording."

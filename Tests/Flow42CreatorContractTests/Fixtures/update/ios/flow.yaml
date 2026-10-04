@@ -1,0 +1,12 @@
+schema_version: 1
+device: ios
+phases:
+  - id: authenticate
+    intent: Preserve the existing iOS login guidance unchanged.
+    steps:
+      - action: click
+        arguments:
+          label: Sign In
+          role: button
+        precondition: Valid native credentials are present.
+        postcondition: The signed-in home screen is visible.
