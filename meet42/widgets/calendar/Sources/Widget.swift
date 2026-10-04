@@ -1320,14 +1320,12 @@ private struct CalendarPreferenceRow: View {
 // (session × widget) and N alive sessions must not mean N independent
 // watchers/prompts/mints for the same mic event.
 //
-// The DETECTED pill (`DetectedPillView`) is a plugin-local port of the app's
-// EventSessionAccessory "detected" state (medallion + name/subtitle + 10s
-// auto-start countdown + purple bar + Skip / Record now); `SettingUpPillView`
-// covers the `.settingUp` phase with a `Loader42` + cycling
-// helper text, mirroring `ProcessOverlay.beginSessionSetup()`. The agent↔pill
+// Detected and setup render through the SDK's shared accessory shell, keeping
+// app identity and geometry fixed while the state row and progress rail
+// change. The agent↔pill
 // bridge is `CalendarDetectionState.shared`: the agent WRITES `.phase`;
 // `makePillView` READS it and renders the matching accessory — the host panel
-// live-resizes the pill as the reported content size changes between phases.
+// re-renders the pill without resizing it between phases.
 // The record decision + 10s auto-start timer live on the agent (so side
 // effects stay agent-owned); the pill just calls back.
 
@@ -1336,6 +1334,13 @@ private struct CalendarPreferenceRow: View {
 let meetingDetectionPurple = Color(red: 0x7C / 255, green: 0x3A / 255, blue: 0xED / 255)
 /// Lighter violet for the on-dark countdown copy (#C4B5FD).
 let meetingDetectionPurpleLight = Color(red: 0xC4 / 255, green: 0xB5 / 255, blue: 0xFD / 255)
+
+private func meetingAppIcon(bundleId: String) -> NSImage? {
+    guard !bundleId.isEmpty,
+          let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
+    else { return nil }
+    return NSWorkspace.shared.icon(forFile: url.path)
+}
 
 /// A resolved detection the agent hands to the pill. Carries the display data +
 /// two callbacks the pill invokes (Record now / Skip) so the side effects stay
@@ -1375,7 +1380,7 @@ enum CalendarPillPhase {
     /// A meeting was detected and the Skip/Record now prompt is showing.
     case detected(DetectedMeeting)
     /// Recording started; Calendar is seeding or minting the event session.
-    case settingUp
+    case settingUp(DetectedMeeting)
     /// No detection in progress — the pill falls back to the compact
     /// "next N events" agenda (`CalendarPillView`).
     case none
@@ -1409,8 +1414,8 @@ private struct CalendarPillRouter: View {
         switch CalendarDetectionState.shared.phase {
         case .detected(let meeting):
             DetectedPillView(meeting: meeting, services: services)
-        case .settingUp:
-            SettingUpPillView()
+        case .settingUp(let meeting):
+            SettingUpPillView(meeting: meeting)
         case .none:
             CalendarPillView(services: services)
         }
@@ -1427,76 +1432,19 @@ struct DetectedPillView: View {
     let meeting: DetectedMeeting
     let services: SessionServices
 
-    private let cardWidth: CGFloat = 412
     private let countdownTotal: TimeInterval = 10
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            VStack(alignment: .leading, spacing: 12) {
-                header
-                actionRow
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            countdownBar
-        }
-        .frame(width: cardWidth, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .environment(\.controlActiveState, .active)
-    }
-
-    // MARK: Header — medallion + name/subtitle
-
-    private var header: some View {
-        HStack(spacing: 11) {
-            medallion
-            VStack(alignment: .leading, spacing: 1) {
-                Text(meeting.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(meeting.subtitle)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 8)
-        }
-        .frame(height: 36)
-    }
-
-    /// The detected app's native icon (resolved via NSWorkspace from the
-    /// canonical bundle id meet42 watch reported), falling back to a plain
-    /// video glyph if resolution fails (app not discoverable, empty bundle id).
-    private var medallion: some View {
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(meetingDetectionPurple.opacity(0.9))
-            .overlay(
-                Group {
-                    if let icon = Self.resolveAppIcon(bundleId: meeting.bundleId) {
-                        Image(nsImage: icon)
-                            .resizable()
-                            .scaledToFit()
-                            .padding(6)
-                    } else {
-                        Image(systemName: "video.fill")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
-                }
-            )
-            .frame(width: 36, height: 36)
-            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
-    }
-
-    private static func resolveAppIcon(bundleId: String) -> NSImage? {
-        guard !bundleId.isEmpty,
-              let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId)
-        else { return nil }
-        return NSWorkspace.shared.icon(forFile: url.path)
+        WidgetPillAccessoryShell(
+            title: meeting.title,
+            subtitle: meeting.subtitle,
+            icon: WidgetPillAppIcon(
+                image: meetingAppIcon(bundleId: meeting.bundleId),
+                tint: meetingDetectionPurple
+            ),
+            actionRow: { actionRow },
+            progressRail: { countdownBar }
+        )
     }
 
     // MARK: Action row — countdown message + Skip + Record now
@@ -1530,19 +1478,8 @@ struct DetectedPillView: View {
     private var skipButton: some View {
         Button(action: meeting.onSkip) {
             Text("Skip")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .fixedSize()
-                .padding(.horizontal, 15)
-                .frame(height: 32)
-                .background(
-                    Capsule(style: .continuous)
-                        .fill(.white.opacity(0.10))
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.2), lineWidth: 0.5))
-                )
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WidgetPillActionButtonStyle())
         .help("Skip auto-start")
     }
 
@@ -1553,16 +1490,9 @@ struct DetectedPillView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(.white)
                 Text(meeting.errorMessage == nil ? "Record now" : "Retry")
-                    .font(.system(size: DT.f11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .fixedSize()
             }
-            .padding(.horizontal, 12)
-            .frame(height: 32)
-            .background(Capsule(style: .continuous).fill(meetingDetectionPurple))
         }
-        .buttonStyle(.plain)
+        .buttonStyle(WidgetPillActionButtonStyle(emphasis: .primary, tint: meetingDetectionPurple))
         .help("Start recording now")
     }
 
@@ -1577,13 +1507,13 @@ struct DetectedPillView: View {
                         Rectangle().fill(Color.white.opacity(0.08))
                         Rectangle()
                             .fill(meetingDetectionPurple)
-                            .frame(width: max(0, cardWidth * frac))
+                            .frame(width: max(0, WidgetPillAccessoryMetrics.width * frac))
                             .shadow(color: meetingDetectionPurple.opacity(0.7), radius: 4)
                     }
-                    .frame(width: cardWidth, height: 3)
+                    .frame(height: WidgetPillAccessoryMetrics.progressHeight)
                 }
             } else {
-                Rectangle().fill(Color.clear).frame(width: cardWidth, height: 3)
+                Color.clear
             }
         }
     }
@@ -1602,14 +1532,11 @@ struct DetectedPillView: View {
 
 // MARK: - SettingUpPillView (Calendar pill's second/third state)
 
-/// Shown while Calendar seeds or mints the event session. Mirrors
-/// the app's `ProcessOverlay.beginSessionSetup()` (same `Loader42` + title +
-/// cycling helper lines), but content-only: the host panel owns the card
-/// surface (confirmed — `WidgetPillMetadata` has no per-widget color/style
-/// override, so every pill renders on the same dark glass), so this draws
-/// white text over that glass rather than the app dialog's light card.
+/// Shown while Calendar seeds or mints the event session. It preserves the
+/// detected meeting identity and shared shell while the lower row reports
+/// setup progress.
 struct SettingUpPillView: View {
-    private let cardWidth: CGFloat = 320
+    let meeting: DetectedMeeting
     private let helperInterval: TimeInterval = 2.2
     private static let mintHelpers = [
         "Minting an isolated worktree",
@@ -1619,53 +1546,40 @@ struct SettingUpPillView: View {
     ]
 
     @State private var helperIndex = 0
-    @State private var dotsOn = false
 
     var body: some View {
-        VStack(spacing: 14) {
-            Loader42()
-                .frame(width: 56, height: 56)
-            VStack(spacing: 4) {
-                HStack(spacing: 3) {
-                    Text(title)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                    animatedDots
-                }
-                Text(Self.mintHelpers[helperIndex % Self.mintHelpers.count])
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.55))
+        WidgetPillAccessoryShell(
+            title: meeting.title,
+            subtitle: meeting.subtitle,
+            icon: WidgetPillAppIcon(
+                image: meetingAppIcon(bundleId: meeting.bundleId),
+                tint: meetingDetectionPurple
+            ),
+            actionRow: {
+                HStack(spacing: 9) {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(meetingDetectionPurpleLight)
+                    Text(Self.mintHelpers[helperIndex % Self.mintHelpers.count])
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(meetingDetectionPurpleLight)
+                        .lineLimit(1)
                         .contentTransition(.opacity)
-                        .id(helperIndex)
-                        .transition(.opacity)
+                    Spacer(minLength: 8)
+                    Text("Starting…")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+            },
+            progressRail: {
+                Rectangle().fill(meetingDetectionPurple.opacity(0.75))
             }
-        }
-        .padding(.vertical, 22)
-        .frame(width: cardWidth)
-        .onAppear { dotsOn = true }
+        )
         .onReceive(Timer.publish(every: helperInterval, on: .main, in: .common).autoconnect()) { _ in
             withAnimation(.easeInOut(duration: 0.3)) {
                 helperIndex = (helperIndex + 1) % Self.mintHelpers.count
             }
         }
-    }
-
-    private var title: String { "Setting up your Session" }
-
-    private var animatedDots: some View {
-        HStack(spacing: 2) {
-            ForEach(0..<3, id: \.self) { i in
-                Circle()
-                    .fill(.white.opacity(0.5))
-                    .frame(width: 3, height: 3)
-                    .opacity(dotsOn ? 1 : 0.2)
-                    .animation(
-                        .easeInOut(duration: 0.6).repeatForever(autoreverses: true).delay(Double(i) * 0.18),
-                        value: dotsOn
-                    )
-            }
-        }
-        .padding(.bottom, 2)
     }
 }
 
@@ -1998,7 +1912,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
                 return
             }
             Meet42Trace.log("detect", "record-started", ["callId": callId, "recordingId": recording.recordingId])
-            CalendarDetectionState.shared.phase = .settingUp
+            CalendarDetectionState.shared.phase = .settingUp(meeting)
 
             let startedAt = ISO8601DateFormatter().string(from: Date())
             let metadata = Self.meetingMetadata(

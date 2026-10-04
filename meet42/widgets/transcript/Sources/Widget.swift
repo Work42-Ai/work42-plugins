@@ -1243,50 +1243,29 @@ private struct RecordingAccessory: View {
         ))
     }
 
-    private let cardWidth: CGFloat = 412
     private let warningColor = Color(red: 0xF5 / 255, green: 0x9E / 255, blue: 0x0B / 255)
     private let overtimeColor = Color(red: 0xEF / 255, green: 0x44 / 255, blue: 0x44 / 255)
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            VStack(alignment: .leading, spacing: 12) {
-                header
+        WidgetPillAccessoryShell(
+            title: model.title,
+            subtitle: subtitle,
+            icon: WidgetPillAppIcon(image: model.sourceIcon, tint: meetingRecordingPurple),
+            actionRow: {
                 if model.phase == .endPrompt { promptRow } else { activeRow }
+            },
+            progressRail: {
+                if model.phase == .endPrompt {
+                    countdownBar
+                } else if model.scheduledStart != nil, model.scheduledEnd != nil {
+                    scheduleBar
+                } else {
+                    Color.clear
+                }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-
-            if model.phase == .endPrompt {
-                countdownBar
-            } else if model.scheduledStart != nil, model.scheduledEnd != nil {
-                scheduleBar
-            }
-        }
-        .frame(width: cardWidth, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        )
         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: model.phase)
-        .environment(\.controlActiveState, .active)
         .task { await model.reconcileOnPillMount() }
-    }
-
-    private var header: some View {
-        HStack(spacing: 11) {
-            medallion
-            VStack(alignment: .leading, spacing: 1) {
-                Text(model.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(subtitle)
-                    .font(.system(size: 12.5))
-                    .foregroundStyle(.white.opacity(0.55))
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-            Spacer(minLength: 8)
-        }
-        .frame(height: 36)
     }
 
     private var subtitle: String {
@@ -1321,17 +1300,9 @@ private struct RecordingAccessory: View {
             }
             Spacer(minLength: 8)
             Button("Stay") { model.stay() }
-                .font(.system(size: 12, weight: .semibold))
-                .buttonStyle(.plain)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .glassCapsuleSurface()
+                .buttonStyle(WidgetPillActionButtonStyle())
             Button("Stop") { Task { await model.stopMeeting(reason: "prompt") } }
-                .font(.system(size: 12, weight: .semibold))
-                .buttonStyle(.plain)
-                .padding(.horizontal, 12)
-                .frame(height: 30)
-                .meetingPurpleCapsule()
+                .buttonStyle(WidgetPillActionButtonStyle(emphasis: .primary, tint: meetingRecordingPurple))
         }
         .frame(height: 32)
     }
@@ -1343,10 +1314,10 @@ private struct RecordingAccessory: View {
                 Rectangle().fill(Color.white.opacity(0.08))
                 Rectangle()
                     .fill(meetingRecordingPurple)
-                    .frame(width: max(0, cardWidth * frac))
+                    .frame(width: max(0, WidgetPillAccessoryMetrics.width * frac))
                     .shadow(color: meetingRecordingPurple.opacity(0.7), radius: 4)
             }
-            .frame(width: cardWidth, height: 3)
+            .frame(height: WidgetPillAccessoryMetrics.progressHeight)
         }
     }
 
@@ -1357,30 +1328,10 @@ private struct RecordingAccessory: View {
                 Rectangle().fill(Color.white.opacity(0.08))
                 Rectangle()
                     .fill(schedule.railColor)
-                    .frame(width: max(0, cardWidth * schedule.remainingFraction))
+                    .frame(width: max(0, WidgetPillAccessoryMetrics.width * schedule.remainingFraction))
             }
-            .frame(width: cardWidth, height: 3)
+            .frame(height: WidgetPillAccessoryMetrics.progressHeight)
         }
-    }
-
-    private var medallion: some View {
-        Group {
-            if let icon = model.sourceIcon {
-                Image(nsImage: icon)
-                    .resizable()
-                    .scaledToFit()
-                    .padding(3)
-            } else {
-                Image(systemName: "video.fill")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(meetingRecordingPurple.opacity(0.9))
-            }
-        }
-        .frame(width: 36, height: 36)
-        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .shadow(color: .black.opacity(0.3), radius: 1.5, y: 1)
     }
 
     private var openSessionButton: some View {
@@ -1397,28 +1348,20 @@ private struct RecordingAccessory: View {
                 Image(systemName: "arrow.up.forward.app")
                 Text("Open Session")
             }
-            .font(.system(size: 11, weight: .semibold))
-            .padding(.horizontal, 10)
-            .frame(height: 30)
         }
-        .buttonStyle(.plain)
-        .glassCapsuleSurface()
+        .buttonStyle(WidgetPillActionButtonStyle())
         .help("Open meeting session")
     }
 
     @ViewBuilder
     private var stopControl: some View {
-        Group {
-            if let started = model.startedAt {
-                TimelineView(.periodic(from: started, by: 1)) { ctx in
-                    stopButton(elapsed: max(0, Int(ctx.date.timeIntervalSince(started))))
-                }
-            } else {
-                stopButton(elapsed: 0)
+        if let started = model.startedAt {
+            TimelineView(.periodic(from: started, by: 1)) { ctx in
+                stopButton(elapsed: max(0, Int(ctx.date.timeIntervalSince(started))))
             }
+        } else {
+            stopButton(elapsed: 0)
         }
-        .padding(.horizontal, 8)
-        .meetingPurpleCapsule()
     }
 
     private func stopButton(elapsed: Int) -> some View {
@@ -1426,18 +1369,11 @@ private struct RecordingAccessory: View {
             HStack(spacing: 5) {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(.white)
-                    .frame(width: 20, height: 20)
-                    .frame(width: 20, height: 32)
                 Text(Self.timeString(elapsed))
-                    .font(.system(size: DT.f11, weight: .semibold).monospacedDigit())
-                    .foregroundStyle(.white)
-                    .padding(.trailing, DT.s4)
+                    .monospacedDigit()
             }
-            .frame(minHeight: 32)
         }
-        .contentShape(Rectangle())
-        .buttonStyle(.plain)
+        .buttonStyle(WidgetPillActionButtonStyle(emphasis: .primary, tint: meetingRecordingPurple))
         .help("Stop recording")
     }
 
@@ -1491,30 +1427,6 @@ private struct RecordingAccessory: View {
             labelColor: isWarning ? warningColor : meetingRecordingPurpleLight,
             railColor: isWarning ? warningColor : meetingRecordingPurple,
             remainingFraction: CGFloat(fraction)
-        )
-    }
-}
-
-// MARK: - meetingPurpleCapsule (local port of the app-private modifier)
-
-private extension View {
-    /// The meeting-recording purple capsule surface — a REAL fill (not system
-    /// `.glassEffect`, which desaturates to grey in the non-activating pill
-    /// panel), with a top sheen + soft glow. Local port of
-    /// `EventSessionAccessory`'s app-private `meetingPurpleCapsule`.
-    func meetingPurpleCapsule() -> some View {
-        background(
-            Capsule(style: .continuous)
-                .fill(meetingRecordingPurple)
-                .overlay(
-                    Capsule(style: .continuous)
-                        .fill(.linearGradient(
-                            colors: [.white.opacity(0.18), .white.opacity(0.02)],
-                            startPoint: .top, endPoint: .bottom
-                        ))
-                )
-                .overlay(Capsule(style: .continuous).strokeBorder(.white.opacity(0.22), lineWidth: 0.5))
-                .shadow(color: meetingRecordingPurple.opacity(0.45), radius: 5, y: 1)
         )
     }
 }

@@ -72,7 +72,10 @@ there are no transition retries or forced workflow transitions.
 
 ## Pill
 
-The active pill keeps a stable two-row layout:
+Calendar detection/setup and Transcript recording/auto-stop all use
+`WidgetPillAccessoryShell`, so the 412x108 frame, native-app icon, typography,
+32-point actions, and progress rail remain fixed across handoff. The active
+pill's state content is:
 
 - Row 1: native macOS icon resolved from `source_bundle_id` (generic video only
   when resolution fails), exact meeting title, and source app.
