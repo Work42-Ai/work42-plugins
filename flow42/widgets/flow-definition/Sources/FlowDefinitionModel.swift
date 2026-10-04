@@ -17,7 +17,7 @@ struct FlowSelection: Equatable, Sendable {
         return FlowSelection(flow: flow, variant: variant)
     }
 
-    private static func isSlug(_ value: String) -> Bool {
+    static func isSlug(_ value: String) -> Bool {
         value.range(of: #"^[a-z0-9]+(?:-[a-z0-9]+)*$"#, options: .regularExpression) != nil
     }
 }
@@ -28,6 +28,46 @@ struct FlowManifest: Equatable, Sendable {
     let description: String?
     let tags: [String]
     let variants: [String: String]
+
+    var orderedVariantIDs: [String] {
+        let preferred = ["browser", "ios", "android"]
+        return preferred.filter(variants.keys.contains) +
+            variants.keys.filter { !preferred.contains($0) }.sorted()
+    }
+}
+
+struct FlowCatalogItem: Equatable, Sendable, Identifiable {
+    let id: String
+    let manifest: FlowManifest?
+    let orderedVariants: [String]
+    let preview: FlowDefinition?
+    let warning: FlowWarning?
+
+    var name: String { manifest?.name ?? id }
+    var variantCount: Int { orderedVariants.count }
+    var previewStepCount: Int {
+        preview?.phases.reduce(0) { $0 + $1.steps.count } ?? 0
+    }
+
+    static func valid(manifest: FlowManifest, preview: FlowDefinition) -> FlowCatalogItem {
+        FlowCatalogItem(
+            id: manifest.id,
+            manifest: manifest,
+            orderedVariants: manifest.orderedVariantIDs,
+            preview: preview,
+            warning: nil
+        )
+    }
+
+    static func invalid(id: String, manifest: FlowManifest? = nil, message: String) -> FlowCatalogItem {
+        FlowCatalogItem(
+            id: id,
+            manifest: manifest,
+            orderedVariants: manifest?.orderedVariantIDs ?? [],
+            preview: nil,
+            warning: FlowWarning(field: "catalog", message: message)
+        )
+    }
 }
 
 struct FlowDefinition: Equatable, Sendable {
@@ -38,6 +78,10 @@ struct FlowDefinition: Equatable, Sendable {
     let phases: [FlowPhase]
     let warnings: [FlowWarning]
     let directory: URL
+
+    var commentKey: String {
+        "flow42/flows/\(selection.flow)/\(selection.variant)"
+    }
 }
 
 struct FlowParameter: Equatable, Sendable, Identifiable {

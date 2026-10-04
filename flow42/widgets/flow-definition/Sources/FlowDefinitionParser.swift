@@ -104,33 +104,82 @@ struct FlowDefinitionLoader {
     }
 
     func load(_ selection: FlowSelection) throws -> FlowDefinition {
-        let family = registryRoot.appendingPathComponent(selection.flow, isDirectory: true)
-        let manifestURL = family.appendingPathComponent("manifest.yaml")
-        let manifestRoot = try parseFile(manifestURL)
+        let family = try validatedFamilyURL(flow: selection.flow)
+        let manifest = try loadManifest(flow: selection.flow, family: family)
+        guard let relative = manifest.variants[selection.variant] else {
+            throw FlowDefinitionError.invalidManifest("Variant '\(selection.variant)' is not declared by this flow.")
+        }
+        let flowURL = try validatedVariantURL(relative: relative, family: family)
+        return try buildDefinition(selection, manifest: manifest, url: flowURL)
+    }
+
+    func list() -> [FlowCatalogItem] {
+        let manager = FileManager.default
+        let root = registryRoot.standardizedFileURL.resolvingSymlinksInPath()
+        guard let entries = try? manager.contentsOfDirectory(
+            at: registryRoot,
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
+            options: [.skipsHiddenFiles]
+        ) else { return [] }
+
+        return entries.compactMap { entry -> FlowCatalogItem? in
+            let values = try? entry.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values?.isDirectory == true || values?.isSymbolicLink == true else {
+                return nil
+            }
+            let directoryID = entry.lastPathComponent
+            var manifest: FlowManifest?
+            do {
+                let family = try validatedFamilyURL(flow: directoryID, resolvedRoot: root)
+                manifest = try loadManifest(flow: directoryID, family: family)
+                guard let manifest, let firstVariant = manifest.orderedVariantIDs.first else {
+                    throw FlowDefinitionError.invalidManifest("Manifest must declare at least one variant.")
+                }
+                let preview = try load(FlowSelection(flow: directoryID, variant: firstVariant))
+                return .valid(manifest: manifest, preview: preview)
+            } catch {
+                return .invalid(
+                    id: directoryID,
+                    manifest: manifest,
+                    message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                )
+            }
+        }
+        .sorted { $0.id < $1.id }
+    }
+
+    private func loadManifest(flow: String, family: URL) throws -> FlowManifest {
+        guard FlowSelection.isSlug(flow) else {
+            throw FlowDefinitionError.invalidManifest("Flow directory must be a lowercase slug.")
+        }
+        let manifestRoot = try parseFile(family.appendingPathComponent("manifest.yaml"))
         guard let map = manifestRoot.object else {
             throw FlowDefinitionError.invalidManifest("manifest.yaml must contain a mapping.")
         }
         let id = map["id"]?.string ?? ""
-        guard id == selection.flow else {
+        guard id == flow else {
             throw FlowDefinitionError.invalidManifest("Manifest id must match the flow directory.")
         }
-        guard let variants = map["variants"]?.object,
-              let relative = variants[selection.variant]?.string else {
-            throw FlowDefinitionError.invalidManifest("Variant '\(selection.variant)' is not declared by this flow.")
+        guard let variants = map["variants"]?.object else {
+            throw FlowDefinitionError.invalidManifest("Manifest must declare a variants mapping.")
         }
-        let familyPath = family.standardizedFileURL.resolvingSymlinksInPath().path
-        let flowURL = family.appendingPathComponent(relative).standardizedFileURL.resolvingSymlinksInPath()
-        guard !relative.hasPrefix("/"), flowURL.path.hasPrefix(familyPath + "/") else {
-            throw FlowDefinitionError.unsafeVariantPath("Variant path escapes its flow family.")
+        let variantPaths = variants.compactMapValues(\.string)
+        guard variantPaths.count == variants.count, !variantPaths.isEmpty else {
+            throw FlowDefinitionError.invalidManifest("Every declared variant must map to a relative flow.yaml path.")
         }
-        let manifest = FlowManifest(
+        for (variant, relative) in variantPaths {
+            guard FlowSelection.isSlug(variant) else {
+                throw FlowDefinitionError.invalidManifest("Variant ids must be lowercase slugs.")
+            }
+            _ = try validatedVariantURL(relative: relative, family: family)
+        }
+        return FlowManifest(
             id: id,
             name: map["name"]?.string ?? id,
             description: map["description"]?.string,
             tags: map["tags"]?.array?.compactMap(\.string) ?? [],
-            variants: variants.compactMapValues(\.string)
+            variants: variantPaths
         )
-        return try buildDefinition(selection, manifest: manifest, url: flowURL)
     }
 
     private func buildDefinition(_ selection: FlowSelection, manifest: FlowManifest, url: URL) throws -> FlowDefinition {
@@ -145,7 +194,7 @@ struct FlowDefinitionLoader {
             return FlowParameter(id: key, type: fields["type"]?.string, description: fields["description"]?.string)
         }.sorted { $0.id < $1.id }
 
-        let variantDirectory = url.deletingLastPathComponent()
+        let variantDirectory = url.deletingLastPathComponent().resolvingSymlinksInPath()
         let phaseNodes = map["phases"]?.array ?? []
         if phaseNodes.isEmpty { warnings.append(.init(field: "phases", message: "No phases are defined.")) }
         let phases = phaseNodes.enumerated().map { phaseIndex, node -> FlowPhase in
@@ -164,8 +213,9 @@ struct FlowDefinitionLoader {
                 let args = flatten(step["arguments"]?.object ?? [:])
                 var screenshotURL: URL?
                 if let screenshot = step["screenshot"]?.string {
-                    let candidate = variantDirectory.appendingPathComponent(screenshot).standardizedFileURL
-                    if screenshot.hasPrefix("/") || !candidate.path.hasPrefix(variantDirectory.standardizedFileURL.path + "/") {
+                    let candidate = variantDirectory.appendingPathComponent(screenshot)
+                        .standardizedFileURL.resolvingSymlinksInPath()
+                    if screenshot.hasPrefix("/") || !isContained(candidate, in: variantDirectory) {
                         warnings.append(.init(field: path + ".screenshot", message: "Screenshot path escapes the variant directory."))
                     } else if !FileManager.default.fileExists(atPath: candidate.path) {
                         warnings.append(.init(field: path + ".screenshot", message: "Screenshot file is missing."))
@@ -179,6 +229,34 @@ struct FlowDefinitionLoader {
         }
         return FlowDefinition(selection: selection, manifest: manifest, device: device,
             parameters: parameters, phases: phases, warnings: warnings, directory: variantDirectory)
+    }
+
+    private func validatedFamilyURL(flow: String, resolvedRoot: URL? = nil) throws -> URL {
+        guard FlowSelection.isSlug(flow) else {
+            throw FlowDefinitionError.invalidManifest("Flow directory must be a lowercase slug.")
+        }
+        let root = resolvedRoot ?? registryRoot.standardizedFileURL.resolvingSymlinksInPath()
+        let family = registryRoot.appendingPathComponent(flow, isDirectory: true)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        guard isContained(family, in: root) else {
+            throw FlowDefinitionError.unsafeVariantPath("Flow directory escapes the global registry.")
+        }
+        return family
+    }
+
+    private func validatedVariantURL(relative: String, family: URL) throws -> URL {
+        let flowURL = family.appendingPathComponent(relative)
+            .standardizedFileURL.resolvingSymlinksInPath()
+        guard !relative.hasPrefix("/"), isContained(flowURL, in: family) else {
+            throw FlowDefinitionError.unsafeVariantPath("Variant path escapes its flow family.")
+        }
+        return flowURL
+    }
+
+    private func isContained(_ candidate: URL, in directory: URL) -> Bool {
+        let directoryPath = directory.standardizedFileURL.resolvingSymlinksInPath().path
+        let candidatePath = candidate.standardizedFileURL.resolvingSymlinksInPath().path
+        return candidatePath.hasPrefix(directoryPath + "/")
     }
 
     private func parseFile(_ url: URL) throws -> YAMLValue {
