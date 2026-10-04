@@ -78,7 +78,9 @@ Calendar detection/setup and Transcript recording/auto-stop all use
 pill's state content is:
 
 - Row 1: native macOS icon resolved from `source_bundle_id` (generic video only
-  when resolution fails), exact meeting title, and source app.
+  when resolution fails), the authoritative session name, and source/timing
+  context. Transcript resolves the name from the session database and uses
+  stored meeting metadata only as a backward-compatible fallback.
 - Row 2: schedule status, Liquid Glass **Open Session**, and a live Stop timer.
 
 Matched meetings show a remaining-time rail that drains from right to left.

@@ -1286,10 +1286,11 @@ private struct CalendarPreferenceRow: View {
 //       (CoreAudio property listeners over PER-PROCESS mic INPUT only — never
 //       triggers on audio output). Each `call-open` is handled exactly once
 //       (in-memory `Set<CallId>`, never re-prompts within one call session);
-//       it shells `meet42 now --json` to optionally NAME the call from a
-//       matching calendar event (purely cosmetic — detection itself is
-//       platform-based, not calendar-based), decides YES (a session already
-//       exists for the event) vs NO (none yet), sets
+//       it shells `meet42 now --json`, accepts a matching event only when its
+//       effective mode is assisted AND its linked session resolves, then uses
+//       that session's authoritative name. Every other call is ad-hoc: it
+//       borrows no title, schedule, or event id from a nearby event and chooses
+//       its exact future session name before showing the prompt. It then sets
 //       `CalendarDetectionState.shared.phase = .detected(meeting)`, and
 //       presents the calendar widget's DETECTED pill with the app's native
 //       icon.
@@ -1300,7 +1301,8 @@ private struct CalendarPreferenceRow: View {
 //       critical path: YES (a calendar event already has one linked, e.g. a
 //       "Prepare for Meeting" session with prep work already in it) attaches
 //       the recording's pointer directly to that existing session, no mint;
-//       NO mints a fresh session seeded with the pointer (`meeting/
+//       NO mints a fresh session with that already-visible name, seeded with
+//       the pointer (`meeting/
 //       recording_dir`) + stable meeting identity at creation. The phase flips
 //       to `.settingUp` while this runs, then `.none` + dismiss this pill + float the transcript
 //       RECORDING pill for that session — a widget pill owned by the MEETING
@@ -1347,11 +1349,10 @@ private func meetingAppIcon(bundleId: String) -> NSImage? {
 /// owned by the agent, not the view.
 @MainActor
 struct DetectedMeeting {
-    /// Meeting name — the matching calendar event's title if one resolved,
-    /// else the detected app name (e.g. "Zoom").
-    let title: String
-    /// Subtitle context — "<app> · 2:00 – 2:30 PM" when a calendar event
-    /// matched, else just the app name.
+    /// The existing session's authoritative name, or the exact future name
+    /// chosen for an ad-hoc session before the prompt appears.
+    let sessionName: String
+    /// Source/timing context. Never repeats the session name.
     let subtitle: String
     /// The resolved calendar event id, or nil for an ad-hoc call.
     let eventId: String?
@@ -1436,7 +1437,7 @@ struct DetectedPillView: View {
 
     var body: some View {
         WidgetPillAccessoryShell(
-            title: meeting.title,
+            title: meeting.sessionName,
             subtitle: meeting.subtitle,
             icon: WidgetPillAppIcon(
                 image: meetingAppIcon(bundleId: meeting.bundleId),
@@ -1549,7 +1550,7 @@ struct SettingUpPillView: View {
 
     var body: some View {
         WidgetPillAccessoryShell(
-            title: meeting.title,
+            title: meeting.sessionName,
             subtitle: meeting.subtitle,
             icon: WidgetPillAppIcon(
                 image: meetingAppIcon(bundleId: meeting.bundleId),
@@ -1590,11 +1591,23 @@ struct SettingUpPillView: View {
 /// id of a session already minted for this event (nil → NO/record-to-create path).
 private struct DetectedEventPayload: Decodable {
     let id: String
+    let calendarId: String
     let title: String
     let startsAt: Date
     let endsAt: Date
     let source: String?
     let sessionId: String?
+}
+
+private struct SessionIdentityPayload: Decodable {
+    let id: String
+    let name: String
+}
+
+private struct ResolvedAssistedMeeting {
+    let event: DetectedEventPayload
+    let sessionId: String
+    let sessionName: String
 }
 
 // MARK: - DetectorLock
@@ -1828,23 +1841,22 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         guard !handledCalls.contains(callId) else { return }
         handledCalls.insert(callId)
 
-        // Cosmetic only: a matching calendar event NAMES the call and carries
-        // dedup (YES/NO) — detection itself is already platform-based and does
-        // not depend on this resolving.
-        let resolved = await resolveNow(s)
-        let title = resolved?.title ?? app
-        let subtitle = Self.subtitle(for: resolved, app: app)
+        let detectedAt = Date()
+        let resolved = await resolveAssistedMeeting(s)
+        let sessionName = resolved?.sessionName
+            ?? "\(app) — \(Self.friendlyStamp(detectedAt))"
+        let subtitle = Self.subtitle(for: resolved?.event, app: app)
 
         let meeting = DetectedMeeting(
-            title: title,
+            sessionName: sessionName,
             subtitle: subtitle,
-            eventId: resolved?.id,
+            eventId: resolved?.event.id,
             existingSessionId: resolved?.sessionId,
-            scheduledStart: resolved?.startsAt,
-            scheduledEnd: resolved?.endsAt,
+            scheduledStart: resolved?.event.startsAt,
+            scheduledEnd: resolved?.event.endsAt,
             bundleId: bundleId,
             errorMessage: nil,
-            countdownStart: Date(),
+            countdownStart: detectedAt,
             onRecord: { [weak self] in self?.startRecording(callId: callId, app: app, bundleId: bundleId, s) },
             onSkip: { [weak self] in self?.skip(callId: callId, s) }
         )
@@ -1880,6 +1892,33 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         let dec = JSONDecoder()
         dec.dateDecodingStrategy = .iso8601
         return try? dec.decode(DetectedEventPayload.self, from: data)
+    }
+
+    /// A nearby event is eligible only when assistance is active and its
+    /// previously-created session still resolves. Rejected candidates
+    /// contribute no event identity or schedule data to the ad-hoc path.
+    private func resolveAssistedMeeting(
+        _ s: WidgetBackgroundServices
+    ) async -> ResolvedAssistedMeeting? {
+        guard let event = await resolveNow(s),
+              let modes = await fetchModes(s),
+              (modes.events[event.id] ?? modes.calendars[event.calendarId] ?? .viewOnly) == .assisted,
+              let sessionId = event.sessionId, !sessionId.isEmpty,
+              let result = try? await s.shell.run(
+                  command: "work42 session show --session \(calShellQuote(sessionId)) --json"
+              ),
+              result.exitCode == 0,
+              let data = result.stdout.data(using: .utf8),
+              let identity = try? JSONDecoder().decode(SessionIdentityPayload.self, from: data),
+              identity.id == sessionId,
+              !identity.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+
+        return ResolvedAssistedMeeting(
+            event: event,
+            sessionId: sessionId,
+            sessionName: identity.name
+        )
     }
 
     // MARK: (c) Start sequence — RECORD FIRST, session comes after
@@ -1931,9 +1970,8 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
                 }
                 sessionId = existing
             } else {
-                let name = "\(meeting.title) — \(Self.friendlyStamp(Date()))"
                 guard let started = await Self.mintEventSession(
-                    name: name, eventId: meeting.eventId, storage: metadata
+                    name: meeting.sessionName, eventId: meeting.eventId, storage: metadata
                 ) else {
                     Meet42Trace.log("detect", "start-aborted", ["callId": callId, "reason": "mint-failed"])
                     await Self.stopRecording(recording.dir, shell: s.shell)
@@ -2091,7 +2129,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
         var values = [
             ("meeting/recording_dir", jsonString(recordingDir)),
             ("meeting/started_at", jsonString(startedAt)),
-            ("meeting/title", jsonString(meeting.title)),
+            ("meeting/title", jsonString(meeting.sessionName)),
             ("meeting/source_app", jsonString(app)),
             ("meeting/source_bundle_id", jsonString(bundleId)),
         ]
@@ -2138,7 +2176,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     private func showFailure(_ meeting: DetectedMeeting, message: String) {
         countdownTask?.cancel(); countdownTask = nil
         CalendarDetectionState.shared.phase = .detected(DetectedMeeting(
-            title: meeting.title,
+            sessionName: meeting.sessionName,
             subtitle: meeting.subtitle,
             eventId: meeting.eventId,
             existingSessionId: meeting.existingSessionId,
@@ -2186,6 +2224,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
             // add is idempotent on --key — re-adding replaces the entry.
             _ = try? await s.shell.run(
                 command: "work42 schedule add --type event"
+                    + " --name \(calShellQuote(e.title))"
                     + " --at \(calShellQuote(iso))"
                     + " --arg event_id=\(calShellQuote(e.id))"
                     + " --key \(calShellQuote(key))"
@@ -2220,15 +2259,14 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
 
     // MARK: Subtitle
 
-    /// "<app> · <time range>" when a calendar event matched (purely cosmetic
-    /// naming — detection is platform-based, not calendar-based), else just
-    /// the app name.
+    /// Source and timing context. Ad-hoc calls state that they will create a
+    /// new session rather than borrow identity from a nearby calendar event.
     private static func subtitle(for event: DetectedEventPayload?, app: String) -> String {
-        guard let event else { return app }
+        guard let event else { return "\(app) · New ad hoc session" }
         let f = DateFormatter()
         f.dateFormat = "h:mm a"
         let range = "\(f.string(from: event.startsAt)) – \(f.string(from: event.endsAt))"
-        return "\(app) · \(range)"
+        return "\(app) · Scheduled \(range)"
     }
 }
 

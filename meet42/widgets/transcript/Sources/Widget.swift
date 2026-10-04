@@ -352,6 +352,11 @@ private struct TranscriptRecordStatusPayload: Decodable {
     let dir: String?
 }
 
+private struct TranscriptSessionIdentityPayload: Decodable {
+    let id: String
+    let name: String
+}
+
 /// Unwrap a canonical-JSON-quoted string from `work42 storage get`'s raw
 /// (non-`--json`) stdout, e.g. `"2026-10-02T00:14:16.123Z"` -> the inner
 /// string. nil when unset (the CLI exits non-zero) or the output isn't a
@@ -556,10 +561,27 @@ private final class TranscriptMeetingModel {
         return value
     }
 
+    private func authoritativeSessionName(
+        services: WidgetBackgroundServices
+    ) async -> String? {
+        let command = "work42 session show --session \(transcriptShellQuote(sessionId)) --json"
+        guard let result = try? await services.shell.run(command: command),
+              result.exitCode == 0,
+              let data = result.stdout.data(using: .utf8),
+              let identity = try? JSONDecoder().decode(
+                  TranscriptSessionIdentityPayload.self, from: data
+              ),
+              identity.id == sessionId,
+              !identity.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { return nil }
+        return identity.name
+    }
+
     private func reconcile() async {
         guard let services else { return }
 
-        let newTitle = await string("title", services: services)
+        let storedTitle = await string("title", services: services)
+        let newTitle = await authoritativeSessionName(services: services) ?? storedTitle
         let newSourceApp = await string("source_app", services: services)
         let newBundleId = await string("source_bundle_id", services: services)
         let newRecordingDir = await string("recording_dir", services: services)

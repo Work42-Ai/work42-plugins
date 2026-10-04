@@ -23,12 +23,18 @@ line), and lets you set the AI assist mode per calendar and per event.
 - **Detection pill:** the Calendar background agent is the sole pre-session
   mic-open owner. One machine-wide `meet42 watch` stream presents the detected
   call app's native icon with Skip / Record now and a 10-second countdown.
+  A nearby calendar event is attached only when its effective mode is
+  `assisted`, it has a linked session id, and that session still resolves.
+  View-only, AI-scheduled, unlinked, and stale-linked events are ignored
+  completely; their title, event id, and schedule never leak into an ad-hoc
+  call. The prompt title is the existing session's authoritative name, or the
+  exact future ad-hoc session name chosen before the prompt appears.
   Starting launches an app-owned recorder, keeps the same 412x108 shared pill
   shell and meeting identity while its lower row reports setup progress, then
   seeds an existing prepared event session or runs
   `work42 session start --background` for a new one.
 - **Handoff metadata:** Calendar writes `meeting/recording_dir`,
-  `meeting/started_at`, `meeting/title`, `meeting/source_app`, and
+  `meeting/started_at`, `meeting/title` (the stable session name), `meeting/source_app`, and
   `meeting/source_bundle_id`. Matched events also receive
   `meeting/scheduled_start` and `meeting/scheduled_end`. Once ready, Calendar
   swaps its pill for that session's Transcript pill without selecting the
