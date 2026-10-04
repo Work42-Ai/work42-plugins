@@ -3,7 +3,7 @@ import Testing
 
 @Suite("Flow42 creator plugin contract")
 struct Flow42CreatorContractTests {
-    @Test("plugin declares exactly the two global skills and no runtime contributions")
+    @Test("plugin declares exactly the two global skills and no command contributions")
     func minimalPlugin() throws {
         let plugin = try text(at: root.appendingPathComponent("flow42/plugin.yaml"))
         #expect(plugin.contains("global_skills: flow-creator, flow-player"))

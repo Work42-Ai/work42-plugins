@@ -7,6 +7,7 @@ let package = Package(
     platforms: [.macOS(.v15)],
     products: [
         .library(name: "PluginLinkSupport", targets: ["PluginLinkSupport"]),
+        .library(name: "Flow42DefinitionCore", targets: ["Flow42DefinitionCore"]),
     ],
     targets: [
         .target(
@@ -71,6 +72,17 @@ let package = Package(
         .testTarget(
             name: "Flow42CreatorContractTests",
             path: "Tests/Flow42CreatorContractTests",
+            resources: [.copy("Fixtures")]
+        ),
+        .target(
+            name: "Flow42DefinitionCore",
+            path: "flow42/widgets/flow-definition/Sources",
+            exclude: ["FlowDefinitionView.swift", "Widget.swift"]
+        ),
+        .testTarget(
+            name: "Flow42PlayerWidgetTests",
+            dependencies: ["Flow42DefinitionCore"],
+            path: "Tests/Flow42PlayerWidgetTests",
             resources: [.copy("Fixtures")]
         ),
     ]

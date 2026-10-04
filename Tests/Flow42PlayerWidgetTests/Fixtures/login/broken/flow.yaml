@@ -1,0 +1,7 @@
+schema_version: 1
+phases:
+  - intent: Demonstrate fail-soft rendering.
+    steps:
+      - arguments:
+          label: Continue
+        screenshot: references/missing.png
