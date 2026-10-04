@@ -141,7 +141,7 @@ struct FlowDefinitionLoader {
                 return .invalid(
                     id: directoryID,
                     manifest: manifest,
-                    message: (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    message: (error as? any LocalizedError)?.errorDescription ?? error.localizedDescription
                 )
             }
         }

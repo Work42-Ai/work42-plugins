@@ -1,143 +1,172 @@
-import AppKit
 import SwiftUI
 import Work42WidgetKit
 
 struct FlowDefinitionView: View {
-    let widget: FlowDefinitionWidget
+    @Bindable var navigation: FlowDefinitionNavigation
+    let services: SessionServices
+
+    private let columns = [
+        GridItem(.flexible(), spacing: DT.s12),
+        GridItem(.flexible(), spacing: DT.s12),
+    ]
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: DT.s12) {
-                if let definition = widget.definition {
-                    header(definition)
-                    if !definition.warnings.isEmpty { warnings(definition.warnings) }
-                    if !definition.parameters.isEmpty { parameters(definition.parameters) }
-                    ForEach(Array(definition.phases.enumerated()), id: \.element.id) { index, phase in
-                        phaseView(phase, number: index + 1)
+        switch navigation.page {
+        case .library:
+            library
+        case .detail(let detail):
+            detailView(detail)
+        }
+    }
+
+    @ViewBuilder
+    private var library: some View {
+        if navigation.catalog.isEmpty {
+            emptyState
+        } else {
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: DT.s12) {
+                    ForEach(navigation.catalog) { item in
+                        if item.warning != nil {
+                            warningCard(item)
+                        } else {
+                            flowCard(item)
+                        }
                     }
-                } else if let message = widget.errorMessage {
-                    emptyState(title: "Flow unavailable", detail: message, symbol: "exclamationmark.triangle")
-                } else {
-                    emptyState(
-                        title: "Open a flow definition",
-                        detail: "Use flow42://flow/<flow>?variant=<variant>. Both values are required.",
-                        symbol: "point.topleft.down.to.point.bottomright.curvepath"
+                }
+                .padding(DT.s12)
+            }
+            .accessibilityLabel("Available flows")
+        }
+    }
+
+    private func flowCard(_ item: FlowCatalogItem) -> some View {
+        Button { navigation.select(item) } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                cardHeader(item)
+                Divider().opacity(0.25)
+                if let preview = item.preview {
+                    MarkdownPreview(
+                        text: FlowDefinitionMarkdownRenderer.render(preview),
+                        baseURL: preview.directory
                     )
+                    .allowsHitTesting(false)
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .clipped()
+                    .accessibilityHidden(true)
                 }
             }
-            .padding(DT.s12)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(DT.surface)
+            .clipShape(RoundedRectangle(cornerRadius: DT.rCard, style: .continuous))
+            .overlay(cardBorder)
+            .contentShape(RoundedRectangle(cornerRadius: DT.rCard, style: .continuous))
         }
+        .buttonStyle(.plain)
+        .help("Open \(item.name)")
+        .accessibilityLabel("\(item.name), \(item.variantCount) variants, \(item.previewStepCount) steps")
+        .accessibilityHint("Open flow guidance")
     }
 
-    private func header(_ definition: FlowDefinition) -> some View {
-        VStack(alignment: .leading, spacing: DT.s4) {
-            Text(definition.manifest.name)
-                .font(.system(size: DT.f17, weight: .bold))
-            if let description = definition.manifest.description {
-                Text(description).font(.system(size: DT.f12)).foregroundStyle(.secondary)
+    private func cardHeader(_ item: FlowCatalogItem) -> some View {
+        HStack(spacing: DT.s8) {
+            Image(systemName: "doc.text")
+                .font(.system(size: DT.f12, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 24, height: 24)
+                .background(Color.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: DT.rButton))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.name)
+                    .font(.system(size: DT.f12, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                Text("\(item.variantCount) \(item.variantCount == 1 ? "variant" : "variants") · \(item.previewStepCount) steps")
+                    .font(.system(size: DT.f9))
+                    .foregroundStyle(.secondary)
             }
-            HStack(spacing: DT.s8) {
-                badge(definition.selection.flow)
-                badge(definition.selection.variant)
-                badge(definition.device.isEmpty ? "device missing" : definition.device)
-            }
+            Spacer(minLength: 0)
+            Image(systemName: "arrow.up.right")
+                .font(.system(size: DT.f10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
         }
+        .padding(.horizontal, DT.s12)
+        .frame(height: 50)
+        .background(Color.primary.opacity(0.025))
     }
 
-    private func warnings(_ values: [FlowWarning]) -> some View {
-        VStack(alignment: .leading, spacing: DT.s4) {
-            Label("Definition warnings", systemImage: "exclamationmark.triangle.fill")
+    private func warningCard(_ item: FlowCatalogItem) -> some View {
+        VStack(alignment: .leading, spacing: DT.s8) {
+            Label(item.name, systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: DT.f12, weight: .semibold))
-            ForEach(values) { warning in
-                Text("\(warning.field): \(warning.message)")
-                    .font(.system(size: DT.f10, design: .monospaced))
-            }
+                .foregroundStyle(.primary)
+            Text(item.warning?.message ?? "This flow could not be read.")
+                .font(.system(size: DT.f10))
+                .foregroundStyle(.secondary)
+                .lineLimit(4)
+            Spacer(minLength: 0)
         }
-        .padding(DT.s8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: DT.rCard))
+        .padding(DT.s12)
+        .frame(maxWidth: .infinity, minHeight: 150, alignment: .leading)
+        .background(DT.orange.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: DT.rCard, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: DT.rCard, style: .continuous)
+                .strokeBorder(DT.orange.opacity(0.24), lineWidth: 0.5)
+        )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(item.name) unavailable")
     }
 
-    private func parameters(_ values: [FlowParameter]) -> some View {
+    @ViewBuilder
+    private func detailView(_ detail: FlowDetailState) -> some View {
+        if let definition = detail.definition {
+            Work42MarkdownDocument(
+                text: FlowDefinitionMarkdownRenderer.render(definition),
+                sessionId: services.sessionId,
+                commentKey: definition.commentKey,
+                artifactsEnabled: false,
+                baseURL: definition.directory
+            )
+            .accessibilityLabel("\(detail.name), \(detail.selectedVariant) guidance")
+        } else {
+            VStack(alignment: .leading, spacing: DT.s8) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 24))
+                    .foregroundStyle(DT.orange)
+                Text("Variant unavailable")
+                    .font(.system(size: DT.f14, weight: .semibold))
+                Text(detail.errorMessage ?? "This flow variant could not be loaded.")
+                    .font(.system(size: DT.f11))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(DT.s16)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Variant unavailable")
+        }
+    }
+
+    private var emptyState: some View {
         VStack(alignment: .leading, spacing: DT.s8) {
-            Text("Parameters").font(.system(size: DT.f13, weight: .semibold))
-            ForEach(values) { parameter in
-                HStack(alignment: .firstTextBaseline) {
-                    Text(parameter.id).font(.system(size: DT.f11, weight: .medium, design: .monospaced))
-                    if let type = parameter.type { Text(type).font(.system(size: DT.f10)).foregroundStyle(.secondary) }
-                    Spacer()
-                }
-                if let description = parameter.description {
-                    Text(description).font(.system(size: DT.f10)).foregroundStyle(.secondary)
-                }
-            }
+            Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                .font(.system(size: 24))
+                .foregroundStyle(.secondary)
+            Text("No flows available")
+                .font(.system(size: DT.f14, weight: .semibold))
+            Text("Create a flow in ~/.work42/flows and it will appear here.")
+                .font(.system(size: DT.f11))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 0)
         }
-        .padding(DT.s8)
-        .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: DT.rCard))
+        .padding(DT.s16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No flows available")
     }
 
-    private func phaseView(_ phase: FlowPhase, number: Int) -> some View {
-        VStack(alignment: .leading, spacing: DT.s8) {
-            Text("\(number). \(phase.id)").font(.system(size: DT.f14, weight: .bold))
-            if let intent = phase.intent { Text(intent).font(.system(size: DT.f11)).foregroundStyle(.secondary) }
-            ForEach(Array(phase.steps.enumerated()), id: \.element.id) { index, step in
-                stepView(step, number: index + 1)
-            }
-        }
-    }
-
-    private func stepView(_ step: FlowStep, number: Int) -> some View {
-        VStack(alignment: .leading, spacing: DT.s8) {
-            HStack {
-                Text("Step \(number)").font(.system(size: DT.f10, weight: .semibold)).foregroundStyle(.secondary)
-                Spacer()
-                Text(step.action ?? "Missing action")
-                    .font(.system(size: DT.f11, weight: .semibold, design: .monospaced))
-            }
-            if !step.arguments.isEmpty {
-                VStack(alignment: .leading, spacing: DT.s4) {
-                    ForEach(step.arguments, id: \.0) { key, value in
-                        Text("\(key): \(value)").font(.system(size: DT.f10, design: .monospaced))
-                    }
-                }
-            }
-            condition("Before", step.precondition)
-            condition("Expected", step.postcondition)
-            if let screenshot = step.screenshot, let image = NSImage(contentsOf: screenshot) {
-                Image(nsImage: image)
-                    .resizable().scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: DT.rButton))
-                    .overlay(RoundedRectangle(cornerRadius: DT.rButton).stroke(.secondary.opacity(0.2)))
-                Text("Visual guidance · state immediately before the action")
-                    .font(.system(size: DT.f9)).foregroundStyle(.secondary)
-            }
-        }
-        .padding(DT.s8)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: DT.rCard))
-    }
-
-    private func condition(_ label: String, _ text: String?) -> some View {
-        HStack(alignment: .top, spacing: DT.s8) {
-            Text(label.uppercased()).font(.system(size: DT.f9, weight: .bold)).foregroundStyle(.secondary)
-                .frame(width: 52, alignment: .leading)
-            Text(text ?? "Not specified").font(.system(size: DT.f10))
-        }
-    }
-
-    private func badge(_ text: String) -> some View {
-        Text(text).font(.system(size: DT.f9, weight: .medium, design: .monospaced))
-            .padding(.horizontal, DT.s8).padding(.vertical, DT.s4)
-            .background(.secondary.opacity(0.12), in: Capsule())
-    }
-
-    private func emptyState(title: String, detail: String, symbol: String) -> some View {
-        VStack(alignment: .leading, spacing: DT.s8) {
-            Image(systemName: symbol).font(.system(size: 24)).foregroundStyle(.secondary)
-            Text(title).font(.system(size: DT.f14, weight: .semibold))
-            Text(detail).font(.system(size: DT.f11)).foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+    private var cardBorder: some View {
+        RoundedRectangle(cornerRadius: DT.rCard, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
     }
 }

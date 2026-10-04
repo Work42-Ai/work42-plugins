@@ -77,7 +77,7 @@ let package = Package(
         .target(
             name: "Flow42DefinitionCore",
             path: "flow42/widgets/flow-definition/Sources",
-            exclude: ["FlowDefinitionView.swift", "Widget.swift"]
+            exclude: ["FlowDefinitionHeader.swift", "FlowDefinitionView.swift", "Widget.swift"]
         ),
         .testTarget(
             name: "Flow42PlayerWidgetTests",

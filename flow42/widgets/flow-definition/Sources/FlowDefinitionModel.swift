@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 struct FlowSelection: Equatable, Sendable {
     let flow: String
@@ -67,6 +68,96 @@ struct FlowCatalogItem: Equatable, Sendable, Identifiable {
             preview: nil,
             warning: FlowWarning(field: "catalog", message: message)
         )
+    }
+}
+
+struct FlowVariantTab: Hashable, Identifiable, Sendable {
+    let id: String
+    var label: String { id.replacingOccurrences(of: "-", with: " ").capitalized }
+}
+
+struct FlowDetailState: Equatable, Sendable {
+    let flowID: String
+    let name: String
+    let variants: [String]
+    var selectedVariant: String
+    var definition: FlowDefinition?
+    var errorMessage: String?
+
+    var variantTabs: [FlowVariantTab] { variants.map(FlowVariantTab.init(id:)) }
+}
+
+@Observable
+@MainActor
+final class FlowDefinitionNavigation {
+    enum Page: Equatable, Sendable {
+        case library
+        case detail(FlowDetailState)
+    }
+
+    private(set) var catalog: [FlowCatalogItem] = []
+    private(set) var page: Page = .library
+    private let loader: FlowDefinitionLoader
+
+    init(loader: FlowDefinitionLoader = FlowDefinitionLoader()) {
+        self.loader = loader
+    }
+
+    func reloadCatalog() {
+        catalog = loader.list()
+    }
+
+    func select(_ item: FlowCatalogItem) {
+        guard item.warning == nil, let firstVariant = item.orderedVariants.first else { return }
+        open(.init(flow: item.id, variant: firstVariant))
+    }
+
+    func open(_ selection: FlowSelection) {
+        if catalog.isEmpty { reloadCatalog() }
+        let item = catalog.first { $0.id == selection.flow }
+        let variants = item?.orderedVariants.isEmpty == false
+            ? item!.orderedVariants
+            : [selection.variant]
+        var detail = FlowDetailState(
+            flowID: selection.flow,
+            name: item?.name ?? selection.flow,
+            variants: variants,
+            selectedVariant: selection.variant,
+            definition: nil,
+            errorMessage: nil
+        )
+        do {
+            detail.definition = try loader.load(selection)
+        } catch {
+            detail.errorMessage = Self.actionable(error.localizedDescription)
+        }
+        page = .detail(detail)
+    }
+
+    func selectVariant(_ variant: String) {
+        guard case .detail(let current) = page,
+              current.variants.contains(variant) else { return }
+        open(.init(flow: current.flowID, variant: variant))
+    }
+
+    func back() {
+        reloadCatalog()
+        page = .library
+    }
+
+    func showLinkError(_ message: String) {
+        page = .detail(FlowDetailState(
+            flowID: "",
+            name: "Flow unavailable",
+            variants: [],
+            selectedVariant: "",
+            definition: nil,
+            errorMessage: Self.actionable(message)
+        ))
+    }
+
+    private static func actionable(_ message: String) -> String {
+        "\(message) Choose another available variant or return to Flows."
     }
 }
 

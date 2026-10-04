@@ -224,6 +224,68 @@ struct Flow42PlayerWidgetTests {
         #expect(browser.commentKey != broken.commentKey)
     }
 
+    @Test("navigation covers library, detail, variant failure, deep link, and back")
+    @MainActor
+    func navigationStates() throws {
+        let temporary = makeTemporaryRegistry()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try writeFlow(root: temporary, id: "publish", variants: ["ios", "browser"])
+        let brokenURL = temporary.appendingPathComponent("publish/ios/flow.yaml")
+        try FileManager.default.removeItem(at: brokenURL)
+
+        let navigation = FlowDefinitionNavigation(loader: .init(registryRoot: temporary))
+        navigation.reloadCatalog()
+        #expect(navigation.catalog.count == 1)
+        #expect(navigation.page == .library)
+
+        navigation.select(try #require(navigation.catalog.first))
+        guard case .detail(let browser) = navigation.page else {
+            Issue.record("selecting a valid card must enter detail")
+            return
+        }
+        #expect(browser.selectedVariant == "browser")
+        #expect(browser.definition != nil)
+
+        navigation.selectVariant("ios")
+        guard case .detail(let failed) = navigation.page else {
+            Issue.record("variant failure must remain in detail")
+            return
+        }
+        #expect(failed.selectedVariant == "ios")
+        #expect(failed.definition == nil)
+        #expect(failed.errorMessage?.contains("Choose another") == true)
+
+        navigation.open(.init(flow: "publish", variant: "browser"))
+        guard case .detail(let linked) = navigation.page else {
+            Issue.record("deep link must enter detail")
+            return
+        }
+        #expect(linked.definition?.selection.variant == "browser")
+
+        navigation.back()
+        #expect(navigation.page == .library)
+    }
+
+    @Test("passive navigation and rendering never mutate the registry")
+    @MainActor
+    func passiveNoWriteContract() throws {
+        let temporary = makeTemporaryRegistry()
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        try writeFlow(root: temporary, id: "read-only", variants: ["browser", "ios"])
+        let before = try registrySnapshot(temporary)
+
+        let navigation = FlowDefinitionNavigation(loader: .init(registryRoot: temporary))
+        navigation.reloadCatalog()
+        navigation.select(try #require(navigation.catalog.first))
+        if case .detail(let detail) = navigation.page, let definition = detail.definition {
+            _ = FlowDefinitionMarkdownRenderer.render(definition)
+        }
+        navigation.selectVariant("ios")
+        navigation.back()
+
+        #expect(try registrySnapshot(temporary) == before)
+    }
+
     @Test("player makes Work42 recording cleanup mandatory on every post-start exit")
     func recordingEnvelopeContract() throws {
         let skill = collapsed(try String(contentsOf: root.appendingPathComponent("flow42/skills/flow-player/SKILL.md"), encoding: .utf8)).lowercased()
@@ -238,14 +300,32 @@ struct Flow42PlayerWidgetTests {
         #expect(skill.contains("never mutate the flow from a failed workaround"))
     }
 
-    @Test("widget is definition-only and claims the canonical Flow42 URL")
+    @Test("widget composes the approved passive library and commentable detail surfaces")
     func widgetBoundary() throws {
         let widget = try String(contentsOf: root.appendingPathComponent("flow42/widgets/flow-definition/Sources/Widget.swift"), encoding: .utf8)
         let view = try String(contentsOf: root.appendingPathComponent("flow42/widgets/flow-definition/Sources/FlowDefinitionView.swift"), encoding: .utf8)
+        let header = try String(contentsOf: root.appendingPathComponent("flow42/widgets/flow-definition/Sources/FlowDefinitionHeader.swift"), encoding: .utf8)
+
         #expect(widget.contains("flow42://flow/"))
         #expect(widget.contains("FlowSelection.parse"))
-        for forbidden in ["run history", "playback", "recording card", "next step", "pause", "resume"] {
-            #expect(!view.lowercased().contains(forbidden))
+        #expect(widget.contains("let title = \"Flows\""))
+        #expect(widget.contains("Work42WidgetCustomHeader"))
+        #expect(view.contains("LazyVGrid"))
+        #expect(view.contains("MarkdownPreview"))
+        #expect(view.contains("Work42MarkdownDocument"))
+        #expect(view.contains("artifactsEnabled: false"))
+        #expect(view.contains(".allowsHitTesting(false)"))
+        #expect(header.contains("GlassTabStrip"))
+        #expect(header.contains("Back to Flows"))
+        #expect((widget + view + header).contains("accessibilityLabel"))
+
+        let surface = (widget + view + header).lowercased()
+        for forbidden in [
+            "run history", "playback", "recording card", "next step", "pause", "resume",
+            "services.storage.set", "services.storage.delete", "services.shell",
+            "button(\"run", "button(\"record", "button(\"edit", "button(\"delete",
+        ] {
+            #expect(!surface.contains(forbidden))
         }
     }
 
@@ -290,5 +370,17 @@ struct Flow42PlayerWidgetTests {
 
             """.write(to: directory.appendingPathComponent("flow.yaml"), atomically: true, encoding: .utf8)
         }
+    }
+
+    private func registrySnapshot(_ root: URL) throws -> [String: Data] {
+        let manager = FileManager.default
+        let enumerator = try #require(manager.enumerator(at: root, includingPropertiesForKeys: [.isRegularFileKey]))
+        var snapshot: [String: Data] = [:]
+        while let url = enumerator.nextObject() as? URL {
+            if (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true {
+                snapshot[String(url.path.dropFirst(root.path.count + 1))] = try Data(contentsOf: url)
+            }
+        }
+        return snapshot
     }
 }
