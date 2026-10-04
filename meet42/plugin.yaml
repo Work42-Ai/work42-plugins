@@ -13,4 +13,4 @@ description: >
   shells `meet42 snapshot` to write meeting.json. All privileged calendar/audio
   work lives in the standalone meet42 tool; this plugin is UI + orchestration.
 author: work42
-sdk_version: 10
+sdk_version: 11

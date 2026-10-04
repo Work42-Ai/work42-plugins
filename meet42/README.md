@@ -21,5 +21,5 @@ is that CLI: verbs in, JSON/exit-codes out, and files written into a session's
 ## Building
 
 The widgets compile at app-build time against the shipped Widget SDK
-(`sdk_version: 10`); the `onCreate` hook compiles into the plugin dylib. See the
+(`sdk_version: 11`); the `onCreate` hook compiles into the plugin dylib. See the
 work42 app's `scripts/build-work42-app.sh` (wired in s21).

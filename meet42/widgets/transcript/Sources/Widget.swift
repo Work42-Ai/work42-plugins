@@ -507,9 +507,11 @@ private final class TranscriptMeetingModel {
     @ObservationIgnored private var reconcileTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
     @ObservationIgnored private var countdownTask: Task<Void, Never>?
+    @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
     @ObservationIgnored private var watchProcess: Process?
     @ObservationIgnored private var watchedBundleId: String?
     @ObservationIgnored private var suppressCloseUntilOpen = false
+    @ObservationIgnored private var completionAttempted = false
 
     init(sessionId: String) {
         self.sessionId = sessionId
@@ -520,6 +522,7 @@ private final class TranscriptMeetingModel {
         if phase == .endPrompt { phase = .active }
         promptStartedAt = nil
         suppressCloseUntilOpen = false
+        completionAttempted = false
         self.services = services
         reconcileTask = Task { [weak self] in
             await self?.reconcile()
@@ -542,6 +545,7 @@ private final class TranscriptMeetingModel {
         reconcileTask?.cancel(); reconcileTask = nil
         watchTask?.cancel(); watchTask = nil
         countdownTask?.cancel(); countdownTask = nil
+        heartbeatTask?.cancel(); heartbeatTask = nil
         watchProcess?.terminate(); watchProcess = nil
         watchedBundleId = nil
     }
@@ -592,10 +596,12 @@ private final class TranscriptMeetingModel {
                 try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
             }
             startWatchIfNeeded()
+            startHeartbeatIfNeeded()
         } else if await string("ended_at", services: services).flatMap(parseISO8601) != nil {
             phase = .stopped
             cancelPrompt()
             stopWatch()
+            stopHeartbeat()
             try? await services.pill.dismiss(widgetId: "transcript")
         }
     }
@@ -625,6 +631,23 @@ private final class TranscriptMeetingModel {
         watchTask?.cancel(); watchTask = nil
         watchProcess?.terminate(); watchProcess = nil
         watchedBundleId = nil
+    }
+
+    private func startHeartbeatIfNeeded() {
+        guard heartbeatTask == nil, let services else { return }
+        heartbeatTask = Task {
+            await services.activity.ping()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled else { return }
+                await services.activity.ping()
+            }
+        }
+    }
+
+    private func stopHeartbeat() {
+        heartbeatTask?.cancel()
+        heartbeatTask = nil
     }
 
     private func runWatchOnce(bundleId: String) async {
@@ -690,17 +713,26 @@ private final class TranscriptMeetingModel {
     }
 
     func stopMeeting(reason: String = "pill") async {
-        guard let services, phase != .stopped else { return }
+        guard let services, phase != .stopped, !completionAttempted else { return }
+        completionAttempted = true
         cancelPrompt()
-        if let recordingDir {
-            _ = try? await services.shell.run(
-                command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
-            )
+        await services.activity.ping()
+        guard let recordingDir,
+              let stop = try? await services.shell.run(
+                  command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
+              ), stop.exitCode == 0
+        else {
+            Meet42Trace.log("transcript", "recording-stop-failed", ["sessionId": sessionId, "reason": reason])
+            return
         }
+        stopHeartbeat()
         let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
-        _ = try? await services.shell.run(
+        guard let completion = try? await services.shell.run(
             command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
-        )
+        ), completion.exitCode == 0 else {
+            Meet42Trace.log("transcript", "completion-write-failed", ["sessionId": sessionId, "reason": reason])
+            return
+        }
         phase = .stopped
         stopWatch()
         try? await services.pill.dismiss(widgetId: "transcript")

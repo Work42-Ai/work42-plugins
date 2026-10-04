@@ -56,14 +56,19 @@ meet42 watch --bundle-id <meeting/source_bundle_id> --json
 ```
 
 The scoped watcher emits the initial state and later open/close edges for only
-that detected app. There is no perpetual per-session storage polling. All
-watcher, reconciliation, and countdown tasks are cancelled when the agent
-stops or hot-reloads.
+that detected app. While recording or awaiting the mic-close decision, one
+cancellable 15-second activity heartbeat keeps the already-active background
+session alive; it has no authority to wake an inactive session. There is no
+perpetual per-session storage polling. All watcher, reconciliation, countdown,
+and heartbeat tasks are cancelled when the agent stops or hot-reloads.
 
 Mic-open keeps or restores the active state. Mic-close shows a 10-second
 `Auto-stopping` prompt. `Stay` suppresses further close handling until the app
-opens its mic again; `Stop` or countdown expiry runs `meet42 record stop`,
-writes `meeting/ended_at`, and dismisses the pill.
+opens its mic again. `Stop` and countdown expiry share one idempotent completion
+attempt: send final activity, stop capture, verify the single
+`meeting/ended_at` write succeeded, then enter stopped state and dismiss. The
+storage write's existing workflow nudge advances the active session normally;
+there are no transition retries or forced workflow transitions.
 
 ## Pill
 
