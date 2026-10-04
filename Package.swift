@@ -85,5 +85,10 @@ let package = Package(
             path: "Tests/Flow42PlayerWidgetTests",
             resources: [.copy("Fixtures")]
         ),
+        .testTarget(
+            name: "Task42FlowConsumerContractTests",
+            path: "Tests/Task42FlowConsumerContractTests",
+            resources: [.copy("Fixtures")]
+        ),
     ]
 )

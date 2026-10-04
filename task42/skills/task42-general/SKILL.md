@@ -46,8 +46,8 @@ CLI. Never edit `~/.work42/work42.db` by hand.
    process once per subtask, sequentially, in the task's own session. Provider-
    neutral (Claude or Codex).
 5. **QA is the headline phase.** Following the `task42-qa` skill's process, the
-   Lead walks the spec's acceptance criteria using flow42 visual tools + the
-   terminal and produces evidence (recordings + transcripts) — not just prose —
+   Lead walks the spec's acceptance criteria using ordinary Work42 recordings +
+   the terminal and produces evidence (recordings + transcripts) — not just prose —
    then writes the verdict to `qa/verdict` (+ `qa/report`).
 6. **QA PASS advances to Human Review by derivation.** Writing a PASS verdict
    satisfies the Human Review gate; no PR is required for the transition. The
@@ -123,7 +123,9 @@ on setup). It tells the QA skill how to *actually test this product* — which
 surfaces exist (UI/CLI/HTTP API), test credentials, fragile areas. *How to run*
 the product for each test is named in the task's **Testing Plan** (`plan/testing`):
 each test names the `launch.json` config to launch via `work42 debug start
-<config>` (confirm with `work42 debug configs`), authored via `flow42-qa-author`.
+<config>` (confirm with `work42 debug configs`). Optional Flow42 coverage is
+authored via `flow42-qa-author` and always names separate `flow` and `variant`
+values; non-flow evidence remains valid when Flow42 is absent.
 
 ## CLI Reference
 

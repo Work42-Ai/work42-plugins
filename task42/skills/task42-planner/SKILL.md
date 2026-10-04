@@ -176,15 +176,31 @@ cross-cutting changes are high-QA-value — author it. A verification-only plan
 (zero flows, prose only) is valid.
 
 When you author one, **consult QA (the `task42-qa` skill's perspective) in an
-advisory capacity** and work it **per-flow** (flows map many-to-many onto ACs;
-per-AC flows are discouraged). For each flow agree on: (a) which ACs it covers,
-(b) the `launch.json` config name (`work42 debug configs`) + device, (c) the
-expected visual output per AC. **Flows are UI-only** — author each with the
-**`flow42-qa-author`** skill. If QA can't compose a needed flow from the library,
-**say so in chat** and ask Yan to record it (`flow42 learn` → `flow-creator`).
+advisory capacity** and work it **per reusable flow** (flows map many-to-many
+onto ACs; per-AC flows are discouraged). Every flow-based coverage entry must
+carry four separate values:
 
-Write the plan markdown (per-AC prose naming the flow slug + its config/device +
-expected outcomes) to storage:
+```markdown
+- flow: login
+  variant: browser
+  config: "Web QA"
+  covers: AC3, AC7
+```
+
+`flow` and `variant` are always required and never combined into one slug. If
+the same conceptual flow must run on browser, iOS, and Android, repeat the entry
+three times with the same `flow` and each explicit `variant`; Work42 chooses the
+concrete compatible device at execution time. Include a normal Markdown link
+for review: `[login / browser](flow42://flow/login?variant=browser)`.
+
+Use **`flow42-qa-author`** to select existing definitions or request the
+recordings needed to create missing coverage. Flow42 is optional: a
+verification-only plan may use terminal/manual evidence without it. If an
+approved plan explicitly requires an unavailable flow or Flow Player, name that
+as a blocker rather than silently changing coverage.
+
+Write the plan markdown (per-AC prose naming each explicit flow/variant entry,
+its launch config, and expected outcomes) to storage:
 
 ```
 work42 storage set plan/testing "$(cat <your-testplan>.md)"
