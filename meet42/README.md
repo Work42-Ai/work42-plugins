@@ -15,7 +15,7 @@ is that CLI: verbs in, JSON/exit-codes out, and files written into a session's
 | **Session type** (`session-types/event.json`) | `event` type on the `meeting` workflow; 3-tab layout (Brief / Live / Recap) over the plugin's custom widgets; `list_shape: schedule`, `archive_source: meeting`, `self_archives`; the `meet42-prep` session skill; a `new-event` create-intent; an `event_id` string arg seeded to `meeting/event_id`. |
 | **Intent** (`intents/new-event.json`) | "New Event" — mints an `event` session (optionally carrying `event_id`). |
 | **onCreate hook** (`Sources/Plugin.swift`, s11) | When `event_id` is present, shells `meet42 snapshot <id> --session-dir <dir>` to write `meeting.json` + upsert attendees; no-op for an ad-hoc event. |
-| **Widgets** (`widgets/*`, s12-s16) | event-details / transcript / people / annotations / summary / calendar — render over session files + `meet42` verbs. The transcript widget carries the RECORDING/ENDED pill + auto-record agent; the calendar widget carries the mic-wake detection agent + scheduler reconciler. |
+| **Widgets** (`widgets/*`, s12-s16) | event-details / recording / people / annotations / summary / calendar — render over session files + `meet42` verbs. The recording widget carries the RECORDING/ENDED pill + auto-record agent; the calendar widget carries the mic-wake detection agent + scheduler reconciler. |
 | **Skill** (`skills/meet42-prep`, s13) | Type-scoped briefing skill run in the Prepare-for-Meeting stage. |
 
 ## Building

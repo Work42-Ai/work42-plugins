@@ -106,7 +106,7 @@ final class WidgetFileWatcher {
 final class AnnotationsWidget: Work42Widget, Work42WidgetPill {
 
     let id = "annotations"
-    let title = "My Notes"
+    let title = "Meet42 My Notes"
     let icon = "square.and.pencil"
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 220, height: 160) }

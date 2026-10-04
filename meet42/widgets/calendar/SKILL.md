@@ -37,11 +37,11 @@ line), and lets you set the AI assist mode per calendar and per event.
   `meeting/started_at`, `meeting/title` (the stable session name), `meeting/source_app`, and
   `meeting/source_bundle_id`. Matched events also receive
   `meeting/scheduled_start` and `meeting/scheduled_end`. Once ready, Calendar
-  swaps its pill for that session's Transcript pill without selecting the
+  swaps its pill for that session's Recording pill without selecting the
   session in the main UI.
 - **Failure behavior:** setup failures explicitly stop the just-started
   recording and leave a visible Retry action in the Calendar pill. Calendar
-  only cancels a mic-close while the initial prompt is undecided; Transcript
+  only cancels a mic-close while the initial prompt is undecided; Recording
   owns active-meeting close behavior after handoff.
 - **Idle pill:** outside detection/setup, `makePillView` renders a compact "Up
   Next" agenda (the next few upcoming events).

@@ -1304,13 +1304,13 @@ private struct CalendarPreferenceRow: View {
 //       NO mints a fresh session with that already-visible name, seeded with
 //       the pointer (`meeting/
 //       recording_dir`) + stable meeting identity at creation. The phase flips
-//       to `.settingUp` while this runs, then `.none` + dismiss this pill + float the transcript
+//       to `.settingUp` while this runs, then `.none` + dismiss this pill + float Recording
 //       RECORDING pill for that session — a widget pill owned by the MEETING
 //       session, never Home's. A failed attempt reverts the phase to
 //       `.detected` with a retry message, and explicitly stops the just-started
 //       recording so a failed mint can never leave an unowned capture.
 //       `call-close` just cancels an undecided Detected prompt; this agent no
-//       longer has active-meeting stop ownership; Transcript takes over after
+//       longer has active-meeting stop ownership; Recording takes over after
 //       the one-way handoff.
 //   (c) Reconciler — every ~30s reads assisted events (`meet42 modes get --json`
 //       + `meet42 list --json`) and syncs them into work42's generic scheduler
@@ -1836,7 +1836,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
 
     /// A call-open fires the prompt exactly once (dedup by callId). The
     /// Calendar owns only the pre-session prompt. After a successful handoff,
-    /// Transcript owns mic-close behavior and meeting completion.
+    /// Recording owns mic-close behavior and meeting completion.
     private func onCallOpen(callId: String, app: String, bundleId: String, _ s: WidgetBackgroundServices) async {
         guard !handledCalls.contains(callId) else { return }
         handledCalls.insert(callId)
@@ -1874,7 +1874,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     }
 
     /// A call-close cancels an undecided Detected prompt, if one is showing.
-    /// Once Transcript owns the active meeting pill, close events here are
+    /// Once Recording owns the active meeting pill, close events here are
     /// intentionally ignored.
     private func onCallClose(callId: String, _ s: WidgetBackgroundServices) async {
         guard case .detected = CalendarDetectionState.shared.phase else { return }
@@ -1924,7 +1924,7 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
     // MARK: (c) Start sequence — RECORD FIRST, session comes after
 
     /// Start an app-owned recording, show Calendar's setup loader, seed or mint
-    /// the event session in the background, then hand the pill to Transcript.
+    /// the event session in the background, then hand the pill to Recording.
     private func startRecording(callId: String, app: String, bundleId: String, _ s: WidgetBackgroundServices) {
         countdownTask?.cancel(); countdownTask = nil
         guard case .detected(let meeting) = CalendarDetectionState.shared.phase else { return }
@@ -1984,8 +1984,8 @@ final class CalendarDetectionAgent: WidgetBackgroundAgent {
 
             do {
                 // Present swaps the currently mounted Calendar pill for the
-                // session-owned Transcript pill without selecting that session.
-                try await s.pill.present(widgetId: "transcript", sessionId: sessionId)
+                // session-owned Recording pill without selecting that session.
+                try await s.pill.present(widgetId: "recording", sessionId: sessionId)
             } catch {
                 await Self.stopRecording(recording.dir, shell: s.shell)
                 self.showFailure(meeting, message: "Couldn't open the meeting pill")
@@ -2344,7 +2344,7 @@ private struct SessionStartResult: Decodable {
 @MainActor
 final class CalendarWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackground {
     let id = "calendar"
-    let title = "Calendar"
+    let title = "Meet42 Calendar"
     let icon = "calendar"
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 420, height: 360) }

@@ -1,16 +1,16 @@
-// Widget.swift — meet42's Transcript widget (meet42-plugin-conversion, s14;
+// Widget.swift — meet42's Recording widget (meet42-plugin-conversion, s14;
 // meet42-detection-rework).
 //
 // A TILE (conversation.jsonl → chat bubbles), a stateful active-meeting PILL,
 // and a session-scoped background agent. Calendar detects and starts meetings;
-// Transcript owns the active recording UI and mic-close decision after handoff.
+// Recording owns the active recording UI and mic-close decision after handoff.
 //
-//   • Tile — Work42App/Meetings/TranscriptWidgetView. Reads
+//   • Tile — Work42App/Meetings/RecordingWidgetView. Reads
 //            `<dir>/conversation.jsonl` (+ optional `speakers.json`) and
 //            renders each utterance as a Work42UI `ChatBubble` (You =
 //            trailing/accent, Them = leading/speaker-hue once matched else
 //            neutral, unknown = leading/neutral). The Flow42Core
-//            `TranscriptStore` parser + `FileWatcher` are reimplemented
+//            `RecordingStore` parser + `FileWatcher` are reimplemented
 //            locally (no Flow42Core import).
 //   • Pill  — two-row active state with source-app identity, Open Session,
 //            scheduled-time rail, Stop timer, and 10-second Stay/Stop prompt.
@@ -44,17 +44,17 @@ private let meetingRecordingPurple = Color(red: 0x7C / 255, green: 0x3A / 255, b
 /// Lighter violet for on-dark countdown copy (#C4B5FD).
 private let meetingRecordingPurpleLight = Color(red: 0xC4 / 255, green: 0xB5 / 255, blue: 0xFD / 255)
 
-// MARK: - TranscriptLine (local Flow42Core.TranscriptStore mirror)
+// MARK: - RecordingLine (local Flow42Core.RecordingStore mirror)
 
-/// Local reimplementation of `Flow42Core.TranscriptStore.TranscriptLine`.
+/// Local reimplementation of `Flow42Core.RecordingStore.RecordingLine`.
 /// Parses the exact `conversation.jsonl` shape meet42's engine writes
-/// (`Meet42Capture/MeetingTranscriptionEngine.swift` — `ConversationLine` +
+/// (`Meet42Capture/MeetingRecordingionEngine.swift` — `ConversationLine` +
 /// `SystemEventLine`): a speaker line
 ///   { "ts", "speaker": "You"|"Them", "text", "lineId", "speakerLabel"?, … }
 /// or a system-event line (missing-`type` ⇒ speaker line, for back-compat)
 ///   { "ts", "type": "system_event", "event", "image"?, "app"?, "bundle_id"?,
 ///     "ocr_text"?, "rect": {x,y,width,height} }.
-enum TranscriptLine: Identifiable {
+enum RecordingLine: Identifiable {
 
     struct SpeakerLine {
         let id: UUID
@@ -154,14 +154,14 @@ private func speakersPath(sessionDir: String) -> String {
 }
 
 /// Parse `conversation.jsonl` line by line; empty when missing/undecodable.
-private func parseConversation(sessionDir: String) -> [TranscriptLine] {
+private func parseConversation(sessionDir: String) -> [RecordingLine] {
     guard let raw = try? String(contentsOfFile: conversationPath(sessionDir: sessionDir), encoding: .utf8) else {
         return []
     }
     return raw
         .components(separatedBy: "\n")
         .filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
-        .compactMap { TranscriptLine(jsonString: $0) }
+        .compactMap { RecordingLine(jsonString: $0) }
 }
 
 /// Load the optional `speakers.json` sidecar. Accepts both the flat
@@ -244,7 +244,7 @@ private func isoNow() -> String {
 
 /// POSIX single-quote shell escaping — mirrors the calendar widget's
 /// `calShellQuote` (duplicated per widget — no shared target).
-private func transcriptShellQuote(_ value: String) -> String {
+private func recordingShellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
 
@@ -255,7 +255,7 @@ private func transcriptShellQuote(_ value: String) -> String {
 /// process-wide cooperative threads for as long as the pipe stays open
 /// (here, the lifetime of a `meet42 watch` process, which by design never
 /// exits on its own). Mirrors the calendar widget's `calAsyncLines`.
-private func transcriptAsyncLines(from fileHandle: FileHandle) -> AsyncStream<String> {
+private func recordingAsyncLines(from fileHandle: FileHandle) -> AsyncStream<String> {
     // GCD serializes a single FileHandle's readabilityHandler invocations
     // (one event-source callback at a time), so this buffer is never
     // touched concurrently despite the compiler being unable to prove it.
@@ -347,12 +347,12 @@ private func parseISO8601(_ ts: String) -> Date? {
 /// Decode target for `meet42 record status --json`. `meet42 record` is now
 /// session-agnostic (meet42-recording-lifecycle-rework s1) — its status is
 /// keyed by `dir` (the recording's own directory), not a session id.
-private struct TranscriptRecordStatusPayload: Decodable {
+private struct RecordingRecordStatusPayload: Decodable {
     let recording: Bool
     let dir: String?
 }
 
-private struct TranscriptSessionIdentityPayload: Decodable {
+private struct RecordingSessionIdentityPayload: Decodable {
     let id: String
     let name: String
 }
@@ -405,7 +405,7 @@ private func fetchRecordingSnapshot(services: SessionServices) async -> Recordin
     if let recordingDir,
        let r = try? await services.shell.run(command: "meet42 record status --json"),
        r.exitCode == 0, let data = r.stdout.data(using: .utf8),
-       let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data),
+       let status = try? JSONDecoder().decode(RecordingRecordStatusPayload.self, from: data),
        status.recording, status.dir == recordingDir {
         isRecording = true
     }
@@ -423,7 +423,7 @@ private func fetchRecordingSnapshot(services: SessionServices) async -> Recordin
 /// (`Contents/MacOS/meet42`), falling back to a PATH lookup via `/usr/bin/env`
 /// for non-bundle dev contexts. Duplicated from the calendar widget — no
 /// shared target between plugin widgets.
-private func transcriptMeet42Invocation(
+private func recordingMeet42Invocation(
     verb: String, extraArgs: [String] = []
 ) -> (executable: URL, arguments: [String]) {
     let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/meet42")
@@ -434,7 +434,7 @@ private func transcriptMeet42Invocation(
 }
 
 /// `meet42 record start --manual --json`'s pre-daemonize stdout line.
-private struct TranscriptRecordStartResult: Decodable {
+private struct RecordingRecordStartResult: Decodable {
     let recordingId: String
     let dir: String
 }
@@ -443,14 +443,14 @@ private struct TranscriptRecordStartResult: Decodable {
 /// `WidgetShellService` (bounded to 10s; `record start` daemonizes via
 /// setsid+execve with no fork, so it never exits on its own while recording,
 /// and the bounded shell service would kill it). `--manual` leaves stop policy
-/// with the explicit Transcript controls. Unlike the old fire-and-forget
+/// with the explicit Recording controls. Unlike the old fire-and-forget
 /// version, this DOES need the daemon's stdout (the `{recordingId,dir}` line
 /// it prints before daemonizing, per s1) so the caller can seed this
 /// session's storage pointer — mirrors the calendar widget's
 /// `fireRecordStart`: redirect to a temp file and poll for the line to
 /// appear (NOT for the process to exit, since it deliberately never does).
-private func fireTranscriptRecordStart() async -> TranscriptRecordStartResult? {
-    let (exe, args) = transcriptMeet42Invocation(
+private func fireRecordingRecordStart() async -> RecordingRecordStartResult? {
+    let (exe, args) = recordingMeet42Invocation(
         verb: "record", extraArgs: ["start", "--manual", "--json"]
     )
     let outURL = FileManager.default.temporaryDirectory
@@ -478,10 +478,10 @@ private func fireTranscriptRecordStart() async -> TranscriptRecordStartResult? {
     // launch (before the slow capture init); 5s total budget leaves
     // generous headroom. If the singleton is already held elsewhere, the
     // daemon prints a refusal payload instead, which fails to decode as
-    // TranscriptRecordStartResult — correctly surfacing as "didn't start."
+    // RecordingRecordStartResult — correctly surfacing as "didn't start."
     for _ in 0..<50 {
         if let data = try? Data(contentsOf: outURL), !data.isEmpty,
-           let result = try? JSONDecoder().decode(TranscriptRecordStartResult.self, from: data) {
+           let result = try? JSONDecoder().decode(RecordingRecordStartResult.self, from: data) {
             return result
         }
         try? await Task.sleep(for: .milliseconds(100))
@@ -493,7 +493,7 @@ private func fireTranscriptRecordStart() async -> TranscriptRecordStartResult? {
 
 @Observable
 @MainActor
-private final class TranscriptMeetingModel {
+private final class RecordingMeetingModel {
     enum Phase { case inactive, active, endPrompt, stopped }
 
     let sessionId: String
@@ -564,12 +564,12 @@ private final class TranscriptMeetingModel {
     private func authoritativeSessionName(
         services: WidgetBackgroundServices
     ) async -> String? {
-        let command = "work42 session show --session \(transcriptShellQuote(sessionId)) --json"
+        let command = "work42 session show --session \(recordingShellQuote(sessionId)) --json"
         guard let result = try? await services.shell.run(command: command),
               result.exitCode == 0,
               let data = result.stdout.data(using: .utf8),
               let identity = try? JSONDecoder().decode(
-                  TranscriptSessionIdentityPayload.self, from: data
+                  RecordingSessionIdentityPayload.self, from: data
               ),
               identity.id == sessionId,
               !identity.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -609,13 +609,13 @@ private final class TranscriptMeetingModel {
               let result = try? await services.shell.run(command: "meet42 record status --json"),
               result.exitCode == 0,
               let data = result.stdout.data(using: .utf8),
-              let status = try? JSONDecoder().decode(TranscriptRecordStatusPayload.self, from: data)
+              let status = try? JSONDecoder().decode(RecordingRecordStatusPayload.self, from: data)
         else { return }
 
         if status.recording, status.dir == recordingDir {
             if phase == .inactive || phase == .stopped {
                 phase = .active
-                try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
+                try? await services.pill.present(widgetId: "recording", sessionId: sessionId)
             }
             startWatchIfNeeded()
             startHeartbeatIfNeeded()
@@ -624,7 +624,7 @@ private final class TranscriptMeetingModel {
             cancelPrompt()
             stopWatch()
             stopHeartbeat()
-            try? await services.pill.dismiss(widgetId: "transcript")
+            try? await services.pill.dismiss(widgetId: "recording")
         }
     }
 
@@ -673,7 +673,7 @@ private final class TranscriptMeetingModel {
     }
 
     private func runWatchOnce(bundleId: String) async {
-        let invocation = transcriptMeet42Invocation(
+        let invocation = recordingMeet42Invocation(
             verb: "watch", extraArgs: ["--bundle-id", bundleId, "--json"]
         )
         let process = Process()
@@ -685,7 +685,7 @@ private final class TranscriptMeetingModel {
         do { try process.run() } catch { return }
         watchProcess = process
         // A closed pipe simply ends the stream, letting the outer task respawn the watcher.
-        for await line in transcriptAsyncLines(from: output.fileHandleForReading) {
+        for await line in recordingAsyncLines(from: output.fileHandleForReading) {
             guard !Task.isCancelled else { break }
             await handleWatchLine(line)
         }
@@ -737,7 +737,7 @@ private final class TranscriptMeetingModel {
         cancelPrompt()
         await services.activity.ping()
         guard let recordingDir else {
-            Meet42Trace.log("transcript", "recording-stop-failed", [
+            Meet42Trace.log("recording", "recording-stop-failed", [
                 "sessionId": sessionId, "reason": reason, "error": "missing-recording-dir",
             ])
             recoverFromCompletionFailure()
@@ -746,17 +746,17 @@ private final class TranscriptMeetingModel {
         let stop: WidgetShellResult
         do {
             stop = try await services.shell.run(
-                command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
+                command: "meet42 record stop --dir \(recordingShellQuote(recordingDir))"
             )
         } catch {
-            Meet42Trace.log("transcript", "recording-stop-failed", [
+            Meet42Trace.log("recording", "recording-stop-failed", [
                 "sessionId": sessionId, "reason": reason, "error": String(describing: error),
             ])
             recoverFromCompletionFailure()
             return
         }
         guard stop.exitCode == 0 else {
-            Meet42Trace.log("transcript", "recording-stop-failed", [
+            Meet42Trace.log("recording", "recording-stop-failed", [
                 "sessionId": sessionId, "reason": reason,
                 "exitCode": stop.exitCode, "stderr": stop.stderr,
             ])
@@ -764,21 +764,21 @@ private final class TranscriptMeetingModel {
             return
         }
         stopHeartbeat()
-        let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+        let endedAtJSON = recordingShellQuote("\"\(isoNow())\"")
         let completion: WidgetShellResult
         do {
             completion = try await services.shell.run(
-                command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
+                command: "work42 storage set --session \(recordingShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
             )
         } catch {
-            Meet42Trace.log("transcript", "completion-write-failed", [
+            Meet42Trace.log("recording", "completion-write-failed", [
                 "sessionId": sessionId, "reason": reason, "error": String(describing: error),
             ])
             recoverFromCompletionFailure()
             return
         }
         guard completion.exitCode == 0 else {
-            Meet42Trace.log("transcript", "completion-write-failed", [
+            Meet42Trace.log("recording", "completion-write-failed", [
                 "sessionId": sessionId, "reason": reason,
                 "exitCode": completion.exitCode, "stderr": completion.stderr,
             ])
@@ -787,8 +787,8 @@ private final class TranscriptMeetingModel {
         }
         phase = .stopped
         stopWatch()
-        try? await services.pill.dismiss(widgetId: "transcript")
-        Meet42Trace.log("transcript", "recording-stopped", ["sessionId": sessionId, "reason": reason])
+        try? await services.pill.dismiss(widgetId: "recording")
+        Meet42Trace.log("recording", "recording-stopped", ["sessionId": sessionId, "reason": reason])
     }
 
     private func recoverFromCompletionFailure() {
@@ -800,13 +800,13 @@ private final class TranscriptMeetingModel {
 }
 
 @MainActor
-private final class TranscriptMeetingRegistry {
-    static let shared = TranscriptMeetingRegistry()
-    private var models: [String: TranscriptMeetingModel] = [:]
+private final class RecordingMeetingRegistry {
+    static let shared = RecordingMeetingRegistry()
+    private var models: [String: RecordingMeetingModel] = [:]
 
-    func model(for sessionId: String) -> TranscriptMeetingModel {
+    func model(for sessionId: String) -> RecordingMeetingModel {
         if let model = models[sessionId] { return model }
-        let model = TranscriptMeetingModel(sessionId: sessionId)
+        let model = RecordingMeetingModel(sessionId: sessionId)
         models[sessionId] = model
         return model
     }
@@ -814,12 +814,12 @@ private final class TranscriptMeetingRegistry {
 
 @Observable
 @MainActor
-private final class TranscriptMeetingAgent: WidgetBackgroundAgent {
+private final class RecordingMeetingAgent: WidgetBackgroundAgent {
     var headerLabels: [WidgetHeaderLabel] = []
-    private var model: TranscriptMeetingModel?
+    private var model: RecordingMeetingModel?
 
     func start(services: WidgetBackgroundServices) {
-        let model = TranscriptMeetingRegistry.shared.model(for: services.sessionId)
+        let model = RecordingMeetingRegistry.shared.model(for: services.sessionId)
         self.model = model
         model.start(services: services)
     }
@@ -830,14 +830,14 @@ private final class TranscriptMeetingAgent: WidgetBackgroundAgent {
     }
 }
 
-// MARK: - TranscriptWidget
+// MARK: - RecordingWidget
 
 @Observable
 @MainActor
-final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackground {
+final class RecordingWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackground {
 
-    let id = "transcript"
-    let title = "Transcript"
+    let id = "recording"
+    let title = "Meet42 Recording"
     let icon = "waveform"
 
     var linkIntents: [WidgetLinkIntentSpec] { [] }
@@ -868,7 +868,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
     // MARK: - Work42Widget.intents
 
     /// Three pre-conversion action-area intents restored from
-    /// `SessionDetailPanel.transcriptIntentSpecs`:
+    /// `SessionDetailPanel.recordingIntentSpecs`:
     ///   1. selectMic  — mic-picker menu
     ///   2. record     — purple record.circle icon (hidden while recording)
     ///   3. stop       — purple stop.fill labeled with a live mm:ss timer
@@ -898,7 +898,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
             // ── 2. record ────────────────────────────────────────────────────
             // meet42-recording-lifecycle-rework s5: manual Record uses the
             // SAME session-agnostic primitive the calendar detection agent
-            // uses. `fireTranscriptRecordStart` returning non-nil IS the
+            // uses. `fireRecordingRecordStart` returning non-nil IS the
             // confirmation (it only returns once the daemon's pre-daemonize
             // stdout line appears, which only prints after the singleton
             // check passes — no separate confirm-poll needed, unlike the old
@@ -914,33 +914,33 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
                 isEnabled: { [weak self] in !(self?.isRecordingThisSession ?? false) },
                 perform: { [weak self] in
                     guard let self, let svc = self.services, let sessionId = svc.sessionId else { return }
-                    guard let started = await fireTranscriptRecordStart() else {
-                        Meet42Trace.log("transcript", "manual-record-aborted", ["sessionId": sessionId])
+                    guard let started = await fireRecordingRecordStart() else {
+                        Meet42Trace.log("recording", "manual-record-aborted", ["sessionId": sessionId])
                         return
                     }
-                    Meet42Trace.log("transcript", "manual-record-started",
+                    Meet42Trace.log("recording", "manual-record-started",
                         ["sessionId": sessionId, "recordingId": started.recordingId])
 
                     // Seed THIS session's pointer + the started_at workflow
                     // gate. A cross-process write into THIS widget's own
                     // session's "meeting" namespace — services.storage can't
                     // target it (restricted to the widget's own namespace,
-                    // "transcript"), so this goes through the shelled CLI,
+                    // "recording"), so this goes through the shelled CLI,
                     // which now resolves correctly via the WORK42_SESSION_ID
                     // env-match (meet42-recording-lifecycle-rework s6 fixed
                     // WidgetCommandRunner injecting the wrong directory for
                     // this exact lookup — no ArtifactRuntime registration
                     // needed here anymore).
-                    let dirJSON = transcriptShellQuote("\"\(started.dir)\"")
-                    let startedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+                    let dirJSON = recordingShellQuote("\"\(started.dir)\"")
+                    let startedAtJSON = recordingShellQuote("\"\(isoNow())\"")
                     _ = try? await svc.shell.run(
-                        command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/recording_dir \(dirJSON)"
+                        command: "work42 storage set --session \(recordingShellQuote(sessionId)) meeting/recording_dir \(dirJSON)"
                     )
                     _ = try? await svc.shell.run(
-                        command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/started_at \(startedAtJSON)"
+                        command: "work42 storage set --session \(recordingShellQuote(sessionId)) meeting/started_at \(startedAtJSON)"
                     )
                     await self.refreshRecordingState()
-                    try? await svc.pill.present(widgetId: "transcript", sessionId: sessionId)
+                    try? await svc.pill.present(widgetId: "recording", sessionId: sessionId)
                 }
             ),
 
@@ -971,14 +971,14 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
                     // bounded shell service. --dir, not --session-dir (s1
                     // dropped that flag — meet42 record is session-agnostic).
                     _ = try? await svc.shell.run(
-                        command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
+                        command: "meet42 record stop --dir \(recordingShellQuote(recordingDir))"
                     )
-                    let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
+                    let endedAtJSON = recordingShellQuote("\"\(isoNow())\"")
                     _ = try? await svc.shell.run(
-                        command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
+                        command: "work42 storage set --session \(recordingShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
                     )
-                    try? await svc.pill.dismiss(widgetId: "transcript")
-                    Meet42Trace.log("transcript", "manual-stop", ["sessionId": sessionId])
+                    try? await svc.pill.dismiss(widgetId: "recording")
+                    Meet42Trace.log("recording", "manual-stop", ["sessionId": sessionId])
                     await self.refreshRecordingState()
                 }
             ),
@@ -998,7 +998,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
             // reconciliation is only a fast path for a newly-mounted view.
             if self.isRecordingThisSession,
                let sessionId = services.sessionId {
-                try? await services.pill.present(widgetId: "transcript", sessionId: sessionId)
+                try? await services.pill.present(widgetId: "recording", sessionId: sessionId)
             }
             while !Task.isCancelled {
                 await self.refreshRecordingState()
@@ -1020,7 +1020,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
     // MARK: - State refresh helpers
 
     /// Refresh the action-area controls from recording truth. Meeting close
-    /// policy belongs to `TranscriptMeetingAgent`, not this UI poll.
+    /// policy belongs to `RecordingMeetingAgent`, not this UI poll.
     private func refreshRecordingState() async {
         guard let svc = services else { return }
         let snapshot = await fetchRecordingSnapshot(services: svc)
@@ -1047,7 +1047,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
     }
 
     func makeView(services: SessionServices) -> AnyView {
-        AnyView(TranscriptTileView(services: services))
+        AnyView(RecordingTileView(services: services))
     }
 
     // MARK: Work42WidgetPill
@@ -1057,7 +1057,7 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
     }
 
     func makeBackgroundAgent() -> any WidgetBackgroundAgent {
-        TranscriptMeetingAgent()
+        RecordingMeetingAgent()
     }
 
     var pillMetadata: WidgetPillMetadata {
@@ -1070,19 +1070,19 @@ final class TranscriptWidget: Work42Widget, Work42WidgetPill, Work42WidgetBackgr
     }
 }
 
-// MARK: - TranscriptTileView (the tile — conversation.jsonl → ChatBubbles)
+// MARK: - RecordingTileView (the tile — conversation.jsonl → ChatBubbles)
 
-/// Faithful port of the app's `TranscriptWidgetView`: renders
+/// Faithful port of the app's `RecordingWidgetView`: renders
 /// `conversation.jsonl` live as chat bubbles. The app's "who is this?" speaker
 /// resolver popover is DROPPED (it required Flow42Core's `PeopleStore`); the
 /// avatar is inert here. System-event cards render without the image thumbnail
 /// (loading a file image needs AppKit/ImageIO, outside the allowed imports).
-private struct TranscriptTileView: View {
+private struct RecordingTileView: View {
     let services: SessionServices
 
     @State private var conversationWatcher = WidgetFileWatcher()
     @State private var speakersWatcher = WidgetFileWatcher()
-    /// This session's `meeting/recording_dir` pointer — the transcript now
+    /// This session's `meeting/recording_dir` pointer — the recording now
     /// lives there, not in the session's own worktree (meet42-recording-
     /// lifecycle-rework s1: `meet42 record` owns its own store). nil until
     /// resolved (a quick shell call, so this is near-instant in the common
@@ -1107,7 +1107,7 @@ private struct TranscriptTileView: View {
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 4) {
                             ForEach(lines) { line in
-                                transcriptBubble(for: line, speakers: speakers)
+                                recordingBubble(for: line, speakers: speakers)
                                     .id(line.id)
                             }
                         }
@@ -1154,8 +1154,8 @@ private struct TranscriptTileView: View {
     }
 
     @ViewBuilder
-    private func transcriptBubble(
-        for line: TranscriptLine,
+    private func recordingBubble(
+        for line: RecordingLine,
         speakers: [String: ResolvedSpeaker]
     ) -> some View {
         switch line {
@@ -1166,7 +1166,7 @@ private struct TranscriptTileView: View {
 
     @ViewBuilder
     private func speakerBubble(
-        for line: TranscriptLine.SpeakerLine,
+        for line: RecordingLine.SpeakerLine,
         speakers: [String: ResolvedSpeaker]
     ) -> some View {
         switch line.speaker {
@@ -1234,7 +1234,7 @@ private struct TranscriptTileView: View {
     /// thumbnail the app showed is omitted (no AppKit/ImageIO in a plugin
     /// widget); app name + OCR text + timestamp are preserved.
     @ViewBuilder
-    private func systemEventCard(for entry: TranscriptLine.SystemEventEntry) -> some View {
+    private func systemEventCard(for entry: RecordingLine.SystemEventEntry) -> some View {
         VStack(alignment: .center, spacing: DT.s8) {
             if let app = entry.appName, !app.isEmpty {
                 HStack(spacing: DT.s4) {
@@ -1278,7 +1278,7 @@ private struct TranscriptTileView: View {
             Text("Waiting to listen\u{2026}")
                 .font(.system(size: DT.f13, weight: .medium))
                 .foregroundStyle(DT.textTertiary)
-            Text("Transcript lines appear here as the meeting progresses.")
+            Text("Recording lines appear here as the meeting progresses.")
                 .font(.system(size: DT.f11))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -1293,11 +1293,11 @@ private struct TranscriptTileView: View {
 
 private struct RecordingAccessory: View {
     let services: SessionServices
-    @State private var model: TranscriptMeetingModel
+    @State private var model: RecordingMeetingModel
 
     init(services: SessionServices) {
         self.services = services
-        _model = State(wrappedValue: TranscriptMeetingRegistry.shared.model(
+        _model = State(wrappedValue: RecordingMeetingRegistry.shared.model(
             for: services.sessionId ?? "unbound"
         ))
     }
@@ -1499,7 +1499,7 @@ public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }
 public func work42_widget_main() -> UnsafeMutableRawPointer {
     nonisolated(unsafe) var result: UnsafeMutableRawPointer!
     MainActor.assumeIsolated {
-        result = WidgetEntryPoint.register(TranscriptWidget())
+        result = WidgetEntryPoint.register(RecordingWidget())
     }
     return result
 }

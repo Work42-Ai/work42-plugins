@@ -81,7 +81,7 @@ private func summaryPath(dir: String) -> String {
 final class SummaryWidget: Work42Widget, Work42WidgetPill {
 
     let id = "summary"
-    let title = "Summary"
+    let title = "Meet42 Summary"
     let icon = "doc.text"
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 240, height: 160) }

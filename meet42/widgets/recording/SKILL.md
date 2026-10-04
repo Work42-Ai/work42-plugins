@@ -1,13 +1,13 @@
 ---
-name: widget-transcript
+name: widget-recording
 description: |
-  How the meet42 Transcript widget renders live conversation, owns the active
+  How the meet42 Recording widget renders live conversation, owns the active
   meeting pill, and decides when an auto-detected recording stops.
 ---
 
-# Transcript widget
+# Recording widget
 
-Transcript has three responsibilities after Calendar hands off a detected
+Recording has three responsibilities after Calendar hands off a detected
 meeting session:
 
 1. Render `<meeting/recording_dir>/conversation.jsonl` as live chat bubbles.
@@ -29,7 +29,7 @@ shows the waiting state.
 ## Stable meeting metadata
 
 The Calendar handoff writes these `meeting/*` keys before presenting
-Transcript:
+Recording:
 
 | Key | Meaning |
 |---|---|
@@ -39,15 +39,15 @@ Transcript:
 | `source_app` | Detected meeting app display name. |
 | `source_bundle_id` | Bundle id used for the native icon and scoped mic watch. |
 | `scheduled_start` / `scheduled_end` | Optional matched-event bounds. |
-| `ended_at` | Written only when Transcript/manual controls explicitly stop. |
+| `ended_at` | Written only when Recording/manual controls explicitly stop. |
 
-`meet42 record status --json` remains recording truth. Transcript compares its
+`meet42 record status --json` remains recording truth. Recording compares its
 stored `recording_dir` with the active status directory before presenting or
 controlling the pill.
 
 ## Background agent
 
-`TranscriptMeetingAgent` is one agent per session. It reconciles storage with
+`RecordingMeetingAgent` is one agent per session. It reconciles storage with
 recording status once on activation/relaunch and once when the pill mounts,
 then presents the pill for an active recording and starts:
 
@@ -72,14 +72,14 @@ there are no transition retries or forced workflow transitions.
 
 ## Pill
 
-Calendar detection/setup and Transcript recording/auto-stop all use
+Calendar detection/setup and Recording recording/auto-stop all use
 `WidgetPillAccessoryShell`, so the 412x108 frame, native-app icon, typography,
 32-point actions, and progress rail remain fixed across handoff. The active
 pill's state content is:
 
 - Row 1: native macOS icon resolved from `source_bundle_id` (generic video only
   when resolution fails), the authoritative session name, and source/timing
-  context. Transcript resolves the name from the session database and uses
+  context. Recording resolves the name from the session database and uses
   stored meeting metadata only as a backward-compatible fallback.
 - Row 2: schedule status, Liquid Glass **Open Session**, and a live Stop timer.
 
@@ -96,6 +96,6 @@ title, replacing row 2 with `Auto-stopping in Ns`, **Stay**, and **Stop**.
 
 The action-area microphone picker and manual Record/Stop remain available.
 Manual Record uses `meet42 record start --manual --json`, stores
-`recording_dir` and `started_at`, and presents Transcript. Because manual
+`recording_dir` and `started_at`, and presents Recording. Because manual
 recordings have no `source_bundle_id`, they show `In Progress` and do not run a
 mic watcher. Manual Stop uses the same explicit stop and `ended_at` path.

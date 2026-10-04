@@ -125,7 +125,7 @@ private final class WidgetFileWatcher {
 final class PeopleWidget: Work42Widget, Work42WidgetPill {
 
     let id = "people"
-    let title = "People"
+    let title = "Meet42 People"
     let icon = "person.2"
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 260, height: 200) }

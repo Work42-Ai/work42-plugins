@@ -136,7 +136,7 @@ final class WidgetFileWatcher {
 final class EventDetailsWidget: Work42Widget, Work42WidgetPill {
 
     let id = "eventDetails"
-    let title = "Event"
+    let title = "Meet42 Event"
     let icon = "calendar"
     var linkIntents: [WidgetLinkIntentSpec] { [] }
     var minSize: WidgetMinSize { WidgetMinSize(width: 260, height: 200) }
