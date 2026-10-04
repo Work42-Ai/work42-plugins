@@ -22,7 +22,7 @@
       "is_initial": false,
       "is_terminal": false,
       "entry_prompt": "The recording started -- you're now In Meeting, running on Haiku for fast live notes. Keep concise running notes as the conversation happens. Stopping the recording writes meeting/ended_at, which moves this session to Summary.",
-      "entry_gate": "{\"namespace\": \"meeting\", \"key\": \"started_at\", \"op\": \"exists\"}",
+      "entry_gate": "{\"and\":[{\"namespace\":\"meeting\",\"key\":\"started_at\",\"op\":\"exists\"},{\"namespace\":\"meeting\",\"key\":\"ended_at\",\"op\":\"absent\"}]}",
       "icon": "waveform",
       "color_light": "#6D28D9",
       "color_dark": "#9D6BFF",
@@ -60,7 +60,12 @@
     {
       "from": "Prepare for Meeting",
       "to": "In Meeting",
-      "description": "the recording started (meeting/started_at written)"
+      "description": "the recording is active (meeting/started_at written and meeting/ended_at absent)"
+    },
+    {
+      "from": "Prepare for Meeting",
+      "to": "Summary",
+      "description": "the recording finished before the preparation turn transitioned (meeting/ended_at written)"
     },
     {
       "from": "In Meeting",
