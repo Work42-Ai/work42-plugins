@@ -506,7 +506,7 @@ private final class TranscriptMeetingModel {
     @ObservationIgnored private var services: WidgetBackgroundServices?
     @ObservationIgnored private var reconcileTask: Task<Void, Never>?
     @ObservationIgnored private var watchTask: Task<Void, Never>?
-    @ObservationIgnored private var countdownTask: Task<Void, Never>?
+    @ObservationIgnored private let countdownTask = WidgetCountdownTask()
     @ObservationIgnored private var heartbeatTask: Task<Void, Never>?
     @ObservationIgnored private var watchProcess: Process?
     @ObservationIgnored private var watchedBundleId: String?
@@ -544,7 +544,7 @@ private final class TranscriptMeetingModel {
     private func stopTasks() {
         reconcileTask?.cancel(); reconcileTask = nil
         watchTask?.cancel(); watchTask = nil
-        countdownTask?.cancel(); countdownTask = nil
+        countdownTask.cancel()
         heartbeatTask?.cancel(); heartbeatTask = nil
         watchProcess?.terminate(); watchProcess = nil
         watchedBundleId = nil
@@ -692,10 +692,7 @@ private final class TranscriptMeetingModel {
         guard phase == .active, !suppressCloseUntilOpen else { return }
         promptStartedAt = Date()
         phase = .endPrompt
-        countdownTask?.cancel()
-        countdownTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
-            guard !Task.isCancelled else { return }
+        countdownTask.schedule(after: .seconds(10)) { [weak self] in
             await self?.stopMeeting(reason: "countdown")
         }
     }
@@ -708,7 +705,7 @@ private final class TranscriptMeetingModel {
     }
 
     private func cancelPrompt() {
-        countdownTask?.cancel(); countdownTask = nil
+        countdownTask.cancel()
         promptStartedAt = nil
     }
 
@@ -717,26 +714,66 @@ private final class TranscriptMeetingModel {
         completionAttempted = true
         cancelPrompt()
         await services.activity.ping()
-        guard let recordingDir,
-              let stop = try? await services.shell.run(
-                  command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
-              ), stop.exitCode == 0
-        else {
-            Meet42Trace.log("transcript", "recording-stop-failed", ["sessionId": sessionId, "reason": reason])
+        guard let recordingDir else {
+            Meet42Trace.log("transcript", "recording-stop-failed", [
+                "sessionId": sessionId, "reason": reason, "error": "missing-recording-dir",
+            ])
+            recoverFromCompletionFailure()
+            return
+        }
+        let stop: WidgetShellResult
+        do {
+            stop = try await services.shell.run(
+                command: "meet42 record stop --dir \(transcriptShellQuote(recordingDir))"
+            )
+        } catch {
+            Meet42Trace.log("transcript", "recording-stop-failed", [
+                "sessionId": sessionId, "reason": reason, "error": String(describing: error),
+            ])
+            recoverFromCompletionFailure()
+            return
+        }
+        guard stop.exitCode == 0 else {
+            Meet42Trace.log("transcript", "recording-stop-failed", [
+                "sessionId": sessionId, "reason": reason,
+                "exitCode": stop.exitCode, "stderr": stop.stderr,
+            ])
+            recoverFromCompletionFailure()
             return
         }
         stopHeartbeat()
         let endedAtJSON = transcriptShellQuote("\"\(isoNow())\"")
-        guard let completion = try? await services.shell.run(
-            command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
-        ), completion.exitCode == 0 else {
-            Meet42Trace.log("transcript", "completion-write-failed", ["sessionId": sessionId, "reason": reason])
+        let completion: WidgetShellResult
+        do {
+            completion = try await services.shell.run(
+                command: "work42 storage set --session \(transcriptShellQuote(sessionId)) meeting/ended_at \(endedAtJSON)"
+            )
+        } catch {
+            Meet42Trace.log("transcript", "completion-write-failed", [
+                "sessionId": sessionId, "reason": reason, "error": String(describing: error),
+            ])
+            recoverFromCompletionFailure()
+            return
+        }
+        guard completion.exitCode == 0 else {
+            Meet42Trace.log("transcript", "completion-write-failed", [
+                "sessionId": sessionId, "reason": reason,
+                "exitCode": completion.exitCode, "stderr": completion.stderr,
+            ])
+            recoverFromCompletionFailure()
             return
         }
         phase = .stopped
         stopWatch()
         try? await services.pill.dismiss(widgetId: "transcript")
         Meet42Trace.log("transcript", "recording-stopped", ["sessionId": sessionId, "reason": reason])
+    }
+
+    private func recoverFromCompletionFailure() {
+        completionAttempted = false
+        promptStartedAt = nil
+        suppressCloseUntilOpen = true
+        phase = .active
     }
 }
 
