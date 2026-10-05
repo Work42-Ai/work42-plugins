@@ -148,19 +148,20 @@ struct FlowDefinitionView: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: DT.s8) {
+        VStack(spacing: DT.s16) {
             Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                .font(.system(size: 24))
+                .font(.system(size: 32))
                 .foregroundStyle(.secondary)
             Text("No flows available")
-                .font(.system(size: DT.f14, weight: .semibold))
+                .font(.system(size: DT.f13, weight: .medium))
             Text("Create a flow in ~/.work42/flows and it will appear here.")
                 .font(.system(size: DT.f11))
                 .foregroundStyle(.secondary)
-            Spacer(minLength: 0)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 360)
         }
-        .padding(DT.s16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(DT.s24)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("No flows available")
     }

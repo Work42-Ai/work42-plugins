@@ -317,6 +317,10 @@ struct Flow42PlayerWidgetTests {
         #expect(view.contains(".allowsHitTesting(false)"))
         #expect(header.contains("GlassTabStrip"))
         #expect(header.contains("Back to Flows"))
+        #expect(header.contains("case .library:\n                Text(\"Flows\")"))
+        #expect(header.contains("Spacer(minLength: 0)"))
+        #expect(view.contains("VStack(spacing: DT.s16)"))
+        #expect(view.contains(".frame(maxWidth: .infinity, maxHeight: .infinity)"))
         #expect((widget + view + header).contains("accessibilityLabel"))
 
         let surface = (widget + view + header).lowercased()

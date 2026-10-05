@@ -1,4 +1,5 @@
 import SwiftUI
+import Work42UI
 import Work42WidgetKit
 
 struct FlowDefinitionHeader: View {
@@ -12,6 +13,8 @@ struct FlowDefinitionHeader: View {
                     .font(.system(size: DT.f12, weight: .medium))
                     .foregroundStyle(.primary)
                     .accessibilityAddTraits(.isHeader)
+
+                Spacer(minLength: 0)
 
             case .detail(let detail):
                 Button { navigation.back() } label: {
