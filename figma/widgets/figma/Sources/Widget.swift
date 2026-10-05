@@ -26,7 +26,7 @@
 import AppKit
 import Observation
 import SwiftUI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - Figma URL helpers
 

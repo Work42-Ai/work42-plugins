@@ -14,7 +14,7 @@
 //
 // WATCHER (bug/widgets-in-background-are-not-working):
 //   The watch loop has moved OFF the view path into GitHubBackgroundAgent, which
-//   conforms to WidgetBackgroundAgent (Work42WidgetKit). The host creates ONE
+//   conforms to WidgetBackgroundAgent (Work42PluginKit). The host creates ONE
 //   agent per (session × widget) pair, calls start(services:) when the session
 //   is alive, and stop() on dormancy/quit — independently of view mounting.
 //
@@ -33,7 +33,7 @@
 import AppKit
 import Observation
 import SwiftUI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - PR data model (storage schema)
 
@@ -1331,7 +1331,7 @@ public func work42_widget_main() -> UnsafeMutableRawPointer {
 // MARK: - PRDiffLocator
 //
 // Self-contained diff-location primitive — widget dylibs link only
-// Work42UI + Work42WidgetKit, so the pure locator algorithm is duplicated here.
+// Work42UI + Work42PluginKit, so the pure locator algorithm is duplicated here.
 // A small, stable match/ambiguity contract; keep this
 // copy in sync. Contract summary: parse the unified diff file-by-file and
 // hunk-by-hunk; match the whitespace-trimmed selection lines as a contiguous

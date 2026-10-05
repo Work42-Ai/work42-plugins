@@ -39,7 +39,7 @@ import AppKit
 import Foundation
 import Observation
 import SwiftUI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - RepoInfo
 
@@ -68,7 +68,7 @@ enum GitHubPRsLoadState: Sendable {
 // MARK: - GitHub remote URL parsing
 //
 // Mirrors Work42Core.GitRemote — inlined here because widget dylibs link only
-// Work42UI + Work42WidgetKit. Any format changes there should be kept in sync.
+// Work42UI + Work42PluginKit. Any format changes there should be kept in sync.
 
 /// Parse a git remote URL into (owner, repo). Returns nil for non-GitHub URLs.
 ///

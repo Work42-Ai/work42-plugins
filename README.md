@@ -166,7 +166,7 @@ the install. See `docs/plugins.md` in the main Work42 repo for details.
 
 1. Start with `work42 widget new <slug>` for each widget in the main Work42
    app to get the scaffolded `Sources/Widget.swift` + `SKILL.md` shape.
-2. Develop against `Work42WidgetKit`.
+2. Develop against `Work42PluginKit`.
 3. Organize into a plugin folder with `plugin.yaml` + `widgets/` + `skills/`
    + `tab-templates/`.
 4. Test locally: `work42 plugin install /path/to/your-plugin`.
