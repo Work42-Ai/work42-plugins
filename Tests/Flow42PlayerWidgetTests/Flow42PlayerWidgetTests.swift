@@ -314,6 +314,8 @@ struct Flow42PlayerWidgetTests {
         #expect(view.contains("MarkdownPreview"))
         #expect(view.contains("Work42MarkdownDocument"))
         #expect(view.contains("artifactsEnabled: false"))
+        #expect(view.contains("commentWidget: .init"))
+        #expect(view.contains("slug: \"flow-definition\""))
         #expect(view.contains(".allowsHitTesting(false)"))
         #expect(header.contains("GlassTabStrip"))
         #expect(header.contains("Back to Flows"))

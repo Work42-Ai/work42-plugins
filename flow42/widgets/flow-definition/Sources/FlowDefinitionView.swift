@@ -125,7 +125,12 @@ struct FlowDefinitionView: View {
                 sessionId: services.sessionId,
                 commentKey: definition.commentKey,
                 artifactsEnabled: false,
-                baseURL: definition.directory
+                baseURL: definition.directory,
+                commentWidget: .init(
+                    slug: "flow-definition",
+                    title: detail.selectedVariant,
+                    icon: "point.topleft.down.to.point.bottomright.curvepath"
+                )
             )
             .accessibilityLabel("\(detail.name), \(detail.selectedVariant) guidance")
         } else {
