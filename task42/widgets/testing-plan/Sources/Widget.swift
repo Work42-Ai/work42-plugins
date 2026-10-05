@@ -11,6 +11,11 @@
 // widgets and the workflow gates):
 //   plan/testing — the testing-plan markdown, authored by the Planner↔QA
 //                  dialogue (see the task42-planner/task42-qa skills).
+// Markdown links such as
+//   [login / browser](flow42://flow/login?variant=browser)
+// remain ordinary links. Work42's generic Open Link resolver offers them to
+// the Flow42 definition widget when installed; this widget imports no Flow42
+// code and behaves identically when that optional plugin is absent.
 
 import Observation
 import SwiftUI

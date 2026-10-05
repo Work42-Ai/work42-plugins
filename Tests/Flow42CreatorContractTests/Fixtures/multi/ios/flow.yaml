@@ -1,0 +1,22 @@
+schema_version: 1
+device: ios
+phases:
+  - id: authenticate
+    intent: Authenticate with the demonstrated mobile path.
+    steps:
+      - action: type
+        arguments:
+          label: Email
+          role: text-field
+          text: ${email}
+          clear: true
+        precondition: The native login form is visible.
+        postcondition: The email field contains the requested address.
+        screenshot: references/email-before.svg
+      - action: click
+        arguments:
+          label: Sign In
+          role: button
+        precondition: Required credentials are present.
+        postcondition: The signed-in home screen is visible.
+        screenshot: references/sign-in-before.svg

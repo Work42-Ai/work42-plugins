@@ -15,7 +15,8 @@
     "task42-lead",
     "task42-planner",
     "task42-worker",
-    "task42-qa"
+    "task42-qa",
+    "flow42-qa-author"
   ],
   "create_intent": "new-task"
 }

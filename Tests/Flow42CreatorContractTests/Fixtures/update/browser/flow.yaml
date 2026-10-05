@@ -1,0 +1,13 @@
+schema_version: 1
+device: browser
+phases:
+  - id: continue
+    intent: Continue from the identified account.
+    steps:
+      - action: click
+        arguments:
+          label: Continue
+          role: button
+        precondition: A valid account address is visible.
+        postcondition: The password form is visible.
+        screenshot: references/continue-before.svg

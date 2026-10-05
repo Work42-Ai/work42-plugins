@@ -1,0 +1,8 @@
+schema_version: 1
+id: login
+name: Log In
+description: Authenticate an existing user.
+tags:
+  - authentication
+variants:
+  browser: browser/flow.yaml

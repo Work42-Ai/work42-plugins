@@ -1,6 +1,6 @@
 ---
 name: task42-qa
-description: The QA contract the Lead follows at Testing (and consults at spec time). Defines HOW to run a QA pass — the bar for PASS, the always-reject list, how a reject reads, how to write a concise evidence-backed report, and how to submit the verdict via qa/verdict + qa/report storage. Test-method-AGNOSTIC: flows are one evidence source (flow-player to replay, flow42-qa-author to build), terminal/CLI/curl checks are another. Source inspection is never evidence; never soft-pass.
+description: The QA contract the Lead follows at Testing (and consults at spec time). Defines HOW to run a QA pass — the bar for PASS, the always-reject list, how a reject reads, how to write a concise evidence-backed report, and how to submit the verdict via qa/verdict + qa/report storage. Test-method-AGNOSTIC: flows are one evidence source (flow-player to guide, flow42-qa-author to select coverage), terminal/CLI/curl checks are another. Source inspection is never evidence; never soft-pass.
 ---
 
 # QA Contract
@@ -76,27 +76,43 @@ report it, and the Lead adds a fix subtask.
 - **Observations only if** something needs calling out beyond the per-AC rows.
 - **Never write a "Verdict:" line** — the verdict is the `qa/verdict` value.
 
-## Evidence method: flows (one option, not the only one)
+## Evidence method: optional flow guidance
 
-Flows are no longer tracked in a per-task pack — the **Testing Plan
-(`plan/testing`) prose names the flow slugs + their run config/device**. When a
-UI AC is exercised by a recorded flow:
+Flow42 is optional guidance, not Task42's recording runtime. The Testing Plan
+(`plan/testing`) names every requested definition with separate required
+fields:
 
-1. **Read the plan:** `work42 storage get plan/testing` → the flow slug + its
-   `launch.json` config + device for each AC it covers.
-2. **Launch:** `work42 debug start "<config>" --device <device>` — wait for the
-   ready signal (confirm names with `work42 debug configs`).
-3. **Replay:** `flow42 play <flow-dir>` — it auto-records the video-first bundle
-   (`recording.mov` + `events.jsonl` + `meta.yaml`) that IS the proof. **The
-   replay loop lives in the `flow-player` skill; building a QA flow lives in
-   `flow42-qa-author`.** This contract just consumes the bundle.
-4. **Review:** `flow42 view <bundle>` — mark PASS/FAIL per AC against what the
-   recording actually shows.
+```markdown
+- flow: login
+  variant: browser
+  config: "Web QA"
+  covers: AC3, AC7
+```
 
-A **zero-flow (verification-only) plan is valid** — the report then carries only
-terminal evidence + observations. For a widget/storage AC (Jira, GitHub PR),
-verify visually with `flow42 <target> screenshot` and cross-check
-`work42 storage get <ns>/<key>`.
+Never infer a variant. Multi-platform coverage repeats this entry once per
+variant. When a UI AC uses a saved definition:
+
+1. **Read the plan:** collect the explicit `flow`, `variant`, launch `config`,
+   covered ACs, and expected outcome. If either flow or variant is absent, stop
+   and ask for the missing selection.
+2. **Launch:** run `work42 debug start "<config>"` and wait for readiness
+   (confirm config names with `work42 debug configs`). Work42—not Task42 or the
+   plan—selects the concrete compatible browser/simulator.
+3. **Guide and record:** invoke the global `flow-player` skill with the separate
+   flow and variant. It must bracket all device actions with `work42 device
+   start` / `work42 device stop`, and it retains an ordinary Work42 recording
+   on success, failure, cancellation, or error.
+4. **Review:** inspect the resulting Work42 recording card/timeline, then judge
+   each AC against what the recording actually shows. Cite deviation reasons
+   when the agent substituted or skipped a flow step.
+
+Do not use the retired Flow42 CLI; there is no Flow42 run entity. A **zero-flow
+(verification-only) plan is valid** and
+uses terminal/manual evidence. When Flow42 is not installed, non-flow QA remains
+fully available. Only an approved plan that explicitly requires an unavailable
+flow is blocked; name that exact blocker rather than silently reducing coverage.
+For a widget/storage AC, use the generic Work42 device screenshot action when
+visual evidence is needed and cross-check `work42 storage get <ns>/<key>`.
 
 ## Write the report
 
@@ -112,19 +128,19 @@ report reflecting the re-test).
 | Construct | You write | Renders as |
 |-----------|-----------|------------|
 | AC chip | `[AC5]` inline in prose | colored status chip (status from the AC index) |
-| Frame | `![caption](frame:<flow-slug>#<eventNumber>)` alone on its line | full-width video frame; click opens the recording at that EXACT event |
+| Frame | `![caption](frame:<recording-slug>#<eventNumber>)` alone on its line | full-width video frame; click opens the ordinary Work42 recording at that EXACT event |
 | Console | fenced block with info string `console:<config-name>` | dark labeled console panel |
 | AC index | `## Acceptance Criteria` section, lines `- [ACn] PASS\|FAIL\|N/A — <one-liner>` | clickable index; rows jump to the inline chip |
-| Flow section | `### flow: <slug>` with `- [ACn] <result>` items | verification rows in that flow's recording card |
+| Recording section | `### flow: <recording-slug>` with `- [ACn] <result>` items | verification rows in the existing Work42 recording card (heading retained for renderer compatibility) |
 
-`<eventNumber>` is **deterministic** — the 1-based number of an ACTUAL recorded
-event (the numbering `flow42 view` / `flow42 frame <bundle> --event N` show).
-Never invent a moment: a frame ref names an event that really happened.
+`<eventNumber>` is **deterministic** — the 1-based number of an ACTUAL event in
+the retained Work42 recording. Never invent a moment: a frame ref names an event
+that really happened.
 
-**Gather:** `flow42 view <bundle>` lists events by number; pick the one that
-PROVES a claim (preview with `flow42 frame <bundle> --event N`). Capture
-validating console lines live with `work42 debug <id> console --tail 40` (one
-fence per relevant config). Every AC in the spec gets exactly one index row.
+**Gather:** inspect the Work42 recording timeline and pick the actual numbered
+event that PROVES a claim. Capture validating console lines live with `work42
+debug <id> console --tail 40` (one fence per relevant config). Every AC in the
+spec gets exactly one index row.
 
 ### Skeleton
 
@@ -140,7 +156,7 @@ config + device you launched.>
 12:34:01.820 GET /health → 200
 ```
 
-### flow: <slug>
+### flow: <recording-slug>
 - [AC1] <what the recording showed — PASS, or FAIL with detail>
 
 ## Acceptance Criteria

@@ -1,0 +1,19 @@
+schema_version: 1
+device: browser
+parameters:
+  email:
+    type: string
+    description: Account email address.
+phases:
+  - id: authenticate
+    intent: Authenticate the account.
+    steps:
+      - action: type
+        arguments:
+          label: Email
+          role: textbox
+          text: ${email}
+          clear: true
+        precondition: The sign-in form is visible.
+        postcondition: The Email field contains the requested address.
+        screenshot: references/email-before.svg
