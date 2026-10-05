@@ -128,7 +128,7 @@ struct FlowDefinitionView: View {
                 baseURL: definition.directory,
                 commentWidget: .init(
                     slug: "flow-definition",
-                    title: detail.selectedVariant,
+                    title: "\(detail.name) · \(detail.selectedVariant.capitalized)",
                     icon: "point.topleft.down.to.point.bottomright.curvepath"
                 )
             )
