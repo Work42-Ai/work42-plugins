@@ -1,0 +1,9 @@
+{
+  "id": "new-linear-task",
+  "title": "New Linear Task",
+  "type_id": "linear-task",
+  "params": [
+    "issue"
+  ],
+  "button": true
+}

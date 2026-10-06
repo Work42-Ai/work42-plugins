@@ -1,0 +1,12 @@
+name: linear42
+version: 1
+description: >
+  The Linear-native task lifecycle, replacing task42. Provides the linear42
+  workflow (Planning -> In-Progress -> Testing -> Human Review -> Done) with
+  the same gates as task42, the linear-task session type, and a "New Linear
+  Task" create-intent. The spec and testing plan live as Linear Documents,
+  subtasks as Linear sub-issues, QA reports as Linear comments; session
+  storage mirrors just the gate signals. Reuses the github plugin's widget
+  for code review. Configured entirely from ~/.config/linear42/config.json.
+author: work42
+sdk_version: 11
