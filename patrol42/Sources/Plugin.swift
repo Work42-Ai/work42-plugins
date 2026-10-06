@@ -14,7 +14,7 @@
 // arg->storage path) before onCreate ever runs. The arg still reaches this
 // hook via `context.params["pr_url"]`.
 //
-// A plugin hooks dylib links only Work42WidgetKit, so it cannot reach
+// A plugin hooks dylib links only Work42PluginKit, so it cannot reach
 // Work42Core's Work42Link / RepoDiscovery / TodoSessionLink directly — PR
 // parsing is done in-hook and every side effect goes through `context.shell`
 // (`git ...`, `work42 storage set`, `work42 todos add`), the CLI-mediated
@@ -27,7 +27,7 @@
 // hook never re-fires for the same PR).
 
 import Foundation
-import Work42WidgetKit
+import Work42PluginKit
 
 final class Patrol42Hooks: Work42SessionHooks {
     func onCreate(_ context: SessionCreateContext) async throws {

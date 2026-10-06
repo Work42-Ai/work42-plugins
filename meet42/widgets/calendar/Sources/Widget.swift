@@ -3,7 +3,7 @@
 // A calendar-only port of the app's MeetingsView
 // (`Sources/Work42App/Meetings/MeetingsView.swift`) + the shared day timeline
 // (`DayTimelineView.swift`) into a plugin widget that links ONLY
-// Work42WidgetKit + Work42UI. The original drove everything through Flow42Core's
+// Work42PluginKit + Work42UI. The original drove everything through Flow42Core's
 // MeetingsStore / CalendarStore / PlannedDayStore / CalendarSyncService and
 // mixed real EventKit meetings with AI-schedule fires and work-blocks. A plugin
 // widget can't import Flow42Core, and the meet42 CLI only exposes calendar
@@ -30,7 +30,7 @@ import Foundation
 import Observation
 import SwiftUI
 import Work42UI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - CalMode (local mirror of CalendarStore.CalendarMode)
 

@@ -3,7 +3,7 @@
 //
 // A faithful, identical-UI port of the app's AnnotationsWidgetView
 // (`Sources/Work42App/Meetings/AnnotationsWidgetView.swift`) into a plugin
-// widget that links ONLY Work42WidgetKit + Work42UI. An editable notes tile
+// widget that links ONLY Work42PluginKit + Work42UI. An editable notes tile
 // whose content persists to `<dir>/annotations.md` inside the session dir so
 // it is part of the session and readable by the agent.
 //
@@ -28,7 +28,7 @@ import Foundation
 import Observation
 import SwiftUI
 import Work42UI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - Annotations file I/O (local AnnotationsStore replacement)
 

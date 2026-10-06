@@ -2,7 +2,7 @@
 //
 // A faithful, identical-UI port of the app's SummaryWidgetView
 // (`Sources/Work42App/Meetings/SummaryWidgetView.swift`) into a plugin widget
-// that links ONLY Work42WidgetKit + Work42UI. The tile is empty until the
+// that links ONLY Work42PluginKit + Work42UI. The tile is empty until the
 // end-of-meeting agent pass writes `<dir>/summary.md`, then renders that file
 // as themed markdown.
 //
@@ -19,7 +19,7 @@ import Foundation
 import Observation
 import SwiftUI
 import Work42UI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - WidgetFileWatcher (local FileWatcher reimplementation)
 

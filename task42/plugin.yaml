@@ -10,4 +10,4 @@ description: >
   plugin contribution kind: declarative workflow + session type + intent,
   a compiled session hook, and type-scoped skills.
 author: work42
-sdk_version: 9
+sdk_version: 11

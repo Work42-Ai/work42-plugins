@@ -5,7 +5,7 @@
 // seeder this plugin replaces (work42/Sources/Work42App/Sessions/
 // SessionSeeders.swift's "task" seeder): create the linked To-Do
 // (`work42://task/<sessionId>`). A plugin hooks dylib links only
-// Work42WidgetKit (see PluginHookInstaller's build args), so it cannot
+// Work42PluginKit (see PluginHookInstaller's build args), so it cannot
 // reach Flow42Core's PlannedDayStore/TodoSessionLink directly — this
 // shells out to `work42 todos add` instead, the CLI-mediated equivalent.
 //
@@ -20,7 +20,7 @@
 // `guard inserted else { return }`), never on a re-mint.
 
 import Foundation
-import Work42WidgetKit
+import Work42PluginKit
 
 final class Task42Hooks: Work42SessionHooks {
     func onCreate(_ context: SessionCreateContext) async throws {

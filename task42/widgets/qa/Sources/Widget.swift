@@ -16,7 +16,7 @@
 
 import Observation
 import SwiftUI
-import Work42WidgetKit
+import Work42PluginKit
 
 @Observable
 @MainActor

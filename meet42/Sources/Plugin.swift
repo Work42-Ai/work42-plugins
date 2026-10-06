@@ -4,7 +4,7 @@
 // Reproduces the POST-worktree side effect of the built-in event seeder this
 // plugin replaces (work42/Sources/Work42App/Sessions/SessionSeeders.swift's
 // "event" seeder: MeetingMeta.write + PeopleStore.upsertAttendees). A plugin
-// hooks dylib links only Work42WidgetKit, so it cannot reach the calendar
+// hooks dylib links only Work42PluginKit, so it cannot reach the calendar
 // model directly — and by design it must not: all privileged calendar work
 // lives in the standalone `meet42` CLI. The hook shells `meet42 snapshot`,
 // which reads meet42's OWN calendar store and writes meeting.json + upserts
@@ -20,7 +20,7 @@
 // snapshot runs exactly once per event session.
 
 import Foundation
-import Work42WidgetKit
+import Work42PluginKit
 
 final class Meet42Hooks: Work42SessionHooks {
     func onCreate(_ context: SessionCreateContext) async throws {

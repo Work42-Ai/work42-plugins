@@ -11,14 +11,14 @@
 // mirror), paired with the profiles by order — exactly as the original paired
 // PeopleStore profiles with meeting.json attendees.
 //
-// Links only Work42WidgetKit + Work42UI. `personColor` / `initialsString` / the
+// Links only Work42PluginKit + Work42UI. `personColor` / `initialsString` / the
 // DT tokens are all public in Work42UI.
 
 import Foundation
 import Observation
 import SwiftUI
 import Work42UI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - PersonRow (local mirror of `meet42 people --json`)
 

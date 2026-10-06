@@ -1,6 +1,6 @@
 import SwiftUI
 import Work42UI
-import Work42WidgetKit
+import Work42PluginKit
 
 struct FlowDefinitionHeader: View {
     @Bindable var navigation: FlowDefinitionNavigation

@@ -2,7 +2,7 @@
 //
 // A faithful, identical-UI port of the app's EventDetailsWidgetView
 // (`Sources/Work42App/Meetings/EventDetailsWidgetView.swift`) into a plugin
-// widget that links ONLY Work42WidgetKit + Work42UI. The original took a
+// widget that links ONLY Work42PluginKit + Work42UI. The original took a
 // `Flow42Core.CalendarEvent.Item` + snapshot timestamp handed down by the
 // session panel; a plugin widget can't import Flow42Core, so this reads the
 // session's `<dir>/meeting.json` snapshot directly and decodes it through a
@@ -18,7 +18,7 @@ import Foundation
 import Observation
 import SwiftUI
 import Work42UI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - MeetingSnapshot (local Flow42Core mirror)
 

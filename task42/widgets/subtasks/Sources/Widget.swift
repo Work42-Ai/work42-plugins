@@ -16,7 +16,7 @@
 
 import Observation
 import SwiftUI
-import Work42WidgetKit
+import Work42PluginKit
 
 /// A generic subtask row — mirrors SessionDetailPanel.PlanSubtask exactly
 /// (same fields, same tolerant decode of absent description/done on older

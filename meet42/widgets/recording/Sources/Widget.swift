@@ -33,7 +33,7 @@ import Foundation
 import Observation
 import SwiftUI
 import Work42UI
-import Work42WidgetKit
+import Work42PluginKit
 
 // MARK: - Palette (app-private constants redefined locally)
 
