@@ -8,8 +8,8 @@ description: |
   (https://github.com/<owner>/<repo>/pulls). It lives on the Home surface.
   A GitHub-branded "Review GitHub PR" action-center button is enabled when the
   active browser tab is viewing a specific PR page (/pull/<N>). It resolves
-  the PR to GitHub's stable pull-request head ref and fires the typed
-  session.open.codeReview intent. Starting a review uses git remote access;
+  the PR to GitHub's stable pull-request head ref and fires the
+  generic session.open intent (typeId codeReview). Starting a review uses git remote access;
   it does not require the gh CLI.
 ---
 
@@ -28,7 +28,7 @@ The `github-prs` widget is a **Home-surface browser widget** that:
 - Exposes a **"Review GitHub PR"** button in the **action center**
   that appears ONLY when the active browser tab is viewing a specific PR page
   (URL path matches `/pull/<N>`). Clicking it resolves the stable PR head ref and
-  fires `session.open.codeReview` with typed arguments.
+  fires `session.open` (typeId `codeReview`) with a flat argument shape.
 
 ## Placement
 
@@ -110,11 +110,11 @@ to its workspace repository key, and fires:
 
 ```swift
 services.intents.execute(
-    id: "session.open.codeReview",
+    id: "session.open",
     params: [
-        "kind": .string("codeReview"),
+        "typeId": .string("codeReview"),
         "name": .string("Code Review: <PR title>"),
-        "codeReview": .object(["branchesByRepository": .object([repoKey: .string("refs/pull/<number>/head")])]),
+        "branchesByRepository": .object([repoKey: .string("refs/pull/<number>/head")]),
         "initialWidgetStorage": .object(["github": .object(["prs": prMetadata])]),
     ]
 )
@@ -158,7 +158,7 @@ done
 ```
 
 Starting a code-review session is **not** an agent CLI call — there is no
-`task42 palette` command. The `session.open.codeReview` intent is fired by
+`task42 palette` command. The `session.open` intent is fired by
 this widget itself through `services.intents.execute` when the user picks a
 repo/branch in the Home tile. An agent's role is only to enumerate the repos
 (above); the widget owns triggering the review.

@@ -211,9 +211,9 @@ final class JiraBoardWidget: Work42Widget {
                     // a modal's selectedIssue query param), then seed the session
                     // with the CANONICAL /browse/<KEY> URL so its Jira browser
                     // opens the issue itself — not the board/backlog the modal
-                    // was opened over. The typed session intent creates the task,
-                    // seeds jira/url so the issue loads immediately, and owns the
-                    // loading/error overlay.
+                    // was opened over. The generic `session.open` intent creates
+                    // the task, seeds jira/url so the issue loads immediately,
+                    // and owns the loading/error overlay.
                     let issueKey = jiraIssueKey(from: currentURL)
                     let seededURL = issueKey
                         .map { canonicalJiraIssueURL(key: $0, from: currentURL) } ?? currentURL
@@ -228,13 +228,10 @@ final class JiraBoardWidget: Work42Widget {
                         taskName = "Jira Task"
                     }
                     try await services.intents.execute(
-                        id: "session.open.task",
+                        id: "session.open",
                         params: [
-                            "kind": .string("task"),
-                            "task": .object([
-                                "name": .string(taskName),
-                                "kind": .string("feature"),
-                            ]),
+                            "typeId": .string("task"),
+                            "name": .string(taskName),
                             "initialWidgetStorage": .object([
                                 "jira": .object([
                                     "url": .string(seededURL),

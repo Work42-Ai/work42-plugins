@@ -21,8 +21,9 @@
 //   "Review GitHub PR" — placement: [.palette, .actionArea].
 //   isEnabled closure returns true ONLY when the active tab's URL (model.urlDraft)
 //   matches a PR page (/pull/<N> path). Enabled = the button appears in the
-//   action center, resolves the PR head branch with `gh`, and fires the typed
-//   session.open.codeReview intent with branch + initial github/prs metadata.
+//   action center, resolves the PR head branch with `gh`, and fires the generic
+//   session.open intent (typeId "codeReview") with branch + initial github/prs
+//   metadata.
 //
 // FAIL LOUD:
 //   If no GitHub repos are found or the shell fails, renders a fail-loud error
@@ -250,14 +251,12 @@ final class GitHubPRsWidget: Work42Widget {
                         }
                     }
                     try await svc.intents.execute(
-                        id: "session.open.codeReview",
+                        id: "session.open",
                         params: [
-                            "kind": .string("codeReview"),
+                            "typeId": .string("codeReview"),
                             "name": .string("PR Review: \(prTitle)"),
-                            "codeReview": .object([
-                                "branchesByRepository": .object([
-                                    repoKey: .string(reviewRef),
-                                ]),
+                            "branchesByRepository": .object([
+                                repoKey: .string(reviewRef),
                             ]),
                             "initialWidgetStorage": .object([
                                 "github": .object([

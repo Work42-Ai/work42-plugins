@@ -1,0 +1,6 @@
+{
+  "id": "new-event",
+  "title": "New Event",
+  "type_id": "event",
+  "button": true
+}

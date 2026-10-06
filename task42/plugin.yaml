@@ -1,0 +1,13 @@
+name: task42
+version: 1
+description: >
+  The built-in Task session, extracted into a first-party plugin. Provides
+  the task42 workflow (Planning -> In-Progress -> Testing -> Human Review ->
+  Done), the task session type, the spec/subtasks/qa/testing-plan widgets,
+  the task42-general/task42-lead/task42-planner/task42-worker/task42-qa and
+  flow42-qa-author skills (task-scoped), a "New Task" create-intent, and an onCreate hook
+  that seeds the linked To-Do. The reference conversion exercising every
+  plugin contribution kind: declarative workflow + session type + intent,
+  a compiled session hook, and type-scoped skills.
+author: work42
+sdk_version: 9

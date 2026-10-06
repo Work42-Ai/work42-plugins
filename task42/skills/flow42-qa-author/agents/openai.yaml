@@ -1,0 +1,4 @@
+interface:
+  display_name: "Flow42 QA Author"
+  short_description: "Plan explicit Flow42 variant coverage for Task42"
+  default_prompt: "Use $flow42-qa-author to select explicit flow and variant coverage for this Testing Plan."

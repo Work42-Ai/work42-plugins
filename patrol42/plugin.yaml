@@ -1,0 +1,13 @@
+name: patrol42
+version: 1
+description: >
+  The built-in Code Review session, extracted into a first-party plugin.
+  Provides the code-review workflow (Intake -> AI Review -> Human Review ->
+  Done), the codeReview session type, the patrol42-reviewer skill (type-scoped),
+  a "Review this PR" create-intent, and an onCreate hook that resolves a GitHub
+  PR URL (fetch the PR head, check it out into the matching sub-repo, seed
+  review/github storage, link the To-Do). The hardest conversion in the series:
+  creation does real imperative git work, carried entirely by the compiled
+  onCreate hook. Reuses the github plugin's widget:github as the review surface.
+author: work42
+sdk_version: 9
