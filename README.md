@@ -1,6 +1,6 @@
 # work42-plugins
 
-Installable [Work42](https://github.com/yarn-rp/work42) plugin bundles — the
+Installable [Work42](https://github.com/work42-ai/work42) plugin bundles — the
 first-party plugins that ship with the app (Jira, GitHub) and any community
 plugins built the same way.
 
@@ -11,7 +11,7 @@ the entire bundle in one command:
 ```bash
 work42 plugin install /path/to/plugin-folder
 # or from a git URL:
-work42 plugin install https://github.com/yarn-rp/work42-plugins/github
+work42 plugin install https://github.com/work42-ai/work42-plugins/github
 ```
 
 ## Plugin bundle format
@@ -114,7 +114,7 @@ work42 plugin install /path/to/work42-plugins/jira
 ### From a git URL
 
 ```bash
-work42 plugin install https://github.com/yarn-rp/work42-plugins/github
+work42 plugin install https://github.com/work42-ai/work42-plugins/github
 ```
 
 The installer:
@@ -171,7 +171,7 @@ the install. See `docs/plugins.md` in the main Work42 repo for details.
    + `tab-templates/`.
 4. Test locally: `work42 plugin install /path/to/your-plugin`.
 
-See the main [work42](https://github.com/yarn-rp/work42) repo's
+See the main [work42](https://github.com/work42-ai/work42) repo's
 `docs/plugins.md` for the full authoring reference (SDK, bundle format,
 auto-namespacing contract, tab-template authoring).
 

@@ -61,7 +61,7 @@ work42 plugin install /path/to/work42-plugins/jira
 Or install from the git URL:
 
 ```bash
-work42 plugin install https://github.com/yarn-rp/work42-plugins/jira
+work42 plugin install https://github.com/work42-ai/work42-plugins/jira
 ```
 
 The `jira` plugin is also bundled inside the Work42 app and auto-installed on

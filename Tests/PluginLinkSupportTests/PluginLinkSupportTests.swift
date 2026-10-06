@@ -19,19 +19,19 @@ struct PluginLinkSupportTests {
     func githubMatcher() throws {
         let regex = try Regex(GitHubWidgetLinkSupport.webURLPattern)
 
-        #expect("https://github.com/yarn-rp/work42".wholeMatch(of: regex) != nil)
-        #expect("https://github.com/yarn-rp/work42/pull/42#discussion_r99".wholeMatch(of: regex) != nil)
-        #expect("https://github.com/yarn-rp/work42/pull/42/files?diff=split#L20".wholeMatch(of: regex) != nil)
-        #expect("https://github.com/yarn-rp/work42/issues/42".wholeMatch(of: regex) != nil)
+        #expect("https://github.com/work42-ai/work42".wholeMatch(of: regex) != nil)
+        #expect("https://github.com/work42-ai/work42/pull/42#discussion_r99".wholeMatch(of: regex) != nil)
+        #expect("https://github.com/work42-ai/work42/pull/42/files?diff=split#L20".wholeMatch(of: regex) != nil)
+        #expect("https://github.com/work42-ai/work42/issues/42".wholeMatch(of: regex) != nil)
         #expect("https://github.com/settings/profile".wholeMatch(of: regex) != nil)
-        #expect("https://github.com?return_to=%2Fyarn-rp%2Fwork42".wholeMatch(of: regex) != nil)
+        #expect("https://github.com?return_to=%2Fwork42-ai%2Fwork42".wholeMatch(of: regex) != nil)
         #expect("https://github.com#readme".wholeMatch(of: regex) != nil)
-        #expect("http://github.com/yarn-rp/work42".wholeMatch(of: regex) != nil)
+        #expect("http://github.com/work42-ai/work42".wholeMatch(of: regex) != nil)
         #expect("HTTPS://GITHUB.COM/YARN-RP/WORK42/PULL/42".wholeMatch(of: regex) != nil)
-        #expect("https://github.com.evil.example/yarn-rp/work42".wholeMatch(of: regex) == nil)
-        #expect("https://notgithub.com/yarn-rp/work42".wholeMatch(of: regex) == nil)
-        #expect("https://example.com/yarn-rp/work42/pull/42".wholeMatch(of: regex) == nil)
-        #expect("git@github.com:yarn-rp/work42.git".wholeMatch(of: regex) == nil)
+        #expect("https://github.com.evil.example/work42-ai/work42".wholeMatch(of: regex) == nil)
+        #expect("https://notgithub.com/work42-ai/work42".wholeMatch(of: regex) == nil)
+        #expect("https://example.com/work42-ai/work42/pull/42".wholeMatch(of: regex) == nil)
+        #expect("git@github.com:work42-ai/work42.git".wholeMatch(of: regex) == nil)
     }
 
     @Test("Jira claims Atlassian Cloud URLs and preserves fragments")
@@ -47,15 +47,15 @@ struct PluginLinkSupportTests {
 
     @Test("Transient GitHub navigation does not alter attached PRs")
     func transientGitHubURL() {
-        let attached = [URL(string: "https://github.com/yarn-rp/work42/pull/1")!]
-        let opened = URL(string: "https://github.com/yarn-rp/work42/pull/2/files#L20")!
+        let attached = [URL(string: "https://github.com/work42-ai/work42/pull/1")!]
+        let opened = URL(string: "https://github.com/work42-ai/work42/pull/2/files#L20")!
 
         let displayed = GitHubWidgetLinkSupport.displayedURLs(attached: attached, opened: opened)
 
-        #expect(attached.map(\.absoluteString) == ["https://github.com/yarn-rp/work42/pull/1"])
+        #expect(attached.map(\.absoluteString) == ["https://github.com/work42-ai/work42/pull/1"])
         #expect(displayed.map(\.absoluteString) == [
-            "https://github.com/yarn-rp/work42/pull/1",
-            "https://github.com/yarn-rp/work42/pull/2/files#L20",
+            "https://github.com/work42-ai/work42/pull/1",
+            "https://github.com/work42-ai/work42/pull/2/files#L20",
         ])
         #expect(GitHubWidgetLinkSupport.displayedURLs(attached: attached, opened: attached[0]).count == 1)
     }

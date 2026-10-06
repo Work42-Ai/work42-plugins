@@ -61,7 +61,7 @@ work42 plugin install /path/to/work42-plugins/github
 Or install from the git URL:
 
 ```bash
-work42 plugin install https://github.com/yarn-rp/work42-plugins/github
+work42 plugin install https://github.com/work42-ai/work42-plugins/github
 ```
 
 The `github` plugin is also bundled inside the Work42 app and auto-installed
