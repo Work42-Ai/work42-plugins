@@ -94,13 +94,12 @@ final class SpecWidget: Work42Widget {
     func load() async {
         guard let services else { return }
         let specValue = (try? await services.storage.get(namespace: "plan", key: "spec")) ?? nil
-        if case .string(let text)? = specValue {
-            spec = text
-        } else {
-            spec = nil
-        }
+        let newSpec: String?
+        if case .string(let text)? = specValue { newSpec = text } else { newSpec = nil }
+        if newSpec != spec { spec = newSpec }
         let approvedAt = (try? await services.storage.get(namespace: "plan", key: "approved_at")) ?? nil
-        isApproved = approvedAt != nil
+        let newApproved = approvedAt != nil
+        if newApproved != isApproved { isApproved = newApproved }
     }
 
     private func approvePlan(services: SessionServices) async {
@@ -147,7 +146,16 @@ private struct SpecWidgetView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
         }
-        .task { await widget.load() }
+        .task {
+            // Live refresh: agent/CLI writes to `plan/spec` and `plan/approved_at` land while this tab is
+            // open. `.task` is cancelled when the view leaves the screen.
+            await widget.load()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
+                if Task.isCancelled { break }
+                await widget.load()
+            }
+        }
     }
 }
 

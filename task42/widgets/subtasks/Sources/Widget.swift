@@ -44,7 +44,7 @@ struct PluginSubtask: Identifiable, Codable, Equatable {
 
 @Observable
 @MainActor
-final class SubtasksWidget: Work42Widget {
+final class SubtasksWidget: Work42Widget, Work42WidgetBackground {
 
     // MARK: - Work42Widget conformance
 
@@ -84,7 +84,17 @@ final class SubtasksWidget: Work42Widget {
     func load() async {
         guard let services else { return }
         let value = (try? await services.storage.get(namespace: "plan", key: "subtasks")) ?? nil
-        subtasks = Self.decode(value)
+        let decoded = Self.decode(value)
+        if decoded != subtasks { subtasks = decoded }
+    }
+
+    // MARK: - Work42WidgetBackground
+
+    /// One agent per (session x widget): the header chip is per-session state,
+    /// so it must NOT live on this widget instance (the host reads widget-level
+    /// `Work42WidgetHeaderLabels` from a shared singleton).
+    func makeBackgroundAgent() -> any WidgetBackgroundAgent {
+        SubtasksChipAgent()
     }
 
     func toggleDone(_ sub: PluginSubtask) async {
@@ -111,7 +121,7 @@ final class SubtasksWidget: Work42Widget {
         }
     }
 
-    private static func decode(_ value: WidgetJSONValue?) -> [PluginSubtask] {
+    fileprivate static func decode(_ value: WidgetJSONValue?) -> [PluginSubtask] {
         guard let value, let data = try? JSONEncoder().encode(value) else { return [] }
         return (try? JSONDecoder().decode([PluginSubtask].self, from: data)) ?? []
     }
@@ -119,6 +129,58 @@ final class SubtasksWidget: Work42Widget {
     private static func encode(_ rows: [PluginSubtask]) -> WidgetJSONValue? {
         guard let data = try? JSONEncoder().encode(rows) else { return nil }
         return try? JSONDecoder().decode(WidgetJSONValue.self, from: data)
+    }
+}
+
+// MARK: - SubtasksChipAgent
+
+/// Publishes the "<done>/<total> subtasks" session-header chip, backed by this
+/// session's own `plan/subtasks`. Runs from session availability (not tab
+/// placement), so the chip shows on every tab.
+@Observable
+@MainActor
+final class SubtasksChipAgent: WidgetBackgroundAgent {
+    var headerLabels: [WidgetHeaderLabel] = []
+
+    private var pollTask: Task<Void, Never>?
+
+    func start(services: WidgetBackgroundServices) {
+        pollTask?.cancel()
+        pollTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.refresh(services: services)
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
+            }
+        }
+    }
+
+    func stop() {
+        pollTask?.cancel()
+        pollTask = nil
+    }
+
+    private func refresh(services: WidgetBackgroundServices) async {
+        // A failed read keeps the last chip (it never flashes away); an absent
+        // key reads as nil and clears it.
+        let value: WidgetJSONValue?
+        do {
+            value = try await services.storage.get(namespace: "plan", key: "subtasks")
+        } catch {
+            return
+        }
+        let rows = SubtasksWidget.decode(value)
+        let labels: [WidgetHeaderLabel]
+        if rows.isEmpty {
+            labels = []
+        } else {
+            let done = rows.filter(\.done).count
+            labels = [WidgetHeaderLabel(
+                text: "\(done)/\(rows.count) subtasks",
+                systemIcon: "checklist",
+                tint: done == rows.count ? .success : .neutral
+            )]
+        }
+        if labels != headerLabels { headerLabels = labels }
     }
 }
 
@@ -155,7 +217,16 @@ private struct SubtasksWidgetView: View {
             }
         }
         .padding(DT.s16)
-        .task { await widget.load() }
+        .task {
+            // Live refresh: agent/CLI writes to `plan/subtasks` land while this
+            // tab is open. `.task` is cancelled when the view leaves the screen.
+            await widget.load()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
+                if Task.isCancelled { break }
+                await widget.load()
+            }
+        }
         .confirmationDialog(
             pendingDelete.map { "Delete subtask \u{201c}\($0.title)\u{201d}?" } ?? "Delete subtask?",
             isPresented: Binding(
