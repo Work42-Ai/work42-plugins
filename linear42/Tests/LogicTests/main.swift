@@ -59,4 +59,78 @@ let missing = Linear42Config.load(path: "/nonexistent/linear42/config.json")
 check(missing == .failure(.missingFile(path: "/nonexistent/linear42/config.json")), "missing file")
 check(Linear42Config.LoadError.missingField("workspace").message.contains("workspace"), "message names the field")
 
+// MARK: - resolveStageState
+
+let teamStates = [
+    LinearState(name: "Backlog", type: "backlog", position: 0),
+    LinearState(name: "Todo", type: "unstarted", position: 1),
+    LinearState(name: "Ready", type: "unstarted", position: 0.5),
+    LinearState(name: "In Progress", type: "started", position: 2),
+    LinearState(name: "In Review", type: "started", position: 3),
+    LinearState(name: "Done", type: "completed", position: 4),
+    LinearState(name: "Canceled", type: "canceled", position: 5),
+]
+func resolve(_ stage: String, _ overrides: [String: [String: String]] = [:], states: [LinearState] = teamStates) -> StageStateResolution {
+    resolveStageState(stage: stage, teamKey: "WOR", states: states, stageStates: overrides)
+}
+check(resolve("Planning") == .move("Ready"), "Planning -> lowest-position unstarted")
+check(resolve("In-Progress") == .move("In Progress"), "In-Progress -> lowest-position started")
+check(resolve("Testing") == .move("In Progress"), "Testing -> started")
+check(resolve("Human Review") == .move("In Review"), "Human Review -> started state named *review*")
+check(resolve("Done") == .move("Done"), "Done -> completed")
+check(resolve("Bogus") == .skip, "unmapped stage skips")
+let noReview = teamStates.filter { $0.name != "In Review" }
+check(resolve("Human Review", states: noReview) == .skip, "no review state -> skip, never In Progress")
+check(resolve("Done", states: teamStates.filter { $0.type != "completed" }) == .skip, "no completed state -> skip")
+check(resolve("Human Review", ["WOR": ["Human Review": "In Progress"]]) == .move("In Progress"), "override pins an exact state")
+check(resolve("Testing", ["wor": ["Testing": "QA"]]) == .missingOverride("QA"), "override naming a missing state; team key is case-insensitive")
+check(resolve("Planning", ["OTHER": ["Planning": "Backlog"]]) == .move("Ready"), "another team's override is ignored")
+check(resolve("Planning", [:], states: []) == .skip, "no states at all")
+
+// MARK: - shouldApproveFromLinear
+
+func approve(stage: String? = "Planning", approved: Bool = false, last: String? = "unstarted",
+             current: String = "started", spec: Bool = true, subs: Bool = true) -> Bool {
+    shouldApproveFromLinear(stage: stage, approvedAtPresent: approved, lastStateType: last,
+                            currentStateType: current, hasSpecDoc: spec, hasSubIssues: subs)
+}
+check(approve(), "unstarted -> started in Planning with spec + sub-issues approves")
+check(!approve(last: nil), "first observation never approves (binding an in-progress issue)")
+check(!approve(last: "started"), "already started is not a change")
+check(!approve(current: "completed"), "only a move INTO started counts")
+check(!approve(stage: "In-Progress"), "only while Planning")
+check(!approve(stage: nil), "unknown stage")
+check(!approve(approved: true), "already approved")
+check(!approve(spec: false), "needs a spec doc")
+check(!approve(subs: false), "needs a sub-issue")
+
+// MARK: - parseIssuePayload
+
+let payloadJSON = #"""
+{"data":{"issue":{"id":"uuid-1","identifier":"WOR-12","url":"https://linear.app/work42/issue/WOR-12/x","title":"T",
+"state":{"name":"In Progress","type":"started"},
+"team":{"key":"WOR","states":{"nodes":[{"name":"Todo","type":"unstarted","position":1},{"name":"Done","type":"completed","position":4.5}]}},
+"children":{"nodes":[
+ {"identifier":"WOR-13","title":"a","description":"do a","state":{"name":"Done","type":"completed"}},
+ {"identifier":"WOR-14","title":"b","description":null,"state":{"name":"Canceled","type":"canceled"}},
+ {"identifier":"WOR-15","title":"c","description":"do c","state":{"name":"Todo","type":"unstarted"}},
+ {"title":"no identifier","state":{"name":"Todo","type":"unstarted"}}]}}}}
+"""#
+if let p = parseIssuePayload(Data(payloadJSON.utf8)) {
+    check(p.key == "WOR-12" && p.teamKey == "WOR" && p.stateType == "started", "issue fields")
+    check(p.states == [LinearState(name: "Todo", type: "unstarted", position: 1),
+                       LinearState(name: "Done", type: "completed", position: 4.5)], "team states")
+    check(p.children.count == 3, "children without an identifier are dropped")
+    check(p.children.map(\.done) == [true, false, false], "only a completed state is done (canceled is not)")
+    check(p.children[1].description == "", "null description reads as empty")
+} else { check(false, "payload parses") }
+check(parseIssuePayload(Data(#"{"data":{"issue":null}}"#.utf8)) == nil, "null issue is a failed poll")
+check(parseIssuePayload(Data(#"{"errors":[{"message":"x"}]}"#.utf8)) == nil, "error envelope")
+check(parseIssuePayload(Data("nope".utf8)) == nil, "garbage")
+
+// MARK: - shellQuote
+
+check(shellQuote("a b") == "'a b'", "plain")
+check(shellQuote("it's") == #"'it'\''s'"#, "embedded single quote")
+
 if failures == 0 { print("linear42 logic tests: all passed") } else { print("linear42 logic tests: \(failures) FAILED"); exit(1) }
