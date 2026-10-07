@@ -1,14 +1,14 @@
 ---
 name: widget-linear-spec
 description: |
-  How the Linear Spec widget (session tab kindId widget:linear-spec) works on a
+  How the Spec Document widget (session tab kindId widget:linear-spec) works on a
   linear-task session. It renders the spec as the Linear Document the Planner
   attached to the issue, and owns the Approve Plan action. Use this to know when
   Approve Plan is enabled, what approving writes, and how the approval reaches
   Linear.
 ---
 
-# Linear Spec widget
+# Spec Document widget
 
 Shows `linear/spec_doc` (a `{slug,url}` object the Planner writes after
 `linear document create --issue <KEY> --title Spec …`) in an embedded browser on the

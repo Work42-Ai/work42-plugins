@@ -56,8 +56,8 @@ Start a session three ways (like the Jira plugin): the **My Linear Issues** widg
 Linear Session*, **New Linear Task** with an issue key or URL, or **New Linear Task** blank —
 the Planner then creates the issue in `default_team`.
 
-The Plan view has three tabs: **Issue** (the issue page, with sub-issues and comments),
-**Spec** (the spec document, with **Approve Plan**) and **Testing Plan**. Review adds the
+The Plan view has three tabs: **Issue Details** (the issue page, with sub-issues and comments),
+**Spec Document** (with **Approve Plan**) and **Testing Plan Document**. Review adds the
 GitHub widget. Approval works from either side: click **Approve Plan**, or move the issue to
 a started state in Linear while the session is still in Planning (only a move *into* started
 counts, so binding an issue that's already in progress never approves anything).

@@ -42,7 +42,7 @@ final class LinearSpecWidget: Work42Widget {
     // MARK: Work42Widget conformance
 
     let id = "linear-spec"
-    let title = "Spec"
+    let title = "Spec Document"
     let icon = "doc.text"
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
@@ -174,7 +174,7 @@ private struct LinearSpecView: View {
                         url: doc.url,
                         selector: "",
                         dataStoreKey: "browser",
-                        title: "Spec",
+                        title: "Spec Document",
                         icon: "doc.text"
                     ),
                     cacheKey: widget.id

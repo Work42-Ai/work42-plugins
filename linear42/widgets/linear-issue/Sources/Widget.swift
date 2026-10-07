@@ -55,7 +55,7 @@ final class LinearIssueWidget: Work42Widget {
     // MARK: Work42Widget conformance
 
     let id = "linear-issue"
-    let title = "Linear"
+    let title = "Issue Details"
     let icon = "list.bullet.rectangle"
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
@@ -213,7 +213,7 @@ private struct LinearIssueMainView: View {
                     selector: "",
                     // Shared cookie store with the regular Browser widget.
                     dataStoreKey: "browser",
-                    title: "Linear",
+                    title: "Issue Details",
                     icon: "list.bullet.rectangle"
                 ),
                 cacheKey: widget.id

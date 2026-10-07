@@ -32,7 +32,7 @@ struct LinearDocRef: Equatable, Sendable {
 final class LinearTestingWidget: Work42Widget {
 
     let id = "linear-testing"
-    let title = "Testing Plan"
+    let title = "Testing Plan Document"
     let icon = "testtube.2"
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
@@ -77,7 +77,7 @@ private struct LinearTestingView: View {
                         url: doc.url,
                         selector: "",
                         dataStoreKey: "browser",
-                        title: "Testing Plan",
+                        title: "Testing Plan Document",
                         icon: "testtube.2"
                     ),
                     cacheKey: widget.id

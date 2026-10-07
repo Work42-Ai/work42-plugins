@@ -144,7 +144,7 @@ sub-issues and testing plan.
 
 ### 6. Approval is a HARD GATE
 
-Do **not** proceed until Yan approves: the green **Approve Plan** button on the Spec tab
+Do **not** proceed until Yan approves: the green **Approve Plan** button on the Spec Document tab
 (enabled once the spec doc and at least one sub-issue exist), **or** moving the issue into a
 started state in Linear while the session is in Planning. Both write `plan/approved_at`.
 **There is no approve command and you never write it.** When it holds, the session gets

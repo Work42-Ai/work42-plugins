@@ -20,7 +20,7 @@ in to Linear once and it persists.
 An action (action area + command palette) that is enabled whenever the page shows a
 Linear issue (`…/issue/WOR-123/…`). It opens a new `linear-task` session named
 `WOR-123: <issue title>` (the bare key if the `linear` CLI can't be reached) and
-seeds that session's `linear/issue_ref` with the key, so its Issue tab loads the
+seeds that session's `linear/issue_ref` with the key, so its Issue Details tab loads the
 issue straight away and the background sync agent resolves it.
 
 If the action is greyed out, open an issue from the list first: the widget reads the

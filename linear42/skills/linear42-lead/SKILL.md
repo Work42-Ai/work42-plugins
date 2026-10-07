@@ -42,7 +42,7 @@ shows them (`work42 storage get plan/subtasks`, every entry with a description);
 process.
 
 **Ask Yan to approve.** The task does not leave Planning until Yan clicks **Approve Plan** on
-the Spec tab (enabled once the spec doc and a sub-issue exist) — or moves the issue into a
+the Spec Document tab (enabled once the spec doc and a sub-issue exist) — or moves the issue into a
 started state in Linear. Approval is human-only; there is no command and you never write it.
 If Yan asks for edits, return to the Planner process (it includes clearing the approval).
 When approval lands, the session receives the In-Progress message: run
