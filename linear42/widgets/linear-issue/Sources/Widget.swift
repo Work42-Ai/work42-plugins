@@ -57,6 +57,8 @@ final class LinearIssueWidget: Work42Widget {
     let id = "linear-issue"
     let title = "Linear"
     let icon = "list.bullet.rectangle"
+    /// The Linear app icon in the + Widget menu, the tab and the header; the symbol above is the fallback.
+    var iconImageData: Data? { linearAppIconPNG }
     var storageNamespace: String? { "linear" }
     var linkIntents: [WidgetLinkIntentSpec] { [] }
 
@@ -300,9 +302,7 @@ private struct LinearAttachForm: View {
 
     var body: some View {
         VStack(spacing: DT.s16) {
-            Image(systemName: "list.bullet.rectangle")
-                .font(.system(size: 32, weight: .light))
-                .foregroundStyle(DT.textTertiary)
+            LinearBrandMark(size: 40)
             Text("No Linear issue")
                 .font(.system(size: DT.f13, weight: .medium))
             Text("Enter an issue key or paste its URL to bind this session. Or leave it unbound and the Planner will create the issue. Sign in to Linear once and the session is kept.")

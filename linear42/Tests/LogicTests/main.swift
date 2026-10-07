@@ -128,6 +128,56 @@ check(parseIssuePayload(Data(#"{"data":{"issue":null}}"#.utf8)) == nil, "null is
 check(parseIssuePayload(Data(#"{"errors":[{"message":"x"}]}"#.utf8)) == nil, "error envelope")
 check(parseIssuePayload(Data("nope".utf8)) == nil, "garbage")
 
+// MARK: - Linear branding (AC31, AC32)
+
+check(validHexColor("#5e6ad2") == "#5e6ad2", "a lower-case hex color is valid")
+check(validHexColor("#F2C94C") == "#F2C94C", "an upper-case hex color is valid")
+check(validHexColor(nil) == nil, "nil has no color")
+check(validHexColor("") == nil, "empty is not a color")
+check(validHexColor("#fff") == nil, "short hex is rejected (the host wants #RRGGBB)")
+check(validHexColor("5e6ad2") == nil, "a missing # is rejected")
+check(validHexColor("#12345g") == nil, "a non-hex digit is rejected")
+check(validHexColor("#5e6ad2ff") == nil, "alpha hex is rejected")
+check(validHexColor(" #5e6ad2") == nil, "surrounding whitespace is rejected")
+
+check(linearIssueQuery.contains("state { name type color }"), "the issue's state color is requested")
+check(linearIssueQuery.contains("states { nodes { name type position color } }"), "every team state's color is requested")
+
+let colorPayloadJSON = #"""
+{"data":{"issue":{"id":"u","identifier":"WOR-6","url":"https://linear.app/x","title":"T",
+"state":{"name":"In Progress","type":"started","color":"#f2c94c"},
+"team":{"key":"WOR","states":{"nodes":[
+ {"name":"Todo","type":"unstarted","position":1,"color":"#e2e2e2"},
+ {"name":"In Progress","type":"started","position":2,"color":"#f2c94c"},
+ {"name":"In Review","type":"started","position":3,"color":"#0f783c"},
+ {"name":"Odd","type":"backlog","position":4,"color":"not-a-color"},
+ {"name":"NoColor","type":"backlog","position":5}]}}}}}
+"""#
+if let cp = parseIssuePayload(Data(colorPayloadJSON.utf8)) {
+    check(cp.stateColor == "#f2c94c", "the issue's state color is decoded")
+    check(cp.states.map(\.color) == ["#e2e2e2", "#f2c94c", "#0f783c", "not-a-color", nil], "team state colors are decoded as sent")
+    check(displayStateColor(for: cp, stateName: "In Progress") == "#f2c94c", "the displayed state's own color")
+    check(displayStateColor(for: cp, stateName: "In Review") == "#0f783c", "a state the agent moved the issue to uses ITS color, not the old one")
+    check(displayStateColor(for: cp, stateName: "Odd") == nil, "an invalid color falls back to neutral")
+    check(displayStateColor(for: cp, stateName: "NoColor") == nil, "a state without a color is neutral")
+    check(displayStateColor(for: cp, stateName: "Nope") == nil, "an unknown state name is neutral")
+} else { check(false, "color payload parses") }
+if let plain = parseIssuePayload(Data(payloadJSON.utf8)) {
+    check(plain.stateColor == nil && plain.states.allSatisfy { $0.color == nil }, "a payload without colors decodes with none")
+    check(displayStateColor(for: plain, stateName: "In Progress") == nil, "no colors means neutral chips")
+}
+
+func pngHeader(_ data: Data?) -> (width: Int, height: Int, colorType: UInt8)? {
+    guard let d = data, d.count > 26, Array(d.prefix(8)) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] else { return nil }
+    func be32(_ at: Int) -> Int { (Int(d[at]) << 24) | (Int(d[at + 1]) << 16) | (Int(d[at + 2]) << 8) | Int(d[at + 3]) }
+    return (be32(16), be32(20), d[25])
+}
+check(pngHeader(linearAppIconPNG).map { $0.width == 64 && $0.height == 64 } == true, "the Linear app icon is a 64x64 PNG")
+check(pngHeader(linearMarkPNG).map { $0.width == 64 && $0.height == 64 } == true, "the Linear mark is a 64x64 PNG")
+check(pngHeader(linearMarkPNG)?.colorType == 6, "the mark carries an alpha channel, so the host can tint it on the brand fill")
+check(linearAppIconPNG != linearMarkPNG, "the app icon and the mark are different images")
+check(linearBrandHex == "#5E6AD2", "Linear's brand purple")
+
 // MARK: - Linear comments relay (AC43/AC44)
 
 check(linearIssueQuery.contains("comments(first: 50)") && linearIssueQuery.contains("quotedText"), "query asks for issue comments incl. the inline quote")

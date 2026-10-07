@@ -44,6 +44,8 @@ final class LinearSpecWidget: Work42Widget {
     let id = "linear-spec"
     let title = "Spec"
     let icon = "doc.text"
+    /// The Linear app icon in the + Widget menu, the tab and the header; the symbol above is the fallback.
+    var iconImageData: Data? { linearAppIconPNG }
     var storageNamespace: String? { "plan" }
     var linkIntents: [WidgetLinkIntentSpec] { [] }
 
@@ -180,6 +182,7 @@ private struct LinearSpecView: View {
                 .id(doc.url.absoluteString)
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {
+                    LinearBrandMark(size: 28)
                     Text("No spec yet")
                         .font(.system(size: DT.f13, weight: .semibold))
                     Text("The Planner creates the spec as a Linear document on the issue. It appears here once it exists; then approve the plan.")

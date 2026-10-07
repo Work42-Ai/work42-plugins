@@ -34,6 +34,8 @@ final class LinearTestingWidget: Work42Widget {
     let id = "linear-testing"
     let title = "Testing Plan"
     let icon = "testtube.2"
+    /// The Linear app icon in the + Widget menu, the tab and the header; the symbol above is the fallback.
+    var iconImageData: Data? { linearAppIconPNG }
     var storageNamespace: String? { "linear" }
     var linkIntents: [WidgetLinkIntentSpec] { [] }
 
@@ -83,6 +85,7 @@ private struct LinearTestingView: View {
                 .id(doc.url.absoluteString)
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {
+                    LinearBrandMark(size: 28)
                     Text("No testing plan yet")
                         .font(.system(size: DT.f13, weight: .semibold))
                     Text("The Planner creates the testing plan as a Linear document on the issue. It appears here automatically.")

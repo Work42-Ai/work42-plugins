@@ -33,6 +33,8 @@ final class LinearMyIssuesWidget: Work42Widget {
     let id = "linear-my-issues"
     let title = "My Linear Issues"
     let icon = "list.bullet.rectangle"
+    /// The Linear app icon in the + Widget menu, the tab and the header; the symbol above is the fallback.
+    var iconImageData: Data? { linearAppIconPNG }
 
     /// A dashboard that starts sessions; not a link destination.
     let linkIntents: [WidgetLinkIntentSpec] = []

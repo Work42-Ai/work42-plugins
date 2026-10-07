@@ -48,6 +48,8 @@ struct LinearState: Equatable, Sendable {
     var name: String
     var type: String      // triage | backlog | unstarted | started | completed | canceled
     var position: Double
+    /// The state's color in Linear (`#RRGGBB`), as sent; check with `validHexColor`.
+    var color: String? = nil
 }
 
 enum StageStateResolution: Equatable, Sendable {
@@ -133,6 +135,8 @@ struct LinearIssuePayload: Equatable, Sendable {
     var title: String
     var stateName: String
     var stateType: String
+    /// The issue's state color in Linear, as sent; check with `validHexColor`.
+    var stateColor: String? = nil
     var teamKey: String
     var states: [LinearState]
     var children: [LinearSubIssue]
@@ -158,8 +162,8 @@ struct LinearComment: Equatable, Sendable {
 let linearIssueQuery = """
 query($id: String!, $spec: String!, $hasSpec: Boolean!, $testing: String!, $hasTesting: Boolean!) { \
 issue(id: $id) { id identifier url title \
-state { name type } \
-team { key states { nodes { name type position } } } \
+state { name type color } \
+team { key states { nodes { name type position color } } } \
 children(first: 100) { nodes { identifier title description state { name type } \
 comments(first: 20) { nodes { id body url createdAt quotedText user { name } children(first: 20) { nodes { id body url createdAt user { name } } } } } } } \
 comments(first: 50) { nodes { id body url createdAt quotedText user { name } children(first: 20) { nodes { id body url createdAt user { name } } } } } } \
@@ -197,7 +201,8 @@ func parseIssuePayload(_ data: Data) -> LinearIssuePayload? {
     let stateNodes = ((team["states"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
     let states = stateNodes.compactMap { node -> LinearState? in
         guard let name = node["name"] as? String, let type = node["type"] as? String else { return nil }
-        return LinearState(name: name, type: type, position: (node["position"] as? Double) ?? 0)
+        return LinearState(name: name, type: type, position: (node["position"] as? Double) ?? 0,
+                           color: node["color"] as? String)
     }
     let childNodes = ((issue["children"] as? [String: Any])?["nodes"] as? [[String: Any]]) ?? []
     let children = childNodes.compactMap { node -> LinearSubIssue? in
@@ -228,8 +233,8 @@ func parseIssuePayload(_ data: Data) -> LinearIssuePayload? {
     let comments = flattenComments(commentNodes)
     return LinearIssuePayload(
         id: id, key: key, url: url, title: (issue["title"] as? String) ?? "",
-        stateName: stateName, stateType: stateType, teamKey: teamKey,
-        states: states, children: children, comments: comments
+        stateName: stateName, stateType: stateType, stateColor: state["color"] as? String,
+        teamKey: teamKey, states: states, children: children, comments: comments
     )
 }
 
@@ -253,6 +258,28 @@ private func flattenComments(_ nodes: [[String: Any]]) -> [LinearComment] {
     }
     nodes.forEach(visit)
     return out.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+}
+
+// MARK: - State colors
+
+/// `value` only when it is exactly `#RRGGBB` (what the host's `brandColorHex` accepts); anything
+/// else (nil, short hex, a missing `#`, alpha, whitespace) is nil, so the chip stays neutral
+/// instead of rendering garbage.
+func validHexColor(_ value: String?) -> String? {
+    guard let value, value.count == 7, value.hasPrefix("#"),
+          value.dropFirst().allSatisfy(\.isHexDigit)
+    else { return nil }
+    return value
+}
+
+/// The color the status chip is filled with: the displayed state's own color from the team's
+/// states (the agent may have just moved the issue, so the issue's own state can be stale), else
+/// the issue's color when it is still in that state; nil means a neutral chip.
+func displayStateColor(for issue: LinearIssuePayload, stateName: String) -> String? {
+    if let color = issue.states.first(where: { $0.name == stateName })?.color {
+        return validHexColor(color)
+    }
+    return stateName == issue.stateName ? validHexColor(issue.stateColor) : nil
 }
 
 // MARK: - Comment relay

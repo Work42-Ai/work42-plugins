@@ -113,7 +113,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         case .notFound:
             await ensure("linear/resolve_error", .string("not_found"), services)
             publish([
-                WidgetHeaderLabel(text: key, systemIcon: "list.bullet.rectangle", groupId: key),
+                brandedKeyChip(key, url: nil),
                 WidgetHeaderLabel(text: "not found", tint: .failure, groupId: key),
             ])
         case .cliMissing:
@@ -317,9 +317,17 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
 
     private func chips(for issue: LinearIssuePayload, stateName: String) -> [WidgetHeaderLabel] {
         let url = URL(string: issue.url)
+        // One segmented pill: the issue key on Linear purple with the Linear mark, joined to the
+        // status filled with that status's own Linear color (neutral when Linear sent none).
         var labels = [
-            WidgetHeaderLabel(text: issue.key, systemIcon: "list.bullet.rectangle", url: url, groupId: issue.key),
-            WidgetHeaderLabel(text: stateName, tint: tint(forStateType: issue.states.first { $0.name == stateName }?.type ?? issue.stateType), url: url, groupId: issue.key),
+            brandedKeyChip(issue.key, url: url),
+            WidgetHeaderLabel(
+                text: stateName,
+                brandColorHex: displayStateColor(for: issue, stateName: stateName),
+                tint: .neutral,
+                url: url,
+                groupId: issue.key
+            ),
         ]
         if !issue.children.isEmpty {
             let done = issue.children.filter(\.done).count
@@ -327,20 +335,24 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
                 text: "\(done)/\(issue.children.count) sub-issues",
                 systemIcon: "checklist",
                 tint: done == issue.children.count ? .success : .neutral,
-                url: url,
-                groupId: issue.key
+                url: url
             ))
         }
         return labels
     }
 
-    private func tint(forStateType type: String) -> WidgetHeaderLabelTint {
-        switch type {
-        case "completed": return .success
-        case "started": return .warning
-        case "canceled": return .failure
-        default: return .neutral
-        }
+    /// The issue key segment: Linear purple fill, white Linear mark (the host tints the monochrome
+    /// mark to contrast with the fill), opening the issue.
+    private func brandedKeyChip(_ key: String, url: URL?) -> WidgetHeaderLabel {
+        WidgetHeaderLabel(
+            text: key,
+            systemIcon: "list.bullet.rectangle",
+            iconImageData: linearMarkPNG,
+            brandColorHex: linearBrandHex,
+            tint: .neutral,
+            url: url,
+            groupId: key
+        )
     }
 
     private func publish(_ labels: [WidgetHeaderLabel]) {
