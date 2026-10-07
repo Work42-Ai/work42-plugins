@@ -2,7 +2,9 @@
 //   linear42/Tests/LogicTests/run.sh
 // Compiles the Foundation-only widget sources together with this file.
 
+import CoreGraphics
 import Foundation
+import ImageIO
 
 nonisolated(unsafe) var failures = 0
 func check(_ cond: @autoclosure () -> Bool, _ what: String, line: Int = #line) {
@@ -172,10 +174,34 @@ func pngHeader(_ data: Data?) -> (width: Int, height: Int, colorType: UInt8)? {
     func be32(_ at: Int) -> Int { (Int(d[at]) << 24) | (Int(d[at + 1]) << 16) | (Int(d[at + 2]) << 8) | Int(d[at + 3]) }
     return (be32(16), be32(20), d[25])
 }
-check(pngHeader(linearAppIconPNG).map { $0.width == 64 && $0.height == 64 } == true, "the Linear app icon is a 64x64 PNG")
+check(pngHeader(linearIconPNG).map { $0.width == 64 && $0.height == 64 } == true, "the Linear icon is a 64x64 PNG")
 check(pngHeader(linearMarkPNG).map { $0.width == 64 && $0.height == 64 } == true, "the Linear mark is a 64x64 PNG")
 check(pngHeader(linearMarkPNG)?.colorType == 6, "the mark carries an alpha channel, so the host can tint it on the brand fill")
-check(linearAppIconPNG != linearMarkPNG, "the app icon and the mark are different images")
+check(linearIconPNG != linearMarkPNG, "the colored icon and the tintable mark are different images")
+
+/// Mean color of the solid pixels (alpha >= 250) and the share of the image they cover.
+func solidPixelStats(_ data: Data?) -> (r: Double, g: Double, b: Double, coverage: Double)? {
+    guard let data, let source = CGImageSourceCreateWithData(data as CFData, nil),
+          let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+    let w = image.width, h = image.height
+    var buffer = [UInt8](repeating: 0, count: w * h * 4)
+    guard let context = CGContext(
+        data: &buffer, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+        space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    context.draw(image, in: CGRect(x: 0, y: 0, width: w, height: h))
+    var count = 0.0, r = 0.0, g = 0.0, b = 0.0
+    for i in stride(from: 0, to: buffer.count, by: 4) where buffer[i + 3] >= 250 {
+        count += 1; r += Double(buffer[i]); g += Double(buffer[i + 1]); b += Double(buffer[i + 2])
+    }
+    guard count > 0 else { return (0, 0, 0, 0) }
+    return (r / count, g / count, b / count, count / Double(w * h))
+}
+if let icon = solidPixelStats(linearIconPNG) {
+    // Linear purple #5E6AD2 = (94, 106, 210): the icon is colored, so it reads on light AND dark UI.
+    check(abs(icon.r - 94) < 8 && abs(icon.g - 106) < 8 && abs(icon.b - 210) < 8, "the icon's visible pixels are Linear purple (got \(Int(icon.r)),\(Int(icon.g)),\(Int(icon.b)))")
+    check(icon.coverage > 0.3, "the icon is a real mark, not a sliver (covers \(Int(icon.coverage * 100))% of the image)")
+} else { check(false, "the Linear icon decodes") }
 check(linearBrandHex == "#5E6AD2", "Linear's brand purple")
 
 // MARK: - Linear comments relay (AC43/AC44)

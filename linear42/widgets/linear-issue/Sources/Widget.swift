@@ -57,8 +57,8 @@ final class LinearIssueWidget: Work42Widget {
     let id = "linear-issue"
     let title = "Linear"
     let icon = "list.bullet.rectangle"
-    /// The Linear app icon in the + Widget menu, the tab and the header; the symbol above is the fallback.
-    var iconImageData: Data? { linearAppIconPNG }
+    /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
+    var iconImageData: Data? { linearIconPNG }
     var storageNamespace: String? { "linear" }
     var linkIntents: [WidgetLinkIntentSpec] { [] }
 
