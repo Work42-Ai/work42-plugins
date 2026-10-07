@@ -60,12 +60,23 @@ final class LinearIssueWidget: Work42Widget {
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
     var storageNamespace: String? { "linear" }
-    var linkIntents: [WidgetLinkIntentSpec] { [] }
+    /// Links to this widget's pages open here (the tab is focused) instead of navigating the page they
+    /// were clicked in. A link to the page already shown only focuses the tab.
+    var linkIntents: [WidgetLinkIntentSpec] {
+        [
+            WidgetLinkIntentSpec(
+                matchers: [.regex(linearIssueLinkPattern)],
+                perform: { [weak self] url in self?.openLink(url) }
+            ),
+        ]
+    }
 
     // MARK: Observed state
 
     var config: Result<Linear42Config, Linear42Config.LoadError> = Linear42Config.load()
     var issueRef: String?
+    /// An issue opened through a link (a different one than the bound issue); nil shows `pageURL`.
+    var openedURL: URL?
     var issue: LinearIssueSnapshot?
     var resolveError: String?
     var cliError: String?
@@ -113,10 +124,14 @@ final class LinearIssueWidget: Work42Widget {
         let resolved = LinearIssueSnapshot(await read("issue"))
         let resolveErr = string(await read("resolve_error"))
         let cliErr = string(await read("cli_error"))
-        if ref != issueRef { issueRef = ref }
+        if ref != issueRef { issueRef = ref; openedURL = nil }
         if resolved != issue { issue = resolved }
         if resolveErr != resolveError { resolveError = resolveErr }
         if cliErr != cliError { cliError = cliErr }
+    }
+
+    func openLink(_ url: URL) {
+        openedURL = linkDestination(url, current: pageURL)
     }
 
     // MARK: Derived
@@ -205,7 +220,7 @@ private struct LinearIssueMainView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if widget.resolveError == "not_found", let ref = widget.issueRef {
             LinearNotFoundView(widget: widget, ref: ref)
-        } else if let url = widget.pageURL {
+        } else if let url = widget.openedURL ?? widget.pageURL {
             BrowserSurface(
                 spec: BrowserSurfaceSpec(
                     url: url,
@@ -218,6 +233,7 @@ private struct LinearIssueMainView: View {
                 ),
                 cacheKey: widget.id
             )
+            .id(url.absoluteString)
         } else {
             LinearAttachForm(widget: widget)
         }

@@ -25,6 +25,31 @@ check(linearIssueKey(from: "WOR-") == nil, "empty number")
 check(linearIssueKey(from: "123-4") == nil, "team must start with a letter")
 check(linearIssueKey(from: "WOR-12a") == nil, "number must be digits")
 
+// MARK: - link patterns (each widget's jurisdiction)
+
+func claims(_ pattern: String, _ url: String) -> Bool {
+    guard let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+    return regex.firstMatch(in: url, range: NSRange(url.startIndex..<url.endIndex, in: url)) != nil
+}
+let issuePage = "https://linear.app/work42/issue/WOR-6/linear-native-task-flow"
+let specDoc = "https://linear.app/work42/document/spec-2838a00c306b"
+let testingDoc = "https://linear.app/work42/document/testing-plan-9f3c1e7a4b2d"
+check(claims(linearIssueLinkPattern, issuePage), "issue page is claimed by Issue Details")
+check(claims(linearIssueLinkPattern, "https://linear.app/work42/issue/wor-7"), "issue key is case-insensitive")
+check(claims(linearIssueLinkPattern, "https://linear.app/work42/issue/WOR-6#comment-1"), "issue URL with fragment")
+check(!claims(linearIssueLinkPattern, specDoc), "a document is not an issue")
+check(!claims(linearIssueLinkPattern, "https://linear.app/work42/team/WOR/all"), "a team page is not an issue")
+check(!claims(linearIssueLinkPattern, "https://example.com/work42/issue/WOR-6"), "other hosts aren't claimed")
+check(claims(linearSpecDocLinkPattern, specDoc), "spec document is claimed by Spec Document")
+check(claims(linearSpecDocLinkPattern, specDoc + "#comment-abc"), "spec document with fragment")
+check(!claims(linearSpecDocLinkPattern, testingDoc), "the testing plan is not the spec")
+check(!claims(linearSpecDocLinkPattern, issuePage), "an issue is not the spec")
+check(claims(linearTestingDocLinkPattern, testingDoc), "testing plan is claimed by Testing Plan Document")
+check(!claims(linearTestingDocLinkPattern, specDoc), "the spec is not the testing plan")
+check(linkDestination(URL(string: specDoc)!, current: URL(string: specDoc)) == nil, "the page already shown needs no navigation")
+check(linkDestination(URL(string: specDoc)!, current: URL(string: testingDoc)) == URL(string: specDoc), "a different page is navigated to")
+check(linkDestination(URL(string: specDoc)!, current: nil) == URL(string: specDoc), "no stored page: navigate")
+
 // MARK: - linearIssueURL
 
 check(linearIssueURL(workspace: "work42", key: "WOR-1") == "https://linear.app/work42/issue/WOR-1", "canonical URL")

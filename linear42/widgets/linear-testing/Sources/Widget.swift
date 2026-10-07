@@ -37,9 +37,20 @@ final class LinearTestingWidget: Work42Widget {
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
     var storageNamespace: String? { "linear" }
-    var linkIntents: [WidgetLinkIntentSpec] { [] }
+    /// Links to this widget's pages open here (the tab is focused) instead of navigating the page they
+    /// were clicked in. A link to the page already shown only focuses the tab.
+    var linkIntents: [WidgetLinkIntentSpec] {
+        [
+            WidgetLinkIntentSpec(
+                matchers: [.regex(linearTestingDocLinkPattern)],
+                perform: { [weak self] url in self?.openLink(url) }
+            ),
+        ]
+    }
 
     var testingDoc: LinearDocRef?
+    /// A document opened through a link (a different page than the stored one); nil shows `testingDoc`.
+    var openedURL: URL?
 
     private var services: SessionServices?
 
@@ -57,11 +68,15 @@ final class LinearTestingWidget: Work42Widget {
         AnyView(LinearTestingView(widget: self))
     }
 
+    func openLink(_ url: URL) {
+        openedURL = linkDestination(url, current: testingDoc?.url)
+    }
+
     /// Assigns only on change so the view never re-renders for an unchanged poll.
     func refresh() async {
         guard let services else { return }
         let doc = LinearDocRef((try? await services.storage.get(namespace: "linear", key: "testing_doc")) ?? nil)
-        if doc != testingDoc { testingDoc = doc }
+        if doc != testingDoc { testingDoc = doc; openedURL = nil }
     }
 }
 
@@ -72,9 +87,10 @@ private struct LinearTestingView: View {
     var body: some View {
         Group {
             if let doc = widget.testingDoc {
+                let shown = widget.openedURL ?? doc.url
                 BrowserSurface(
                     spec: BrowserSurfaceSpec(
-                        url: doc.url,
+                        url: shown,
                         selector: "",
                         dataStoreKey: "browser",
                         title: "Testing Plan Document",
@@ -82,7 +98,7 @@ private struct LinearTestingView: View {
                     ),
                     cacheKey: widget.id
                 )
-                .id(doc.url.absoluteString)
+                .id(shown.absoluteString)
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {
                     LinearBrandMark(size: 28)

@@ -47,7 +47,16 @@ final class LinearSpecWidget: Work42Widget {
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
     var storageNamespace: String? { "plan" }
-    var linkIntents: [WidgetLinkIntentSpec] { [] }
+    /// Links to this widget's pages open here (the tab is focused) instead of navigating the page they
+    /// were clicked in. A link to the page already shown only focuses the tab.
+    var linkIntents: [WidgetLinkIntentSpec] {
+        [
+            WidgetLinkIntentSpec(
+                matchers: [.regex(linearSpecDocLinkPattern)],
+                perform: { [weak self] url in self?.openLink(url) }
+            ),
+        ]
+    }
 
     var intents: [WidgetIntentSpec] {
         [
@@ -78,6 +87,8 @@ final class LinearSpecWidget: Work42Widget {
     // MARK: Observed state
 
     var specDoc: LinearDocRef?
+    /// A document opened through a link (a different Spec page than the stored one); nil shows `specDoc`.
+    var openedURL: URL?
     var hasSubIssues = false
     var isApproved = false
     var isApproving = false
@@ -104,6 +115,10 @@ final class LinearSpecWidget: Work42Widget {
         AnyView(LinearSpecView(widget: self))
     }
 
+    func openLink(_ url: URL) {
+        openedURL = linkDestination(url, current: specDoc?.url)
+    }
+
     // MARK: Storage (assign only on change)
 
     func refresh() async {
@@ -114,7 +129,7 @@ final class LinearSpecWidget: Work42Widget {
             nonEmpty = !rows.isEmpty
         }
         let approved = ((try? await services.storage.get(namespace: "plan", key: "approved_at")) ?? nil) != nil
-        if doc != specDoc { specDoc = doc }
+        if doc != specDoc { specDoc = doc; openedURL = nil }
         if nonEmpty != hasSubIssues { hasSubIssues = nonEmpty }
         if approved != isApproved { isApproved = approved }
     }
@@ -169,9 +184,10 @@ private struct LinearSpecView: View {
                 .background(Color.orange.opacity(0.12))
             }
             if let doc = widget.specDoc {
+                let shown = widget.openedURL ?? doc.url
                 BrowserSurface(
                     spec: BrowserSurfaceSpec(
-                        url: doc.url,
+                        url: shown,
                         selector: "",
                         dataStoreKey: "browser",
                         title: "Spec Document",
@@ -179,7 +195,7 @@ private struct LinearSpecView: View {
                     ),
                     cacheKey: widget.id
                 )
-                .id(doc.url.absoluteString)
+                .id(shown.absoluteString)
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {
                     LinearBrandMark(size: 28)

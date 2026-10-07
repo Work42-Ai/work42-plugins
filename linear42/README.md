@@ -62,6 +62,17 @@ GitHub widget. Approval works from either side: click **Approve Plan**, or move 
 a started state in Linear while the session is still in Planning (only a move *into* started
 counts, so binding an issue that's already in progress never approves anything).
 
+## Links between widgets
+
+Each widget owns the Linear URLs of its kind, with a regex, and handles them itself: a link to an issue
+(`/issue/WOR-6`) belongs to **Issue Details**, `/document/spec-…` to **Spec Document**, and
+`/document/testing-plan-…` to **Testing Plan Document**. Click one in any other browser widget (a spec
+that links to its issue, the issue page linking to the spec) and the owning widget's tab is focused and
+shows the page; the page you clicked in doesn't navigate. This also works for Linear's own in-page
+navigation, because the click is caught inside the page. Option-click navigates in place. Patterns live
+in `Linear42Links.swift`; a link to the page the owning widget already shows only focuses it. A URL no
+widget owns stays where you clicked it.
+
 ## Specs, artifacts and `publish-doc.py`
 
 The Planner writes the spec and testing plan as Linear Documents. Linear renders neither raw HTML

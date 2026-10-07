@@ -19,6 +19,13 @@ for f in Linear42Brand.swift LinearBrandMark.swift; do
     fi
   done
 done
+# The link patterns are in the three widgets that claim links.
+for w in linear-spec linear-testing; do
+  if ! diff -q "$widgets/linear-issue/Sources/Linear42Links.swift" "$widgets/$w/Sources/Linear42Links.swift" >/dev/null 2>&1; then
+    echo "DRIFT: widgets/$w/Sources/Linear42Links.swift is missing or differs from widgets/linear-issue/Sources/Linear42Links.swift"
+    exit 1
+  fi
+done
 echo "shared sources: linear-my-issues copies match linear-issue"
 # The user-facing widget names (the + Widget menu, the tabs, the "Open in ..." link picker). The browser
 # surface's chrome label must match the widget's own title.
@@ -33,5 +40,5 @@ check_title linear-testing "Testing Plan Document" surface
 check_title linear-my-issues "My Linear Issues"
 echo "widget titles: Issue Details / Spec Document / Testing Plan Document / My Linear Issues"
 out="$(mktemp -d)/linear42-logic-tests"
-swiftc -o "$out" "$here/main.swift" "$widgets/linear-issue/Sources/Linear42Config.swift" "$widgets/linear-issue/Sources/Linear42Logic.swift" "$widgets/linear-issue/Sources/Linear42Brand.swift" 2>&1 | grep -v '^$' || true
+swiftc -o "$out" "$here/main.swift" "$widgets/linear-issue/Sources/Linear42Config.swift" "$widgets/linear-issue/Sources/Linear42Logic.swift" "$widgets/linear-issue/Sources/Linear42Brand.swift" "$widgets/linear-issue/Sources/Linear42Links.swift" 2>&1 | grep -v '^$' || true
 "$out"
