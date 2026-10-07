@@ -115,6 +115,78 @@ func shouldApproveFromLinear(
         && hasSubIssues
 }
 
+
+// MARK: - Several issues per session
+
+/// Storage address (`namespace/key`) of one issue's value: `linear/issues/<KEY>/<name>`.
+func issueAddress(_ key: String, _ name: String) -> String { "linear/issues/\(key)/\(name)" }
+
+/// The flat keys that predate multi-issue sessions; each moves under `linear/issues/<KEY>/`.
+let flatIssueKeyNames = ["issue", "spec_doc", "testing_doc", "last_state_type", "pushed_stage"]
+
+/// How to move a single-issue session's flat keys under the bound issue: copy each, write the index,
+/// and only then delete the flat keys, so a failure part-way leaves the old keys readable.
+struct FlatMigrationPlan: Equatable {
+    var copies: [(from: String, to: String)]
+    var keys: [String]
+    var deletes: [String]
+
+    static func == (lhs: FlatMigrationPlan, rhs: FlatMigrationPlan) -> Bool {
+        lhs.keys == rhs.keys && lhs.deletes == rhs.deletes
+            && lhs.copies.map(\.from) == rhs.copies.map(\.from) && lhs.copies.map(\.to) == rhs.copies.map(\.to)
+    }
+}
+
+/// Nil when there is nothing to migrate: the index already exists, no flat key is present, or the flat
+/// `linear/issue` that names the issue is missing (`issueKey` nil).
+func flatMigrationPlan(issueKey: String?, presentFlat: [String], hasIndex: Bool) -> FlatMigrationPlan? {
+    guard !hasIndex, let issueKey else { return nil }
+    let names = flatIssueKeyNames.filter { presentFlat.contains($0) }
+    guard !names.isEmpty else { return nil }
+    return FlatMigrationPlan(
+        copies: names.map { (from: "linear/\($0)", to: issueAddress(issueKey, $0)) },
+        keys: [issueKey],
+        deletes: names.map { "linear/\($0)" }
+    )
+}
+
+/// The attached keys from `linear/issue_keys`: valid keys only, normalised, in stored order.
+func parseKeyList(_ value: Any?) -> [String] {
+    guard let array = value as? [Any] else { return [] }
+    return array.compactMap { ($0 as? String).flatMap(linearIssueKey(from:)) }
+}
+
+func appendingKey(_ keys: [String], _ key: String) -> [String] {
+    keys.contains(key) ? keys : keys + [key]
+}
+
+/// Detaching removes the key, but the last attached issue always stays.
+func removingKey(_ keys: [String], _ key: String) -> [String] {
+    keys.count > 1 ? keys.filter { $0 != key } : keys
+}
+
+/// Every attached issue's sub-issues, in attach order, each sub-issue once (the mirror behind `plan/subtasks`).
+func unionSubIssues(_ perIssue: [(key: String, children: [LinearSubIssue])]) -> [LinearSubIssue] {
+    var seen = Set<String>()
+    return perIssue.flatMap(\.children).filter { seen.insert($0.key).inserted }
+}
+
+/// Plan approval from Linear when ANY attached issue moves into a started state (see `shouldApproveFromLinear`).
+func shouldApproveFromAny(
+    stage: String?,
+    approvedAtPresent: Bool,
+    transitions: [(last: String?, current: String)],
+    hasSpecDoc: Bool,
+    hasSubIssues: Bool
+) -> Bool {
+    transitions.contains {
+        shouldApproveFromLinear(
+            stage: stage, approvedAtPresent: approvedAtPresent, lastStateType: $0.last,
+            currentStateType: $0.current, hasSpecDoc: hasSpecDoc, hasSubIssues: hasSubIssues
+        )
+    }
+}
+
 // MARK: - Issue payload
 
 struct LinearSubIssue: Equatable, Sendable {

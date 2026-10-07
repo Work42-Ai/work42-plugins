@@ -302,6 +302,56 @@ check(parseSessionTypeId(Data(#"{"type_id":""}"#.utf8)) == nil, "parseSessionTyp
 check(parseSessionTypeId(Data("not json".utf8)) == nil, "parseSessionTypeId: invalid JSON is nil")
 check(parseSessionTypeId(Data(#"{"type_id":7}"#.utf8)) == nil, "parseSessionTypeId: wrong type is nil")
 
+// MARK: - several issues per session (AC50-AC53)
+
+check(issueAddress("WOR-6", "spec_doc") == "linear/issues/WOR-6/spec_doc", "per-issue address")
+check(issueAddress("WOR-7", "issue") == "linear/issues/WOR-7/issue", "per-issue address, another issue")
+
+// AC51: flat keys migrate under the bound issue, copy then index then delete.
+let fullFlat = flatMigrationPlan(
+    issueKey: "WOR-6",
+    presentFlat: ["issue", "spec_doc", "testing_doc", "last_state_type", "pushed_stage"],
+    hasIndex: false
+)
+check(fullFlat?.copies.map(\.from) == ["linear/issue", "linear/spec_doc", "linear/testing_doc", "linear/last_state_type", "linear/pushed_stage"], "migration copies every flat key present, in order")
+check(fullFlat?.copies.map(\.to) == ["linear/issues/WOR-6/issue", "linear/issues/WOR-6/spec_doc", "linear/issues/WOR-6/testing_doc", "linear/issues/WOR-6/last_state_type", "linear/issues/WOR-6/pushed_stage"], "migration copies to the per-issue keys")
+check(fullFlat?.keys == ["WOR-6"], "migration writes linear/issue_keys = [KEY]")
+check(fullFlat?.deletes == ["linear/issue", "linear/spec_doc", "linear/testing_doc", "linear/last_state_type", "linear/pushed_stage"], "migration deletes the flat keys it copied")
+let partialFlat = flatMigrationPlan(issueKey: "WOR-6", presentFlat: ["issue", "last_state_type"], hasIndex: false)
+check(partialFlat?.copies.count == 2 && partialFlat?.deletes == ["linear/issue", "linear/last_state_type"], "migration only touches the flat keys present")
+check(flatMigrationPlan(issueKey: "WOR-6", presentFlat: ["issue", "spec_doc"], hasIndex: true) == nil, "no migration once linear/issue_keys exists")
+check(flatMigrationPlan(issueKey: "WOR-6", presentFlat: [], hasIndex: false) == nil, "no migration with no flat keys")
+check(flatMigrationPlan(issueKey: nil, presentFlat: ["spec_doc"], hasIndex: false) == nil, "no migration without a resolved flat issue to name the scope")
+
+// Attached keys.
+check(appendingKey(["WOR-6"], "WOR-7") == ["WOR-6", "WOR-7"], "append a new key last")
+check(appendingKey(["WOR-6", "WOR-7"], "WOR-6") == ["WOR-6", "WOR-7"], "an attached key is not added twice")
+check(parseKeyList(["WOR-6", "wor-7", 3, "bad"] as [Any]) == ["WOR-6", "WOR-7"], "key list keeps valid keys, normalised, in order")
+check(parseKeyList(nil).isEmpty && parseKeyList("WOR-6").isEmpty, "a missing or non-array key list is empty")
+check(removingKey(["WOR-6", "WOR-7"], "WOR-7") == ["WOR-6"], "detach removes the key")
+check(removingKey(["WOR-6"], "WOR-6") == ["WOR-6"], "the last issue cannot be detached")
+
+// AC53: sub-issues of every attached issue, in key order, one row per sub-issue.
+func sub(_ key: String, done: Bool = false) -> LinearSubIssue {
+    LinearSubIssue(key: key, title: key, description: "", stateName: done ? "Done" : "Todo", stateType: done ? "completed" : "unstarted")
+}
+let union = unionSubIssues([("WOR-6", [sub("WOR-8"), sub("WOR-9", done: true)]), ("WOR-7", [sub("WOR-30"), sub("WOR-8")])])
+check(union.map(\.key) == ["WOR-8", "WOR-9", "WOR-30"], "union keeps key order and drops a repeated sub-issue")
+check(unionSubIssues([]).isEmpty, "no issues, no sub-issues")
+
+// AC53: any attached issue moving into started approves.
+check(shouldApproveFromAny(stage: "Planning", approvedAtPresent: false,
+                           transitions: [(last: "started", current: "started"), (last: "unstarted", current: "started")],
+                           hasSpecDoc: true, hasSubIssues: true), "the second issue moving to started approves")
+check(!shouldApproveFromAny(stage: "Planning", approvedAtPresent: false,
+                            transitions: [(last: "started", current: "started"), (last: nil, current: "started")],
+                            hasSpecDoc: true, hasSubIssues: true), "a newly attached issue already started is not an approval")
+check(!shouldApproveFromAny(stage: "In-Progress", approvedAtPresent: false,
+                            transitions: [(last: "unstarted", current: "started")],
+                            hasSpecDoc: true, hasSubIssues: true), "only while Planning")
+check(!shouldApproveFromAny(stage: "Planning", approvedAtPresent: false, transitions: [],
+                            hasSpecDoc: true, hasSubIssues: true), "no issues, no approval")
+
 // MARK: - linearCLIPathPrefix
 
 check(linearCLIPathPrefix.contains("$HOME/.local/bin") && linearCLIPathPrefix.contains("$HOME/.cargo/bin"), "user-level install dirs are on the CLI PATH")

@@ -42,9 +42,11 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     var headerLabels: [WidgetHeaderLabel] = []
 
     private var pollTask: Task<Void, Never>?
-    /// The approval timestamp we already commented on, so a retry after a failed
+    /// Per issue key, the approval timestamp we already commented on, so a retry after a failed
     /// state move doesn't post the comment twice.
-    private var commentedApprovalAt: String?
+    private var commentedApprovalAt: [String: String] = [:]
+    /// Per issue key, the pill last published, kept when a poll for that issue fails transiently.
+    private var lastPills: [String: [WidgetHeaderLabel]] = [:]
     /// This session's type, read once (a session's type never changes). The host runs this
     /// agent in every session where the widget is available, so nothing below runs unless
     /// it is a `linear-task` session.
@@ -98,20 +100,56 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             config = loaded
         }
 
-        let ref: String?
+        await migrateFlatKeys(services)
+
+        var keys: [String]
         do {
-            ref = string(try await services.storage.get(namespace: "linear", key: "issue_ref"))
+            keys = keyList(try await services.storage.get(namespace: "linear", key: "issue_keys"))
         } catch {
             return config.pollSeconds // storage briefly unavailable — keep the last chips
         }
-        guard let ref, let key = linearIssueKey(from: ref) else {
-            publish([]) // unbound session
-            return config.pollSeconds
+        // linear/issue_ref only SEEDS the first issue (the intent arg, the Attach field, My Issues, the
+        // Planner); once issues are attached the list is the truth.
+        if keys.isEmpty {
+            let ref = string(await read("linear", "issue_ref", services))
+            guard let ref, let key = linearIssueKey(from: ref) else {
+                publish([]) // unbound session
+                return config.pollSeconds
+            }
+            switch await fetch(key: key, services: services) {
+            case .ok:
+                keys = [key]
+                await ensure("linear/issue_keys", .array([.string(key)]), services)
+            case let failure:
+                await handleFailure(failure, key: key, services: services)
+                return config.pollSeconds
+            }
         }
 
-        switch await fetch(key: key, services: services) {
-        case .ok(let issue):
-            await apply(issue, config: config, fullSync: fullSync, services: services)
+        var issues: [LinearIssuePayload] = []
+        var complete = true
+        var pills: [[WidgetHeaderLabel]] = []
+        for key in keys {
+            switch await fetch(key: key, services: services) {
+            case .ok(let issue):
+                issues.append(issue)
+            case .transient:
+                complete = false // rate limit / network / undecodable output — keep what we had for this issue
+                if let last = lastPills[key] { pills.append(last) }
+            case let failure:
+                complete = false
+                await handleFailure(failure, key: key, services: services)
+                return config.pollSeconds
+            }
+        }
+        await apply(issues, keys: keys, complete: complete, keptPills: pills, config: config,
+                    fullSync: fullSync, services: services)
+        return config.pollSeconds
+    }
+
+    /// A fetch outcome that is not an issue: shows the warning chip and posts the one-time event.
+    private func handleFailure(_ outcome: FetchOutcome, key: String, services: WidgetBackgroundServices) async {
+        switch outcome {
         case .notFound:
             await ensure("linear/resolve_error", .string("not_found"), services)
             publish([
@@ -128,60 +166,96 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             publish([WidgetHeaderLabel(text: "linear: sign in", systemIcon: "exclamationmark.triangle", tint: .warning)])
             await postEvent("The `linear` CLI isn't signed in. Ask Yan to run `linear auth login` (personal API key).",
                             fingerprint: "linear42-cli-auth", services)
-        case .transient:
-            break // rate limit / network / undecodable output — leave storage and chips as they were
+        case .ok, .transient:
+            break
         }
-        return config.pollSeconds
+    }
+
+    /// AC51: a single-issue session's flat `linear/*` keys move under `linear/issues/<KEY>/`. Copy each,
+    /// write `linear/issue_keys`, then delete the flat keys; any failed write stops with the flat keys intact
+    /// (retried next poll).
+    private func migrateFlatKeys(_ services: WidgetBackgroundServices) async {
+        if await read("linear", "issue_keys", services) != nil { return }
+        var present: [String] = []
+        for name in flatIssueKeyNames where await read("linear", name, services) != nil { present.append(name) }
+        var flatKey: String?
+        if case .object(let issue)? = await read("linear", "issue", services) { flatKey = string(issue["key"]) }
+        guard let plan = flatMigrationPlan(issueKey: flatKey, presentFlat: present, hasIndex: false) else { return }
+        for copy in plan.copies {
+            let from = copy.from.split(separator: "/", maxSplits: 1).map(String.init)
+            guard let value = await read(from[0], from[1], services),
+                  await run("work42 storage set \(shellQuote(copy.to)) \(shellQuote(json(value)))", services)
+            else { return }
+        }
+        guard await run("work42 storage set \(shellQuote("linear/issue_keys")) \(shellQuote(json(.array(plan.keys.map { .string($0) }))))", services)
+        else { return }
+        for address in plan.deletes { _ = await run("work42 storage delete \(shellQuote(address))", services) }
     }
 
     private func apply(
-        _ issue: LinearIssuePayload,
+        _ issues: [LinearIssuePayload],
+        keys: [String],
+        complete: Bool,
+        keptPills: [[WidgetHeaderLabel]],
         config: Linear42Config,
         fullSync: Bool,
         services: WidgetBackgroundServices
     ) async {
+        guard !issues.isEmpty else { return }
         // A good read clears any earlier CLI / resolution problem.
         await ensureAbsent("linear/cli_error", services)
         await ensureAbsent("linear/resolve_error", services)
 
-        // The resolved issue: the widget renders from it. Written in every session type.
-        await ensure("linear/issue", .object([
-            "key": .string(issue.key), "id": .string(issue.id), "url": .string(issue.url),
-            "team": .string(issue.teamKey), "title": .string(issue.title),
-        ]), services)
+        // The resolved issues: the widgets render from them. Written in every session type.
+        for issue in issues {
+            await ensure(issueAddress(issue.key, "issue"), .object([
+                "key": .string(issue.key), "id": .string(issue.id), "url": .string(issue.url),
+                "team": .string(issue.teamKey), "title": .string(issue.title),
+            ]), services)
+        }
 
-        // Outside a linear-task session the issue only DISPLAYS (labels in the header): nothing below
-        // may run, because it would overwrite the session's own plan/subtasks, approve its plan, move the
+        // Outside a linear-task session the issues only DISPLAY (labels in the header): nothing below
+        // may run, because it would overwrite the session's own plan/subtasks, approve its plan, move an
         // issue, or post comments (what an earlier version did to a task42 session).
         guard fullSync else {
-            publish(chips(for: issue, stateName: issue.stateName))
+            publish(chips(for: issues, states: [:], extra: [], kept: keptPills))
             return
         }
 
-        // The sub-issue mirror the Testing gate reads.
-        await ensure("plan/subtasks", .array(issue.children.map { child in
-            .object([
-                "id": .string(child.key), "title": .string(child.title),
-                "description": .string(child.description), "done": .bool(child.done),
-                "state": .string(child.stateName),
-            ])
-        }), services)
+        // The sub-issue mirror the Testing gate reads: every attached issue's sub-issues. Skipped when any
+        // issue failed to load, so a transient error never drops its sub-issues from the list.
+        if complete {
+            let union = unionSubIssues(issues.map { (key: $0.key, children: $0.children) })
+            await ensure("plan/subtasks", .array(union.map { child in
+                .object([
+                    "id": .string(child.key), "title": .string(child.title),
+                    "description": .string(child.description), "done": .bool(child.done),
+                    "state": .string(child.stateName),
+                ])
+            }), services)
+        }
 
-        await relayComments(issue, services)
+        await relayComments(issues.flatMap(\.comments), services)
 
         // Approval read-back (writing plan/approved_at last: the write re-checks the
         // gates and posts the transition nudge once subtasks + approval both exist).
         let stage = stageName(await read("session", "stage", services))
         var approvedAt = string(await read("plan", "approved_at", services))
         var hasSpecDoc = false
-        if case .object? = await read("linear", "spec_doc", services) { hasSpecDoc = true }
-        if shouldApproveFromLinear(
+        var transitions: [(last: String?, current: String)] = []
+        for issue in issues {
+            if case .object? = await read("linear", "issues/\(issue.key)/spec_doc", services) { hasSpecDoc = true }
+            transitions.append((
+                last: string(await read("linear", "issues/\(issue.key)/last_state_type", services)),
+                current: issue.stateType
+            ))
+        }
+        if shouldApproveFromAny(
             stage: stage,
             approvedAtPresent: approvedAt != nil,
-            lastStateType: string(await read("linear", "last_state_type", services)),
-            currentStateType: issue.stateType,
+            transitions: transitions,
             hasSpecDoc: hasSpecDoc,
-            hasSubIssues: !issue.children.isEmpty
+            hasSubIssues: issues.contains { !$0.children.isEmpty }
         ) {
             let now = ISO8601DateFormatter().string(from: Date())
             await ensure("plan/approved_by", .string("linear"), services)
@@ -191,16 +265,22 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             await postEvent("Plan approved in Linear — run `work42 transition \"In-Progress\"`.",
                             fingerprint: "linear42-approved-\(now)", services)
         }
-        await ensure("linear/last_state_type", .string(issue.stateType), services)
+        for issue in issues {
+            await ensure(issueAddress(issue.key, "last_state_type"), .string(issue.stateType), services)
+        }
 
-        var currentState = issue.stateName
+        var states: [String: String] = [:]
         var warnings: [WidgetHeaderLabel] = []
-        await pushStage(stage, issue: issue, config: config, services: services,
-                        currentState: &currentState, warnings: &warnings)
-        await retryApprovalStamp(approvedAt: approvedAt, issue: issue, config: config, services: services,
-                                 currentState: &currentState, warnings: &warnings)
+        for issue in issues {
+            var currentState = issue.stateName
+            await pushStage(stage, issue: issue, config: config, services: services,
+                            currentState: &currentState, warnings: &warnings)
+            states[issue.key] = currentState
+        }
+        await retryApprovalStamps(approvedAt: approvedAt, issues: issues, config: config, services: services,
+                                  states: &states, warnings: &warnings)
 
-        publish(chips(for: issue, stateName: currentState) + warnings)
+        publish(chips(for: issues, states: states, extra: warnings, kept: keptPills))
     }
 
     // MARK: - Stage -> Linear state
@@ -214,17 +294,17 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         warnings: inout [WidgetHeaderLabel]
     ) async {
         guard let stage else { return }
-        let pushed = string(await read("linear", "pushed_stage", services))
+        let pushed = string(await read("linear", "issues/\(issue.key)/pushed_stage", services))
         guard stage != pushed else { return }
         // First sight of a bound issue while Planning: adopt the stage without
         // pushing, so binding an issue that is already in progress never demotes it.
         if pushed == nil && stage == "Planning" {
-            await ensure("linear/pushed_stage", .string(stage), services)
+            await ensure(issueAddress(issue.key, "pushed_stage"), .string(stage), services)
             return
         }
         switch resolveStageState(stage: stage, teamKey: issue.teamKey, states: issue.states, stageStates: config.stageStates) {
         case .skip:
-            await ensure("linear/pushed_stage", .string(stage), services)
+            await ensure(issueAddress(issue.key, "pushed_stage"), .string(stage), services)
         case .missingOverride(let name):
             // No pushed_stage write: retried every poll, and the chip stays until config is fixed.
             warnings.append(WidgetHeaderLabel(text: "no state \"\(name)\"", systemIcon: "exclamationmark.triangle", tint: .warning, groupId: issue.key))
@@ -232,38 +312,59 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
                             fingerprint: "linear42-state-\(stage)", services)
         case .move(let name):
             if name == currentState {
-                await ensure("linear/pushed_stage", .string(stage), services)
+                await ensure(issueAddress(issue.key, "pushed_stage"), .string(stage), services)
             } else if await updateState(issue.key, to: name, services) {
                 currentState = name
-                await ensure("linear/pushed_stage", .string(stage), services)
+                await ensure(issueAddress(issue.key, "pushed_stage"), .string(stage), services)
             }
         }
     }
 
     // MARK: - Approval stamp (Work42 approval -> Linear)
 
-    /// A plan approved in Work42 must show in Linear: a comment linking the spec and the
-    /// issue in its In-Progress-mapped state. The Approve action does this itself; this
-    /// retries it when that failed, or when approval was written directly to storage.
-    private func retryApprovalStamp(
+    /// A plan approved in Work42 must show in Linear: on every attached issue, a comment linking its spec and
+    /// the issue in its In-Progress-mapped state. The Approve action does this itself; this retries it
+    /// when that failed, or when approval was written directly to storage. `linear/approval_stamped` is set
+    /// once every attached issue is stamped.
+    private func retryApprovalStamps(
         approvedAt: String?,
-        issue: LinearIssuePayload,
+        issues: [LinearIssuePayload],
         config: Linear42Config,
         services: WidgetBackgroundServices,
-        currentState: inout String,
+        states: inout [String: String],
         warnings: inout [WidgetHeaderLabel]
     ) async {
         guard let approvedAt else { return }
         if case .bool(true)? = await read("linear", "approval_stamped", services) { return }
 
-        if commentedApprovalAt != approvedAt {
+        var allStamped = true
+        for issue in issues {
+            var currentState = states[issue.key] ?? issue.stateName
+            let stamped = await stamp(approvedAt: approvedAt, issue: issue, config: config, services: services,
+                                      currentState: &currentState, warnings: &warnings)
+            states[issue.key] = currentState
+            if !stamped { allStamped = false }
+        }
+        if allStamped { await ensure("linear/approval_stamped", .bool(true), services) }
+    }
+
+    /// Comment on, and move, one issue. False when it still needs a retry.
+    private func stamp(
+        approvedAt: String,
+        issue: LinearIssuePayload,
+        config: Linear42Config,
+        services: WidgetBackgroundServices,
+        currentState: inout String,
+        warnings: inout [WidgetHeaderLabel]
+    ) async -> Bool {
+        if commentedApprovalAt[issue.key] != approvedAt {
             let approver = string(await read("plan", "approved_by", services)) ?? "Work42"
             var body = "Plan approved in Work42 by \(approver)"
-            if case .object(let doc)? = await read("linear", "spec_doc", services), case .string(let url)? = doc["url"] {
+            if case .object(let doc)? = await read("linear", "issues/\(issue.key)/spec_doc", services), case .string(let url)? = doc["url"] {
                 body += " — spec: \(url)"
             }
-            guard await run("linear issue comment add \(shellQuote(issue.key)) --body \(shellQuote(withWork42Footer(body)))", services) else { return }
-            commentedApprovalAt = approvedAt
+            guard await run("linear issue comment add \(shellQuote(issue.key)) --body \(shellQuote(withWork42Footer(body)))", services) else { return false }
+            commentedApprovalAt[issue.key] = approvedAt
         }
         switch resolveStageState(stage: "In-Progress", teamKey: issue.teamKey, states: issue.states, stageStates: config.stageStates) {
         case .skip:
@@ -272,14 +373,14 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             warnings.append(WidgetHeaderLabel(text: "no state \"\(name)\"", systemIcon: "exclamationmark.triangle", tint: .warning, groupId: issue.key))
             await postEvent("Config pins the \"\(name)\" state for In-Progress, but team \(issue.teamKey) has no such state. Fix stage_states in ~/.config/linear42/config.json.",
                             fingerprint: "linear42-state-In-Progress", services)
-            return
+            return false
         case .move(let name):
             if name != currentState {
-                guard await updateState(issue.key, to: name, services) else { return }
+                guard await updateState(issue.key, to: name, services) else { return false }
                 currentState = name
             }
         }
-        await ensure("linear/approval_stamped", .bool(true), services)
+        return true
     }
 
     // MARK: - System events and the comment relay
@@ -291,17 +392,26 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         await run(eventPostCommand(sessionId: services.sessionId, fingerprint: fingerprint, message: message), services)
     }
 
-    private func documentSlug(_ key: String, _ services: WidgetBackgroundServices) async -> String? {
-        if case .object(let doc)? = await read("linear", key, services) { return string(doc["slug"]) }
+    private func documentSlug(_ issueKey: String, _ name: String, _ services: WidgetBackgroundServices) async -> String? {
+        if case .object(let doc)? = await read("linear", "issues/\(issueKey)/\(name)", services) { return string(doc["slug"]) }
         return nil
+    }
+
+    /// The attached keys from `linear/issue_keys`.
+    private func keyList(_ value: WidgetJSONValue?) -> [String] {
+        guard case .array(let items)? = value else { return [] }
+        return parseKeyList(items.map { item -> Any in
+            if case .string(let s) = item { return s }
+            return NSNull()
+        })
     }
 
     /// Relays comments nobody has seen yet (issue, sub-issues, spec / testing documents) as
     /// system events. The first poll after binding only records what already exists; comments
     /// Work42 itself posted (footer) are never relayed.
-    private func relayComments(_ issue: LinearIssuePayload, _ services: WidgetBackgroundServices) async {
+    private func relayComments(_ allComments: [LinearComment], _ services: WidgetBackgroundServices) async {
         guard case .array(let stored)? = await read("linear", "comments_seen", services) else {
-            await ensure("linear/comments_seen", .array(issue.comments.map { .string($0.id) }), services)
+            await ensure("linear/comments_seen", .array(allComments.map { .string($0.id) }), services)
             return
         }
         var seenList = stored.compactMap { value -> String? in
@@ -310,11 +420,11 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         }
         let seen = Set(seenList)
         var changed = false
-        for comment in issue.comments where !seen.contains(comment.id) && isPostedFromWork42(comment.body) {
+        for comment in allComments where !seen.contains(comment.id) && isPostedFromWork42(comment.body) {
             seenList.append(comment.id)
             changed = true
         }
-        for comment in newComments(issue.comments, seen: seen) {
+        for comment in newComments(allComments, seen: seen) {
             let posted = await postEvent(commentEventText(comment), fingerprint: "linear42-comment-\(comment.id)", services)
             if posted {
                 seenList.append(comment.id)
@@ -328,11 +438,39 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
 
     // MARK: - Chips
 
-    private func chips(for issue: LinearIssuePayload, stateName: String) -> [WidgetHeaderLabel] {
+    /// One segmented pill per attached issue, in attach order (a failed issue keeps its last pill), then one
+    /// sub-issue count for the whole session, then any warnings.
+    private func chips(
+        for issues: [LinearIssuePayload],
+        states: [String: String],
+        extra: [WidgetHeaderLabel],
+        kept: [[WidgetHeaderLabel]]
+    ) -> [WidgetHeaderLabel] {
+        var labels: [WidgetHeaderLabel] = []
+        for issue in issues {
+            let pill = issuePill(issue, stateName: states[issue.key] ?? issue.stateName)
+            lastPills[issue.key] = pill
+            labels += pill
+        }
+        labels += kept.flatMap { $0 }
+        let children = unionSubIssues(issues.map { (key: $0.key, children: $0.children) })
+        if !children.isEmpty {
+            let done = children.filter(\.done).count
+            labels.append(WidgetHeaderLabel(
+                text: "\(done)/\(children.count) sub-issues",
+                systemIcon: "checklist",
+                tint: done == children.count ? .success : .neutral,
+                url: issues.first.flatMap { URL(string: $0.url) }
+            ))
+        }
+        return labels + extra
+    }
+
+    /// One issue's segmented pill: the key on Linear purple with the Linear mark, joined to the status filled
+    /// with that status's own Linear color (neutral when Linear sent none).
+    private func issuePill(_ issue: LinearIssuePayload, stateName: String) -> [WidgetHeaderLabel] {
         let url = URL(string: issue.url)
-        // One segmented pill: the issue key on Linear purple with the Linear mark, joined to the
-        // status filled with that status's own Linear color (neutral when Linear sent none).
-        var labels = [
+        return [
             brandedKeyChip(issue.key, url: url),
             WidgetHeaderLabel(
                 text: stateName,
@@ -342,16 +480,6 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
                 groupId: issue.key
             ),
         ]
-        if !issue.children.isEmpty {
-            let done = issue.children.filter(\.done).count
-            labels.append(WidgetHeaderLabel(
-                text: "\(done)/\(issue.children.count) sub-issues",
-                systemIcon: "checklist",
-                tint: done == issue.children.count ? .success : .neutral,
-                url: url
-            ))
-        }
-        return labels
     }
 
     /// The issue key segment: Linear purple fill, white Linear mark (the host tints the monochrome
@@ -382,8 +510,8 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     private func fetch(key: String, services: WidgetBackgroundServices) async -> FetchOutcome {
         let variables = linearIssueVariablesJSON(
             key: key,
-            specSlug: await documentSlug("spec_doc", services),
-            testingSlug: await documentSlug("testing_doc", services)
+            specSlug: await documentSlug(key, "spec_doc", services),
+            testingSlug: await documentSlug(key, "testing_doc", services)
         )
         let command = "linear api \(shellQuote(linearIssueQuery)) --variables-json \(shellQuote(variables))"
         guard let result = try? await services.shell.run(command: linearCLIPathPrefix + command) else { return .transient }
