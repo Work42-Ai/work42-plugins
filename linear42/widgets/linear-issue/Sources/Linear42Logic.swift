@@ -325,8 +325,17 @@ func eventPostCommand(sessionId: String, fingerprint: String, message: String) -
 /// scope itself. It does nothing unless the session is of this type.
 let linearSessionTypeID = "linear-task"
 
+/// Whether the bound issue may DRIVE the session: mirror its sub-issues into `plan/subtasks`, read
+/// approval back, push the stage to Linear, relay comments. Only `linear-task` sessions.
 func shouldSync(typeId: String?) -> Bool {
     typeId == linearSessionTypeID
+}
+
+/// Whether a bound issue's labels (key, status, sub-issue count) show in the header. Any session whose
+/// type is known: you added the widget and bound the issue there, so you opted in. Unknown (the read
+/// failed, or Home, which has no session) stays idle. Showing writes nothing outside `linear/`.
+func canDisplay(typeId: String?) -> Bool {
+    typeId != nil
 }
 
 /// Reads `type_id` from `work42 session show --session <id> --json`

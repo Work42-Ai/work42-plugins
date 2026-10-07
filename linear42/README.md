@@ -76,10 +76,13 @@ anonymous request for one returns 401).
 
 ## How the sync works (the `linear-issue` widget's background agent)
 
-The agent only works in `linear-task` sessions. The host starts a widget's background agent in
-every session where the widget is *available*, not only where it is placed, so on its first cycle
-the agent reads its session's type (`work42 session show`) and stays idle (no Linear calls, no
-chips, no storage writes) for any other type, including Home.
+The agent drives the session only in `linear-task` sessions. The host starts a widget's background agent in
+every session where the widget is *available*, not only where it is placed, so on its first cycle the agent
+reads its session's type (`work42 session show`). In a `linear-task` session it does everything below. In any
+other known type (a task42 or chat session where you added the widget and bound an issue) it only **shows**
+the labels (issue key, status, sub-issue count) and keeps `linear/issue` current: it never mirrors sub-issues
+into `plan/subtasks`, never approves or moves anything, and never posts comments. With no bound issue, or when
+the type can't be read (Home has no session), it stays idle.
 
 Every poll, one `linear api` GraphQL call feeds: issue resolution; the `plan/subtasks` mirror
 (a sub-issue is `done` only in a `completed` state — canceled doesn't count); approval

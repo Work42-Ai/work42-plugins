@@ -263,6 +263,13 @@ check(shouldSync(typeId: "linear-task"), "shouldSync: linear-task sessions sync"
 check(!shouldSync(typeId: "task"), "shouldSync: a task42 session does not")
 check(!shouldSync(typeId: "chat"), "shouldSync: a chat session does not")
 check(!shouldSync(typeId: nil), "shouldSync: unknown type (read not done or failed) does not")
+// A bound issue's labels show in any session type (you put the widget there); only linear-task sessions
+// let the issue drive the session (subtask mirror, approval, stage push, comments).
+check(canDisplay(typeId: "linear-task"), "canDisplay: linear-task shows labels")
+check(canDisplay(typeId: "task"), "canDisplay: a task42 session with a bound issue still shows labels")
+check(canDisplay(typeId: "chat"), "canDisplay: a chat session with a bound issue shows labels")
+check(!canDisplay(typeId: nil), "canDisplay: unknown type (read failed, Home) stays idle")
+check(shouldSync(typeId: "linear-task") && !shouldSync(typeId: "task") && !shouldSync(typeId: "chat"), "only linear-task sessions are driven by the issue")
 check(parseSessionTypeId(Data(#"{"id":"b0c6","name":"x","stage":"Planning","type_id":"task","workspace_id":"w"}"#.utf8)) == "task", "parseSessionTypeId: reads the real `session show` shape")
 check(parseSessionTypeId(Data(#"{"type_id":"linear-task"}"#.utf8)) == "linear-task", "parseSessionTypeId: linear-task")
 check(parseSessionTypeId(Data("{}".utf8)) == nil, "parseSessionTypeId: missing field is nil")

@@ -77,12 +77,14 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
                 sessionTypeId = parseSessionTypeId(data)
             }
         }
-        // Unknown (read failed — Home has no session row — retried next interval) or any
-        // other session type: no Linear calls, no chips, no storage writes.
-        guard shouldSync(typeId: sessionTypeId) else {
+        // Unknown type (read failed, Home has no session row; retried next interval): no Linear calls, no
+        // chips, no writes. Any known type shows a bound issue's labels; only linear-task sessions are
+        // driven by the issue (see `apply`).
+        guard canDisplay(typeId: sessionTypeId) else {
             publish([])
             return Linear42Config.defaultPollSeconds
         }
+        let fullSync = shouldSync(typeId: sessionTypeId)
 
         let config: Linear42Config
         switch Linear42Config.load() {
@@ -109,7 +111,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
 
         switch await fetch(key: key, services: services) {
         case .ok(let issue):
-            await apply(issue, config: config, services: services)
+            await apply(issue, config: config, fullSync: fullSync, services: services)
         case .notFound:
             await ensure("linear/resolve_error", .string("not_found"), services)
             publish([
@@ -135,17 +137,28 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     private func apply(
         _ issue: LinearIssuePayload,
         config: Linear42Config,
+        fullSync: Bool,
         services: WidgetBackgroundServices
     ) async {
         // A good read clears any earlier CLI / resolution problem.
         await ensureAbsent("linear/cli_error", services)
         await ensureAbsent("linear/resolve_error", services)
 
-        // Resolved issue + the sub-issue mirror the Testing gate reads.
+        // The resolved issue: the widget renders from it. Written in every session type.
         await ensure("linear/issue", .object([
             "key": .string(issue.key), "id": .string(issue.id), "url": .string(issue.url),
             "team": .string(issue.teamKey), "title": .string(issue.title),
         ]), services)
+
+        // Outside a linear-task session the issue only DISPLAYS (labels in the header): nothing below
+        // may run, because it would overwrite the session's own plan/subtasks, approve its plan, move the
+        // issue, or post comments (what an earlier version did to a task42 session).
+        guard fullSync else {
+            publish(chips(for: issue, stateName: issue.stateName))
+            return
+        }
+
+        // The sub-issue mirror the Testing gate reads.
         await ensure("plan/subtasks", .array(issue.children.map { child in
             .object([
                 "id": .string(child.key), "title": .string(child.title),
