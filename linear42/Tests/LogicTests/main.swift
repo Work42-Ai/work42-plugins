@@ -352,6 +352,16 @@ check(!shouldApproveFromAny(stage: "In-Progress", approvedAtPresent: false,
 check(!shouldApproveFromAny(stage: "Planning", approvedAtPresent: false, transitions: [],
                             hasSpecDoc: true, hasSubIssues: true), "no issues, no approval")
 
+// Issue Details tabs (AC54): attached issues first, then temporary ones not attached.
+check(displayedKeys(attached: ["WOR-6", "WOR-7"], temporary: ["WOR-9"]) == ["WOR-6", "WOR-7", "WOR-9"], "attached then temporary")
+check(displayedKeys(attached: ["WOR-6"], temporary: ["WOR-6", "WOR-9", "WOR-9"]) == ["WOR-6", "WOR-9"], "a temporary tab that got attached, or repeated, shows once")
+check(issueLinkAction(key: "WOR-7", attached: ["WOR-6", "WOR-7"], temporary: []) == .select, "an attached issue just selects its tab")
+check(issueLinkAction(key: "WOR-9", attached: ["WOR-6"], temporary: []) == .openTemporary, "an unattached issue opens a temporary tab with the attach question")
+check(issueLinkAction(key: "WOR-9", attached: ["WOR-6"], temporary: ["WOR-9"]) == .openTemporary, "an already-open temporary tab asks again")
+check(canClose(key: "WOR-6", attached: ["WOR-6"]) == .refuse, "the last attached issue's tab cannot be closed")
+check(canClose(key: "WOR-7", attached: ["WOR-6", "WOR-7"]) == .confirmDetach, "closing an attached tab asks first")
+check(canClose(key: "WOR-9", attached: ["WOR-6", "WOR-7"]) == .dropTemporary, "closing a temporary tab needs no confirmation")
+
 // MARK: - linearCLIPathPrefix
 
 check(linearCLIPathPrefix.contains("$HOME/.local/bin") && linearCLIPathPrefix.contains("$HOME/.cargo/bin"), "user-level install dirs are on the CLI PATH")

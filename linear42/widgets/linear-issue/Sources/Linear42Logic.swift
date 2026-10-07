@@ -187,6 +187,29 @@ func shouldApproveFromAny(
     }
 }
 
+/// The tabs Issue Details shows: attached issues in order, then temporary (not attached) ones, each once.
+func displayedKeys(attached: [String], temporary: [String]) -> [String] {
+    var seen = Set<String>()
+    return (attached + temporary).filter { seen.insert($0).inserted }
+}
+
+enum IssueLinkAction: Equatable { case select, openTemporary }
+
+/// What Open Link handing Issue Details an issue URL does: select the tab of an attached issue, else open a
+/// temporary tab and ask whether to attach it.
+func issueLinkAction(key: String, attached: [String], temporary: [String]) -> IssueLinkAction {
+    attached.contains(key) ? .select : .openTemporary
+}
+
+enum TabCloseAction: Equatable { case refuse, confirmDetach, dropTemporary }
+
+/// What closing `key`'s tab does: nothing for the last attached issue, a confirmation for another attached
+/// one, and a plain close for a temporary tab.
+func canClose(key: String, attached: [String]) -> TabCloseAction {
+    guard attached.contains(key) else { return .dropTemporary }
+    return attached.count > 1 ? .confirmDetach : .refuse
+}
+
 // MARK: - Issue payload
 
 struct LinearSubIssue: Equatable, Sendable {
