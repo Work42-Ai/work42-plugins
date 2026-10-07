@@ -19,9 +19,9 @@
 // storage write, re-checks the workflow gates — which is what posts the
 // "In-Progress is now available" nudge when approval arrives from Linear.
 //
-// There is no system-event channel for widgets (the `task42 event` CLI the
-// Jira/GitHub widgets call no longer ships), so problems surface as warning chips
-// in the session header and in the widget instead of events.
+// Problems surface as warning chips AND as system events posted into the session's chat
+// with `work42 event post --fingerprint <fp>` (deduped per session), and new Linear
+// comments (issue, sub-issues, spec / testing documents) are relayed the same way.
 
 import Foundation
 import Observation
@@ -86,8 +86,11 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
 
         let config: Linear42Config
         switch Linear42Config.load() {
-        case .failure:
+        case .failure(let error):
             publish([WidgetHeaderLabel(text: "linear42: not configured", systemIcon: "gearshape", tint: .warning)])
+            await postEvent(
+                "linear42 isn't configured — \(error.message). Ask Yan for the missing value and write it to ~/.config/linear42/config.json.",
+                fingerprint: "linear42-config", services)
             return Linear42Config.defaultPollSeconds
         case .success(let loaded):
             config = loaded
@@ -116,9 +119,13 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         case .cliMissing:
             await ensure("linear/cli_error", .string("missing"), services)
             publish([WidgetHeaderLabel(text: "linear CLI not installed", systemIcon: "exclamationmark.triangle", tint: .warning)])
+            await postEvent("The `linear` CLI isn't installed. Install it (brew install schpet/tap/linear, or the GitHub release into ~/.local/bin), then run `linear auth login`.",
+                            fingerprint: "linear42-cli-missing", services)
         case .cliAuth:
             await ensure("linear/cli_error", .string("auth"), services)
             publish([WidgetHeaderLabel(text: "linear: sign in", systemIcon: "exclamationmark.triangle", tint: .warning)])
+            await postEvent("The `linear` CLI isn't signed in. Ask Yan to run `linear auth login` (personal API key).",
+                            fingerprint: "linear42-cli-auth", services)
         case .transient:
             break // rate limit / network / undecodable output — leave storage and chips as they were
         }
@@ -147,6 +154,8 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             ])
         }), services)
 
+        await relayComments(issue, services)
+
         // Approval read-back (writing plan/approved_at last: the write re-checks the
         // gates and posts the transition nudge once subtasks + approval both exist).
         let stage = stageName(await read("session", "stage", services))
@@ -166,6 +175,8 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             await ensure("linear/approval_stamped", .bool(true), services)
             await ensure("plan/approved_at", .string(now), services)
             approvedAt = now
+            await postEvent("Plan approved in Linear — run `work42 transition \"In-Progress\"`.",
+                            fingerprint: "linear42-approved-\(now)", services)
         }
         await ensure("linear/last_state_type", .string(issue.stateType), services)
 
@@ -204,6 +215,8 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         case .missingOverride(let name):
             // No pushed_stage write: retried every poll, and the chip stays until config is fixed.
             warnings.append(WidgetHeaderLabel(text: "no state \"\(name)\"", systemIcon: "exclamationmark.triangle", tint: .warning, groupId: issue.key))
+            await postEvent("Config pins the \"\(name)\" state for \(stage), but team \(issue.teamKey) has no such state. Fix stage_states in ~/.config/linear42/config.json.",
+                            fingerprint: "linear42-state-\(stage)", services)
         case .move(let name):
             if name == currentState {
                 await ensure("linear/pushed_stage", .string(stage), services)
@@ -236,7 +249,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             if case .object(let doc)? = await read("linear", "spec_doc", services), case .string(let url)? = doc["url"] {
                 body += " — spec: \(url)"
             }
-            guard await run("linear issue comment add \(shellQuote(issue.key)) --body \(shellQuote(body))", services) else { return }
+            guard await run("linear issue comment add \(shellQuote(issue.key)) --body \(shellQuote(withWork42Footer(body)))", services) else { return }
             commentedApprovalAt = approvedAt
         }
         switch resolveStageState(stage: "In-Progress", teamKey: issue.teamKey, states: issue.states, stageStates: config.stageStates) {
@@ -244,6 +257,8 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             break
         case .missingOverride(let name):
             warnings.append(WidgetHeaderLabel(text: "no state \"\(name)\"", systemIcon: "exclamationmark.triangle", tint: .warning, groupId: issue.key))
+            await postEvent("Config pins the \"\(name)\" state for In-Progress, but team \(issue.teamKey) has no such state. Fix stage_states in ~/.config/linear42/config.json.",
+                            fingerprint: "linear42-state-In-Progress", services)
             return
         case .move(let name):
             if name != currentState {
@@ -252,6 +267,50 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             }
         }
         await ensure("linear/approval_stamped", .bool(true), services)
+    }
+
+    // MARK: - System events and the comment relay
+
+    /// Posts a system event into this session's chat, once per fingerprint
+    /// (`work42 event post` dedupes through the session's `events/delivered`).
+    @discardableResult
+    private func postEvent(_ message: String, fingerprint: String, _ services: WidgetBackgroundServices) async -> Bool {
+        await run(eventPostCommand(sessionId: services.sessionId, fingerprint: fingerprint, message: message), services)
+    }
+
+    private func documentSlug(_ key: String, _ services: WidgetBackgroundServices) async -> String? {
+        if case .object(let doc)? = await read("linear", key, services) { return string(doc["slug"]) }
+        return nil
+    }
+
+    /// Relays comments nobody has seen yet (issue, sub-issues, spec / testing documents) as
+    /// system events. The first poll after binding only records what already exists; comments
+    /// Work42 itself posted (footer) are never relayed.
+    private func relayComments(_ issue: LinearIssuePayload, _ services: WidgetBackgroundServices) async {
+        guard case .array(let stored)? = await read("linear", "comments_seen", services) else {
+            await ensure("linear/comments_seen", .array(issue.comments.map { .string($0.id) }), services)
+            return
+        }
+        var seenList = stored.compactMap { value -> String? in
+            if case .string(let id) = value { return id }
+            return nil
+        }
+        let seen = Set(seenList)
+        var changed = false
+        for comment in issue.comments where !seen.contains(comment.id) && isPostedFromWork42(comment.body) {
+            seenList.append(comment.id)
+            changed = true
+        }
+        for comment in newComments(issue.comments, seen: seen) {
+            let posted = await postEvent(commentEventText(comment), fingerprint: "linear42-comment-\(comment.id)", services)
+            if posted {
+                seenList.append(comment.id)
+                changed = true
+            }
+        }
+        guard changed else { return }
+        if seenList.count > 500 { seenList.removeFirst(seenList.count - 500) }
+        await ensure("linear/comments_seen", .array(seenList.map { .string($0) }), services)
     }
 
     // MARK: - Chips
@@ -296,7 +355,11 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     }
 
     private func fetch(key: String, services: WidgetBackgroundServices) async -> FetchOutcome {
-        let variables = json(.object(["id": .string(key)]))
+        let variables = linearIssueVariablesJSON(
+            key: key,
+            specSlug: await documentSlug("spec_doc", services),
+            testingSlug: await documentSlug("testing_doc", services)
+        )
         let command = "linear api \(shellQuote(linearIssueQuery)) --variables-json \(shellQuote(variables))"
         guard let result = try? await services.shell.run(command: linearCLIPathPrefix + command) else { return .transient }
         switch result.exitCode {

@@ -72,7 +72,14 @@ chips, no storage writes) for any other type, including Home.
 Every poll, one `linear api` GraphQL call feeds: issue resolution; the `plan/subtasks` mirror
 (a sub-issue is `done` only in a `completed` state — canceled doesn't count); approval
 read-back; the stage → Linear state push; and a retry of the approval stamp (a comment
-linking the spec, plus the In-Progress state). It is the **only writer to Linear**, which keeps
+linking the spec, plus the In-Progress state). It also **relays Linear comments to the agent**:
+a new comment or reply on the issue, on any of its sub-issues, or inline on the spec / testing
+documents arrives in the session's chat as a system event ("<name> left you a comment on Linear
+<url>", the quoted passage for inline comments, then the comment), through
+`work42 event post --fingerprint …` so a retry never double-posts. The first poll after binding
+only records existing comments, and every comment Work42 itself posts ends with
+`_Posted from Work42_` so it is never relayed back. Config problems, a missing mapped state, a
+missing or signed-out `linear` CLI, and an approval made in Linear are delivered the same way. It is the **only writer to Linear**, which keeps
 the Approve button and the agent from racing. The first poll of a bound session in Planning
 records the stage without pushing, so an in-progress issue is never demoted.
 

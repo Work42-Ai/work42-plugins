@@ -128,6 +128,59 @@ check(parseIssuePayload(Data(#"{"data":{"issue":null}}"#.utf8)) == nil, "null is
 check(parseIssuePayload(Data(#"{"errors":[{"message":"x"}]}"#.utf8)) == nil, "error envelope")
 check(parseIssuePayload(Data("nope".utf8)) == nil, "garbage")
 
+// MARK: - Linear comments relay (AC43/AC44)
+
+check(linearIssueQuery.contains("comments(first: 50)") && linearIssueQuery.contains("quotedText"), "query asks for issue comments incl. the inline quote")
+check(linearIssueQuery.contains("@include(if: $hasSpec)") && linearIssueQuery.contains("@include(if: $hasTesting)"), "document comments are optional via @include")
+check(linearIssueQuery.contains("comments(first: 20)"), "query asks for sub-issue comments")
+
+let varsAll = linearIssueVariablesJSON(key: "WOR-6", specSlug: "2838a00c306b", testingSlug: "aca05b5edd7b")
+let varsObj = (try? JSONSerialization.jsonObject(with: Data(varsAll.utf8))) as? [String: Any] ?? [:]
+check(varsObj["id"] as? String == "WOR-6" && varsObj["spec"] as? String == "2838a00c306b" && varsObj["hasSpec"] as? Bool == true, "variables carry the spec slug")
+check(varsObj["testing"] as? String == "aca05b5edd7b" && varsObj["hasTesting"] as? Bool == true, "variables carry the testing slug")
+let varsNone = (try? JSONSerialization.jsonObject(with: Data(linearIssueVariablesJSON(key: "WOR-6", specSlug: nil, testingSlug: "").utf8))) as? [String: Any] ?? [:]
+check(varsNone["hasSpec"] as? Bool == false && varsNone["hasTesting"] as? Bool == false, "no slug (nil or empty) turns the document lookup off")
+
+let commentsPayloadJSON = #"""
+{"data":{
+"issue":{"id":"uuid-1","identifier":"WOR-6","url":"https://linear.app/work42/issue/WOR-6/x","title":"T",
+ "state":{"name":"Backlog","type":"backlog"},
+ "team":{"key":"WOR","states":{"nodes":[]}},
+ "comments":{"nodes":[
+  {"id":"c2","body":"second on issue","url":"https://linear.app/c2","createdAt":"2026-10-07T02:00:00.000Z","quotedText":null,"user":{"name":"Yan"},
+   "children":{"nodes":[{"id":"c3","body":"a reply","url":"https://linear.app/c3","createdAt":"2026-10-07T02:30:00.000Z","user":{"name":"Sam"}}]}}]},
+ "children":{"nodes":[
+  {"identifier":"WOR-7","title":"a","description":"d","state":{"name":"Done","type":"completed"},
+   "comments":{"nodes":[{"id":"c1","body":"on a sub-issue","url":"https://linear.app/c1","createdAt":"2026-10-07T01:00:00.000Z","user":{"name":"Yan"}}]}}]}},
+"spec":{"comments":{"nodes":[
+  {"id":"c4","body":"inline on spec","url":"https://linear.app/c4","createdAt":"2026-10-07T03:00:00.000Z","quotedText":"THE SYSTEM SHALL","user":{"name":"Yan"},"children":{"nodes":[]}}]}},
+"testing":null}}
+"""#
+if let cp = parseIssuePayload(Data(commentsPayloadJSON.utf8)) {
+    check(cp.comments.map(\.id) == ["c1", "c2", "c3", "c4"], "comments from issue, replies, sub-issues and spec doc, oldest first")
+    check(cp.comments.first { $0.id == "c4" }?.quotedText == "THE SYSTEM SHALL", "inline quote is kept")
+    check(cp.comments.first { $0.id == "c3" }?.author == "Sam", "reply author")
+    check(cp.comments.first { $0.id == "c2" }?.quotedText == nil, "null quote reads as nil")
+} else { check(false, "comments payload parses") }
+if let plain = parseIssuePayload(Data(payloadJSON.utf8)) { check(plain.comments.isEmpty, "a payload without comment fields has none") }
+
+func mk(_ id: String, _ body: String, at t: String = "2026-10-07T00:00:00.000Z", quote: String? = nil) -> LinearComment {
+    LinearComment(id: id, url: "https://linear.app/\(id)", author: "Yan", body: body, quotedText: quote, createdAt: t)
+}
+check(newComments([mk("a", "x"), mk("b", "y")], seen: ["a"]).map(\.id) == ["b"], "seen ids are dropped")
+check(newComments([mk("late", "x", at: "2026-10-07T05:00:00.000Z"), mk("early", "y", at: "2026-10-07T01:00:00.000Z")], seen: []).map(\.id) == ["early", "late"], "oldest first")
+check(newComments([mk("o", "stamp\n\n_Posted from Work42_"), mk("h", "human")], seen: []).map(\.id) == ["h"], "comments Work42 posted are skipped")
+check(newComments([mk("o", "stamp\n\n_Posted from Work42_\n")], seen: []).isEmpty, "footer with trailing newline still counts")
+check(isPostedFromWork42("body\n\n_Posted from Work42_") && !isPostedFromWork42("quoting _Posted from Work42_ mid-text"), "footer must end the comment")
+check(withWork42Footer("hello") == "hello\n\n_Posted from Work42_", "footer appended")
+check(withWork42Footer(withWork42Footer("hello")) == "hello\n\n_Posted from Work42_", "footer is idempotent")
+
+check(commentEventText(mk("c1", "please change this")) == "Yan left you a comment on Linear https://linear.app/c1\n\nplease change this", "event text without a quote")
+check(commentEventText(mk("c4", "fix it", quote: "line one\nline two")) == "Yan left you a comment on Linear https://linear.app/c4\n\n> line one\n> line two\n\nfix it", "event text quotes inline selections")
+check(commentEventText(LinearComment(id: "z", url: "u", author: "", body: "b", quotedText: nil, createdAt: "")) == "Someone left you a comment on Linear u\n\nb", "missing author falls back")
+
+check(eventPostCommand(sessionId: "s-1", fingerprint: "linear42-comment-c1", message: "it's here") == "work42 event post --session 's-1' --fingerprint 'linear42-comment-c1' 'it'\\''s here'", "event command is shell-quoted")
+
 // MARK: - session scoping
 
 check(shouldSync(typeId: "linear-task"), "shouldSync: linear-task sessions sync")

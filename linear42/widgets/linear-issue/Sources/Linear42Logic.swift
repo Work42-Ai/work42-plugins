@@ -136,16 +136,49 @@ struct LinearIssuePayload: Equatable, Sendable {
     var teamKey: String
     var states: [LinearState]
     var children: [LinearSubIssue]
+    /// Every comment and reply on the issue, its sub-issues and its spec / testing documents,
+    /// oldest first (the relay's input).
+    var comments: [LinearComment] = []
 }
 
-/// The GraphQL document the sync agent runs once per poll: the issue, its team's
-/// workflow states, and its sub-issues. `children(first: 100)` is the documented cap.
+/// One Linear comment (or reply). `quotedText` is set for an inline comment on a document.
+struct LinearComment: Equatable, Sendable {
+    var id: String
+    var url: String
+    var author: String
+    var body: String
+    var quotedText: String?
+    var createdAt: String
+}
+
+/// The GraphQL document the sync agent runs once per poll: the issue, its team's workflow
+/// states (with colors), its sub-issues, and every comment the relay needs (issue, sub-issues,
+/// and the spec / testing documents, each optional via `@include`). `children(first: 100)` is
+/// the documented cap.
 let linearIssueQuery = """
-query($id: String!) { issue(id: $id) { id identifier url title \
+query($id: String!, $spec: String!, $hasSpec: Boolean!, $testing: String!, $hasTesting: Boolean!) { \
+issue(id: $id) { id identifier url title \
 state { name type } \
 team { key states { nodes { name type position } } } \
-children(first: 100) { nodes { identifier title description state { name type } } } } }
+children(first: 100) { nodes { identifier title description state { name type } \
+comments(first: 20) { nodes { id body url createdAt quotedText user { name } children(first: 20) { nodes { id body url createdAt user { name } } } } } } } \
+comments(first: 50) { nodes { id body url createdAt quotedText user { name } children(first: 20) { nodes { id body url createdAt user { name } } } } } } \
+spec: document(id: $spec) @include(if: $hasSpec) { comments(first: 50) { nodes { id body url createdAt quotedText user { name } children(first: 20) { nodes { id body url createdAt user { name } } } } } } \
+testing: document(id: $testing) @include(if: $hasTesting) { comments(first: 50) { nodes { id body url createdAt quotedText user { name } children(first: 20) { nodes { id body url createdAt user { name } } } } } } }
 """
+
+/// The `--variables-json` for `linearIssueQuery`. A nil/empty slug turns that document's
+/// lookup off (`@include`) so an absent document is never queried.
+func linearIssueVariablesJSON(key: String, specSlug: String?, testingSlug: String?) -> String {
+    let spec = specSlug ?? ""
+    let testing = testingSlug ?? ""
+    let object: [String: Any] = [
+        "id": key, "spec": spec, "hasSpec": !spec.isEmpty, "testing": testing, "hasTesting": !testing.isEmpty,
+    ]
+    guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
+          let json = String(data: data, encoding: .utf8) else { return "{}" }
+    return json
+}
 
 /// Decodes `{"data":{"issue":{...}}}` as printed by `linear api`. Nil when the
 /// shape isn't what the query asks for (treated as a failed poll by the caller).
@@ -181,11 +214,81 @@ func parseIssuePayload(_ data: Data) -> LinearIssuePayload? {
             stateType: childStateType
         )
     }
+    // Comments: the issue, each sub-issue, and the spec / testing documents (siblings of
+    // `issue` under `data`), with replies flattened in.
+    let dataObject = root["data"] as? [String: Any]
+    var commentNodes: [[String: Any]] = (issue["comments"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+    for node in childNodes {
+        commentNodes += (node["comments"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+    }
+    for alias in ["spec", "testing"] {
+        let doc = dataObject?[alias] as? [String: Any]
+        commentNodes += (doc?["comments"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []
+    }
+    let comments = flattenComments(commentNodes)
     return LinearIssuePayload(
         id: id, key: key, url: url, title: (issue["title"] as? String) ?? "",
         stateName: stateName, stateType: stateType, teamKey: teamKey,
-        states: states, children: children
+        states: states, children: children, comments: comments
     )
+}
+
+private func flattenComments(_ nodes: [[String: Any]]) -> [LinearComment] {
+    var out: [LinearComment] = []
+    var seen = Set<String>()
+    func visit(_ node: [String: Any]) {
+        if let id = node["id"] as? String, !seen.contains(id) {
+            seen.insert(id)
+            let quoted = (node["quotedText"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+            out.append(LinearComment(
+                id: id,
+                url: (node["url"] as? String) ?? "",
+                author: ((node["user"] as? [String: Any])?["name"] as? String) ?? "",
+                body: (node["body"] as? String) ?? "",
+                quotedText: quoted,
+                createdAt: (node["createdAt"] as? String) ?? ""
+            ))
+        }
+        for reply in (node["children"] as? [String: Any])?["nodes"] as? [[String: Any]] ?? [] { visit(reply) }
+    }
+    nodes.forEach(visit)
+    return out.sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+}
+
+// MARK: - Comment relay
+
+/// Everything Work42 posts to Linear ends with this line, so the relay can tell those from a
+/// person's comments (the API key posts as the user, so the author can't).
+let work42CommentFooter = "_Posted from Work42_"
+
+func isPostedFromWork42(_ body: String) -> Bool {
+    body.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(work42CommentFooter)
+}
+
+func withWork42Footer(_ body: String) -> String {
+    isPostedFromWork42(body) ? body : body + "\n\n" + work42CommentFooter
+}
+
+/// Comments not yet relayed and not posted by Work42, oldest first.
+func newComments(_ all: [LinearComment], seen: Set<String>) -> [LinearComment] {
+    all.filter { !seen.contains($0.id) && !isPostedFromWork42($0.body) }
+        .sorted { ($0.createdAt, $0.id) < ($1.createdAt, $1.id) }
+}
+
+/// "<author> left you a comment on Linear <url>", then the quoted selection (inline comments
+/// on a document) as a blockquote, then the comment.
+func commentEventText(_ comment: LinearComment) -> String {
+    let author = comment.author.isEmpty ? "Someone" : comment.author
+    var text = "\(author) left you a comment on Linear \(comment.url)\n\n"
+    if let quoted = comment.quotedText, !quoted.isEmpty {
+        text += quoted.split(separator: "\n", omittingEmptySubsequences: false).map { "> \($0)" }.joined(separator: "\n") + "\n\n"
+    }
+    return text + comment.body
+}
+
+/// The shell line that posts a system event into the session (deduped by fingerprint).
+func eventPostCommand(sessionId: String, fingerprint: String, message: String) -> String {
+    "work42 event post --session \(shellQuote(sessionId)) --fingerprint \(shellQuote(fingerprint)) \(shellQuote(message))"
 }
 
 // MARK: - Session scoping
