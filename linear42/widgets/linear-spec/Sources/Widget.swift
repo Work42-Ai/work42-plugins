@@ -78,6 +78,9 @@ final class LinearSpecWidget: Work42Widget {
                     if isApproved { return "Plan approved" }
                     return "Approve Plan"
                 },
+                onConfirmedTap: { [weak self] services in
+                    await self?.revokeApproval(services: services)
+                },
                 performWithServices: { [weak self] services in
                     await self?.approvePlan(services: services)
                 }
@@ -213,6 +216,20 @@ final class LinearSpecWidget: Work42Widget {
             }
         }
         isApproved = true
+    }
+
+    /// Clears the approval. The sync agent sees `plan/approved_at` gone while the approval is stamped on Linear,
+    /// and posts the revoke comment there.
+    private func revokeApproval(services: SessionServices) async {
+        errorMessage = nil
+        // approved_at first: it is the gate signal.
+        for key in ["approved_at", "approved_by"] {
+            guard let result = try? await services.shell.run(command: "work42 storage delete plan/\(key)"), result.exitCode == 0 else {
+                errorMessage = "Couldn't clear plan/\(key). Is the work42 CLI available?"
+                return
+            }
+        }
+        isApproved = false
     }
 
     private func jsonString(_ value: String) -> String {

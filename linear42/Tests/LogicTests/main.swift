@@ -399,4 +399,11 @@ check(linearCLIPathPrefix.hasSuffix("; "), "chains into the command that follows
 check(shellQuote("a b") == "'a b'", "plain")
 check(shellQuote("it's") == #"'it'\''s'"#, "embedded single quote")
 
+// MARK: - shouldPostRevoke
+
+check(shouldPostRevoke(approvalStamped: true, approvedAt: nil), "stamped and approval gone -> post the revoke")
+check(!shouldPostRevoke(approvalStamped: true, approvedAt: "2026-10-07T12:00:00Z"), "still approved -> nothing to revoke")
+check(!shouldPostRevoke(approvalStamped: false, approvedAt: nil), "never stamped -> no comment to retract")
+check(!shouldPostRevoke(approvalStamped: false, approvedAt: "2026-10-07T12:00:00Z"), "approved, not yet stamped -> the stamp retry handles it")
+
 if failures == 0 { print("linear42 logic tests: all passed") } else { print("linear42 logic tests: \(failures) FAILED"); exit(1) }

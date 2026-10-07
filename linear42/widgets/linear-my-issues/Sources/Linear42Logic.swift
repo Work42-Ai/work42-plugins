@@ -116,6 +116,14 @@ func shouldApproveFromLinear(
 }
 
 
+/// Whether the sync agent should post the "approval revoked" comment: a Work42 approval was stamped on the
+/// issues (`linear/approval_stamped`), and `plan/approved_at` is gone (the user revoked it, or the Planner
+/// reopened the plan). The agent clears the stamp once every comment is posted.
+func shouldPostRevoke(approvalStamped: Bool, approvedAt: String?) -> Bool {
+    approvalStamped && approvedAt == nil
+}
+
+
 // MARK: - Several issues per session
 
 /// Storage address (`namespace/key`) of one issue's value: `linear/issues/<KEY>/<name>`.

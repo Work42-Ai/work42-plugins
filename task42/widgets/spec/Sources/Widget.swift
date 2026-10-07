@@ -53,6 +53,9 @@ final class SpecWidget: Work42Widget {
                     if isApproved { return "Plan approved" }
                     return "Approve Plan"
                 },
+                onConfirmedTap: { [weak self] services in
+                    await self?.revokeApproval(services: services)
+                },
                 performWithServices: { [weak self] services in
                     await self?.approvePlan(services: services)
                 }
@@ -114,6 +117,17 @@ final class SpecWidget: Work42Widget {
         } catch {
             // Non-fatal — the button stays actionable; the palette surfaces
             // the failure from the intent invocation itself.
+        }
+    }
+
+    /// Revoke a prior approval: clears `plan/approved_at` (the gate signal) and `plan/approved_by`.
+    private func revokeApproval(services: SessionServices) async {
+        do {
+            try await services.storage.delete(key: "approved_at")
+            try await services.storage.delete(key: "approved_by")
+            isApproved = false
+        } catch {
+            // Non-fatal — the button stays confirmed; the host surfaces the failure.
         }
     }
 }

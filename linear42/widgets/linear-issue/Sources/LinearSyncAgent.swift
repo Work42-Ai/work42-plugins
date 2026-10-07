@@ -279,6 +279,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         }
         await retryApprovalStamps(approvedAt: approvedAt, issues: issues, config: config, services: services,
                                   states: &states, warnings: &warnings)
+        await postRevokeComments(approvedAt: approvedAt, issues: issues, services: services)
 
         publish(chips(for: issues, states: states, extra: warnings, kept: keptPills))
     }
@@ -346,6 +347,29 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             if !stamped { allStamped = false }
         }
         if allStamped { await ensure("linear/approval_stamped", .bool(true), services) }
+    }
+
+    /// The plan was approved and stamped, and the approval has since been revoked (Work42's "Plan approved"
+    /// button, or the Planner reopening the plan): say so on every attached issue that has a spec, then clear
+    /// the stamp so a later approval stamps again. The issue state is left alone. A failed post retries next poll.
+    private func postRevokeComments(
+        approvedAt: String?,
+        issues: [LinearIssuePayload],
+        services: WidgetBackgroundServices
+    ) async {
+        let stamped: Bool
+        if case .bool(true)? = await read("linear", "approval_stamped", services) { stamped = true } else { stamped = false }
+        guard shouldPostRevoke(approvalStamped: stamped, approvedAt: approvedAt) else { return }
+
+        var allPosted = true
+        for issue in issues {
+            guard case .object? = await read("linear", "issues/\(issue.key)/spec_doc", services) else { continue }
+            let body = "Plan approval revoked in Work42 by \(NSUserName()) — the plan needs approval again"
+            if !(await run("linear issue comment add \(shellQuote(issue.key)) --body \(shellQuote(withWork42Footer(body)))", services)) {
+                allPosted = false
+            }
+        }
+        if allPosted { await ensureAbsent("linear/approval_stamped", services) }
     }
 
     /// Comment on, and move, one issue. False when it still needs a retry.

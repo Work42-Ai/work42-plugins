@@ -162,10 +162,11 @@ yourself** — nothing does it automatically:
 ```bash
 work42 storage delete plan/approved_at
 work42 storage delete plan/approved_by
-work42 storage delete linear/approval_stamped
 ```
 
-(Planning is the only stage that allows `publish-doc.py` and these deletes.) Revise the document
+Leave `linear/approval_stamped` alone: the sync agent sees the approval gone, posts "Plan approval
+revoked in Work42" on each issue that has a spec, then clears the stamp itself. (Planning is the only
+stage that allows `publish-doc.py` and these deletes.) Revise the document
 by running `publish-doc.py` again with `--slug <slug>` and the whole new markdown. Then
 re-request approval.
 
