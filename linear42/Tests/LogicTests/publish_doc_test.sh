@@ -165,13 +165,13 @@ check "the script is directly executable (stage rules match it by name)" "[ -x '
 # 8c. names and icons -------------------------------------------------------------------------
 reset
 python3 "$script" --issue WOR-6 --kind spec --file "$T/plain.md" >/dev/null 2>&1
-check "a spec is titled <KEY> Spec with the 📐 icon" "grep -q 'linear document create .*--title WOR-6 Spec .*--icon 📐' '$LOG'"
+check "a spec is titled <KEY> Spec with the :triangular_ruler: icon" "grep -q 'linear document create .*--title WOR-6 Spec .*--icon :triangular_ruler:' '$LOG'"
 reset
 python3 "$script" --issue WOR-7 --kind testing --file "$T/plain.md" >/dev/null 2>&1
-check "a testing plan is titled <KEY> Testing Plan with the 🧪 icon" "grep -q 'linear document create .*--title WOR-7 Testing Plan .*--icon 🧪' '$LOG'"
+check "a testing plan is titled <KEY> Testing Plan with the :test_tube: icon" "grep -q 'linear document create .*--title WOR-7 Testing Plan .*--icon :test_tube:' '$LOG'"
 reset
 python3 "$script" --issue WOR-6 --kind spec --slug abc123def456 --file "$T/plain.md" >/dev/null 2>&1
-check "updating an old document renames it and sets the icon" "grep -q 'linear document update abc123def456 .*--title WOR-6 Spec .*--icon 📐' '$LOG'"
+check "updating an old document renames it and sets the icon" "grep -q 'linear document update abc123def456 .*--title WOR-6 Spec .*--icon :triangular_ruler:' '$LOG'"
 reset
 python3 "$script" --issue wor-6 --kind spec --file "$T/plain.md" >/dev/null 2>&1
 check "the issue key in the title is upper-cased" "grep -q -- '--title WOR-6 Spec' '$LOG'"

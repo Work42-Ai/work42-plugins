@@ -162,7 +162,8 @@ def rewrite(lines, tokens, session_id, workdir):
     return out
 
 
-KINDS = {"spec": ("Spec", "\U0001F4D0"), "testing": ("Testing Plan", "\U0001F9EA")}
+# Linear takes the icon as an emoji shortcode (the emoji character itself is rejected).
+KINDS = {"spec": ("Spec", ":triangular_ruler:"), "testing": ("Testing Plan", ":test_tube:")}
 
 
 def publish(args, markdown_path):
