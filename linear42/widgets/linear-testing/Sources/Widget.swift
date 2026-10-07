@@ -1,12 +1,12 @@
 // Widget.swift — linear42's Testing Plan widget.
 //
-// Renders the testing plan as the Linear Document the Planner attached to the
-// issue (`linear/testing_doc`), in a BrowserSurface on the user's linear.app
-// login. Read-only: the Planner authors the document with the `linear` CLI.
+// Renders the testing plans as the Linear Documents the Planner attached to the session's issues
+// (`linear/issues/<KEY>/testing_doc`), one tab per document, in a BrowserSurface on the user's linear.app
+// login. Read-only: the Planner authors the documents with `publish-doc.py`.
 //
 // STORAGE (storageNamespace "linear"):
-//   linear/testing_doc — {slug,url}. Written by the Planner after
-//                        `linear document create`.
+//   linear/issue_keys                 — the attached issue keys.
+//   linear/issues/<KEY>/testing_doc   — {slug,url}. Written by the Planner after `publish-doc.py`.
 
 import Foundation
 import Observation
@@ -37,8 +37,8 @@ final class LinearTestingWidget: Work42Widget {
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
     var storageNamespace: String? { "linear" }
-    /// Links to this widget's pages open here (the tab is focused) instead of navigating the page they
-    /// were clicked in. A link to the page already shown only focuses the tab.
+    /// Links to testing plan documents open here (the tab is focused and the document selected) instead of
+    /// navigating the page they were clicked in.
     var linkIntents: [WidgetLinkIntentSpec] {
         [
             WidgetLinkIntentSpec(
@@ -48,9 +48,74 @@ final class LinearTestingWidget: Work42Widget {
         ]
     }
 
-    var testingDoc: LinearDocRef?
-    /// A document opened through a link (a different page than the stored one); nil shows `testingDoc`.
-    var openedURL: URL?
+    /// Documents the attached issues hold (`linear/issues/<KEY>/testing_doc`; an older single-issue session's flat
+    /// `linear/testing_doc` has no key), in issue order.
+    var docs: [(key: String?, url: URL)] = []
+    /// Documents opened through a link that no attached issue holds.
+    var temporary: [URL] = []
+    @ObservationIgnored var browserModel: BrowserWidgetModel?
+    @ObservationIgnored private var tabIDs: [String: UUID] = [:]
+
+    /// One tab per stored document, then the temporary ones.
+    var tabs: [DocumentTab] { documentTabs(stored: docs, temporary: temporary) }
+
+    func stableTabID(for slugID: String) -> UUID {
+        if let existing = tabIDs[slugID] { return existing }
+        let new = UUID()
+        tabIDs[slugID] = new
+        return new
+    }
+
+    func syncTabs() {
+        guard let model = browserModel else { return }
+        model.replaceTabs(tabs.map { tab in
+            BrowserTab(id: stableTabID(for: tab.slugID), url: tab.url,
+                       title: documentTabTitle(emoji: "🧪", kind: "Testing Plan", key: tab.key),
+                       icon: "testtube.2")
+        })
+    }
+
+    /// Open Link handed this widget a document URL: select its tab, or open it in a temporary one.
+    func openLink(_ url: URL) {
+        if !tabs.contains(where: { $0.url == url }) { temporary.append(url) }
+        syncTabs()
+        let slugID = documentSlugID(from: url) ?? url.absoluteString
+        browserModel?.selectTab(stableTabID(for: slugID))
+    }
+
+    /// A tab was closed: a temporary one goes; a stored document's tab comes back (its issue still holds it).
+    func tabClosed(_ tabID: UUID) {
+        if let slugID = tabIDs.first(where: { $0.value == tabID })?.key,
+           let tab = tabs.first(where: { $0.slugID == slugID }), !tab.stored {
+            temporary.removeAll { (documentSlugID(from: $0) ?? $0.absoluteString) == slugID }
+            tabIDs.removeValue(forKey: slugID)
+        }
+        syncTabs()
+    }
+
+    /// Reads the stored documents; assigns only on change so the view never re-renders for an unchanged poll.
+    func refreshDocs(_ services: SessionServices) async {
+        func read(_ key: String) async -> WidgetJSONValue? {
+            (try? await services.storage.get(namespace: "linear", key: key)) ?? nil
+        }
+        var keys: [String] = []
+        if case .array(let items)? = await read("issue_keys") {
+            keys = items.compactMap { item in
+                if case .string(let s) = item { return s }
+                return nil
+            }
+        }
+        var found: [(key: String?, url: URL)] = []
+        for key in keys {
+            if let doc = LinearDocRef(await read("issues/\(key)/testing_doc")) { found.append((key: key, url: doc.url)) }
+        }
+        if keys.isEmpty, let doc = LinearDocRef(await read("testing_doc")) { found.append((key: nil, url: doc.url)) }
+        let changed = found.map(\.url) != docs.map(\.url) || found.map { $0.key ?? "" } != docs.map { $0.key ?? "" }
+        guard changed else { return }
+        docs = found
+        temporary.removeAll { url in found.contains { $0.url == url } }
+        syncTabs()
+    }
 
     private var services: SessionServices?
 
@@ -68,15 +133,9 @@ final class LinearTestingWidget: Work42Widget {
         AnyView(LinearTestingView(widget: self))
     }
 
-    func openLink(_ url: URL) {
-        openedURL = linkDestination(url, current: testingDoc?.url)
-    }
-
-    /// Assigns only on change so the view never re-renders for an unchanged poll.
     func refresh() async {
         guard let services else { return }
-        let doc = LinearDocRef((try? await services.storage.get(namespace: "linear", key: "testing_doc")) ?? nil)
-        if doc != testingDoc { testingDoc = doc; openedURL = nil }
+        await refreshDocs(services)
     }
 }
 
@@ -86,19 +145,26 @@ private struct LinearTestingView: View {
 
     var body: some View {
         Group {
-            if let doc = widget.testingDoc {
-                let shown = widget.openedURL ?? doc.url
+            if let first = widget.tabs.first {
                 BrowserSurface(
                     spec: BrowserSurfaceSpec(
-                        url: shown,
+                        url: first.url,
                         selector: "",
                         dataStoreKey: "browser",
                         title: "Testing Plan Document",
                         icon: "testtube.2"
                     ),
-                    cacheKey: widget.id
+                    cacheKey: widget.id,
+                    configure: { [weak widget] model in
+                        guard let widget else { return }
+                        widget.browserModel = model
+                        widget.syncTabs()
+                        // Documents come from the issues' storage, so + has nothing to add.
+                        model.onNewTab = {}
+                        model.onTabClosed = { [weak widget] tabID in widget?.tabClosed(tabID) }
+                    }
                 )
-                .id(shown.absoluteString)
+                .onChange(of: widget.tabs.map(\.slugID)) { _, _ in widget.syncTabs() }
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {
                     LinearBrandMark(size: 28)

@@ -46,6 +46,20 @@ check(!claims(linearSpecDocLinkPattern, testingDoc), "the testing plan is not th
 check(!claims(linearSpecDocLinkPattern, issuePage), "an issue is not the spec")
 check(claims(linearTestingDocLinkPattern, testingDoc), "testing plan is claimed by Testing Plan Document")
 check(!claims(linearTestingDocLinkPattern, specDoc), "the spec is not the testing plan")
+// Documents are titled "<KEY> Spec" / "<KEY> Testing Plan", so Linear's URL slug carries the key; older
+// documents are plain "Spec" / "Testing plan".
+let keyedSpec = "https://linear.app/work42/document/wor-6-spec-2838a00c306b"
+let keyedTesting = "https://linear.app/work42/document/wor-6-testing-plan-aca05b5edd7b"
+check(claims(linearSpecDocLinkPattern, keyedSpec), "a keyed spec document is claimed by Spec Document")
+check(claims(linearTestingDocLinkPattern, keyedTesting), "a keyed testing plan is claimed by Testing Plan Document")
+check(!claims(linearSpecDocLinkPattern, keyedTesting), "a keyed testing plan is not a spec")
+check(!claims(linearTestingDocLinkPattern, keyedSpec), "a keyed spec is not a testing plan")
+check(!claims(linearSpecDocLinkPattern, "https://linear.app/work42/document/wor-6-spec-notes-2838a00c306b"), "a document merely containing spec- in its title is not a spec")
+check(!claims(linearSpecDocLinkPattern, "https://linear.app/work42/document/roadmap-2838a00c306b"), "an unrelated document is not a spec")
+check(documentSlugID(from: URL(string: keyedSpec)!) == "2838a00c306b", "slug id of a keyed document URL")
+check(documentSlugID(from: URL(string: specDoc + "#comment-abc")!) == "2838a00c306b", "slug id ignores a fragment")
+check(documentSlugID(from: URL(string: issuePage)!) == nil, "an issue URL has no document slug id")
+check(documentSlugID(from: URL(string: "https://linear.app/work42/document/readme")!) == nil, "no hex id, no slug id")
 check(linkDestination(URL(string: specDoc)!, current: URL(string: specDoc)) == nil, "the page already shown needs no navigation")
 check(linkDestination(URL(string: specDoc)!, current: URL(string: testingDoc)) == URL(string: specDoc), "a different page is navigated to")
 check(linkDestination(URL(string: specDoc)!, current: nil) == URL(string: specDoc), "no stored page: navigate")
@@ -361,6 +375,18 @@ check(issueLinkAction(key: "WOR-9", attached: ["WOR-6"], temporary: ["WOR-9"]) =
 check(canClose(key: "WOR-6", attached: ["WOR-6"]) == .refuse, "the last attached issue's tab cannot be closed")
 check(canClose(key: "WOR-7", attached: ["WOR-6", "WOR-7"]) == .confirmDetach, "closing an attached tab asks first")
 check(canClose(key: "WOR-9", attached: ["WOR-6", "WOR-7"]) == .dropTemporary, "closing a temporary tab needs no confirmation")
+
+// Spec Document / Testing Plan Document tabs: one per stored document, then temporary ones not stored.
+let u6 = URL(string: keyedSpec)!
+let u7 = URL(string: "https://linear.app/work42/document/wor-7-spec-0123456789ab")!
+let u9 = URL(string: "https://linear.app/work42/document/wor-9-spec-fedcba987654")!
+let docTabs = documentTabs(stored: [(key: "WOR-6", url: u6), (key: "WOR-7", url: u7)], temporary: [u9])
+check(docTabs.map(\.slugID) == ["2838a00c306b", "0123456789ab", "fedcba987654"], "stored documents in issue order, then temporary")
+check(docTabs.map(\.stored) == [true, true, false], "the temporary one is marked as not stored")
+check(documentTabs(stored: [(key: "WOR-6", url: u6)], temporary: [u6, u9, u9]).map(\.slugID) == ["2838a00c306b", "fedcba987654"], "a temporary document that is stored, or repeated, shows once")
+check(documentTabs(stored: [], temporary: []).isEmpty, "no documents, no tabs")
+check(documentTabTitle(emoji: "📐", kind: "Spec", key: "WOR-6") == "📐 WOR-6 Spec", "keyed tab title")
+check(documentTabTitle(emoji: "🧪", kind: "Testing Plan", key: nil) == "🧪 Testing Plan", "unkeyed (older single-issue) tab title")
 
 // MARK: - linearCLIPathPrefix
 

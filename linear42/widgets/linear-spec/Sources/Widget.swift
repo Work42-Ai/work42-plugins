@@ -1,11 +1,12 @@
 // Widget.swift — linear42's Spec widget.
 //
-// Renders the spec as the Linear Document the Planner attached to the issue
-// (`linear/spec_doc`), in a BrowserSurface on the user's linear.app login, and
-// owns the Approve Plan action — the human gate between Planning and In-Progress.
+// Renders the specs as the Linear Documents the Planner attached to the session's issues
+// (`linear/issues/<KEY>/spec_doc`), one tab per document, in a BrowserSurface on the user's linear.app
+// login, and owns the Approve Plan action — the human gate between Planning and In-Progress.
 //
 // STORAGE (storageNamespace "plan"):
-//   linear/spec_doc   — {slug,url}. Read-only here; written by the Planner.
+//   linear/issue_keys              — the attached issue keys.
+//   linear/issues/<KEY>/spec_doc   — {slug,url}. Read-only here; written by the Planner.
 //   plan/subtasks     — the sub-issue mirror. Read-only here; Approve needs it non-empty.
 //   plan/approved_at  — ISO-8601; written by Approve Plan (the In-Progress gate's signal).
 //   plan/approved_by  — the approver's macOS username; written by Approve Plan.
@@ -47,8 +48,8 @@ final class LinearSpecWidget: Work42Widget {
     /// The Linear logo in the + Widget menu, the tab and the header; the symbol above is the fallback.
     var iconImageData: Data? { linearIconPNG }
     var storageNamespace: String? { "plan" }
-    /// Links to this widget's pages open here (the tab is focused) instead of navigating the page they
-    /// were clicked in. A link to the page already shown only focuses the tab.
+    /// Links to spec documents open here (the tab is focused and the document selected) instead of
+    /// navigating the page they were clicked in.
     var linkIntents: [WidgetLinkIntentSpec] {
         [
             WidgetLinkIntentSpec(
@@ -86,16 +87,82 @@ final class LinearSpecWidget: Work42Widget {
 
     // MARK: Observed state
 
-    var specDoc: LinearDocRef?
-    /// A document opened through a link (a different Spec page than the stored one); nil shows `specDoc`.
-    var openedURL: URL?
+    /// Documents the attached issues hold (`linear/issues/<KEY>/spec_doc`; an older single-issue session's flat
+    /// `linear/spec_doc` has no key), in issue order.
+    var docs: [(key: String?, url: URL)] = []
+    /// Documents opened through a link that no attached issue holds.
+    var temporary: [URL] = []
+    @ObservationIgnored var browserModel: BrowserWidgetModel?
+    @ObservationIgnored private var tabIDs: [String: UUID] = [:]
+
+    /// One tab per stored document, then the temporary ones.
+    var tabs: [DocumentTab] { documentTabs(stored: docs, temporary: temporary) }
+
+    func stableTabID(for slugID: String) -> UUID {
+        if let existing = tabIDs[slugID] { return existing }
+        let new = UUID()
+        tabIDs[slugID] = new
+        return new
+    }
+
+    func syncTabs() {
+        guard let model = browserModel else { return }
+        model.replaceTabs(tabs.map { tab in
+            BrowserTab(id: stableTabID(for: tab.slugID), url: tab.url,
+                       title: documentTabTitle(emoji: "📐", kind: "Spec", key: tab.key),
+                       icon: "doc.text")
+        })
+    }
+
+    /// Open Link handed this widget a document URL: select its tab, or open it in a temporary one.
+    func openLink(_ url: URL) {
+        if !tabs.contains(where: { $0.url == url }) { temporary.append(url) }
+        syncTabs()
+        let slugID = documentSlugID(from: url) ?? url.absoluteString
+        browserModel?.selectTab(stableTabID(for: slugID))
+    }
+
+    /// A tab was closed: a temporary one goes; a stored document's tab comes back (its issue still holds it).
+    func tabClosed(_ tabID: UUID) {
+        if let slugID = tabIDs.first(where: { $0.value == tabID })?.key,
+           let tab = tabs.first(where: { $0.slugID == slugID }), !tab.stored {
+            temporary.removeAll { (documentSlugID(from: $0) ?? $0.absoluteString) == slugID }
+            tabIDs.removeValue(forKey: slugID)
+        }
+        syncTabs()
+    }
+
+    /// Reads the stored documents; assigns only on change so the view never re-renders for an unchanged poll.
+    func refreshDocs(_ services: SessionServices) async {
+        func read(_ key: String) async -> WidgetJSONValue? {
+            (try? await services.storage.get(namespace: "linear", key: key)) ?? nil
+        }
+        var keys: [String] = []
+        if case .array(let items)? = await read("issue_keys") {
+            keys = items.compactMap { item in
+                if case .string(let s) = item { return s }
+                return nil
+            }
+        }
+        var found: [(key: String?, url: URL)] = []
+        for key in keys {
+            if let doc = LinearDocRef(await read("issues/\(key)/spec_doc")) { found.append((key: key, url: doc.url)) }
+        }
+        if keys.isEmpty, let doc = LinearDocRef(await read("spec_doc")) { found.append((key: nil, url: doc.url)) }
+        let changed = found.map(\.url) != docs.map(\.url) || found.map { $0.key ?? "" } != docs.map { $0.key ?? "" }
+        guard changed else { return }
+        docs = found
+        temporary.removeAll { url in found.contains { $0.url == url } }
+        syncTabs()
+    }
+
     var hasSubIssues = false
     var isApproved = false
     var isApproving = false
     var errorMessage: String?
 
-    /// Approve needs a spec doc and at least one sub-issue, and is one-shot.
-    var canApprove: Bool { specDoc != nil && hasSubIssues && !isApproved && !isApproving }
+    /// Approve needs a spec document (on any attached issue) and at least one sub-issue, and is one-shot.
+    var canApprove: Bool { !docs.isEmpty && hasSubIssues && !isApproved && !isApproving }
 
     private var services: SessionServices?
 
@@ -115,21 +182,16 @@ final class LinearSpecWidget: Work42Widget {
         AnyView(LinearSpecView(widget: self))
     }
 
-    func openLink(_ url: URL) {
-        openedURL = linkDestination(url, current: specDoc?.url)
-    }
-
     // MARK: Storage (assign only on change)
 
     func refresh() async {
         guard let services else { return }
-        let doc = LinearDocRef((try? await services.storage.get(namespace: "linear", key: "spec_doc")) ?? nil)
+        await refreshDocs(services)
         var nonEmpty = false
         if case .array(let rows)? = (try? await services.storage.get(namespace: "plan", key: "subtasks")) ?? nil {
             nonEmpty = !rows.isEmpty
         }
         let approved = ((try? await services.storage.get(namespace: "plan", key: "approved_at")) ?? nil) != nil
-        if doc != specDoc { specDoc = doc; openedURL = nil }
         if nonEmpty != hasSubIssues { hasSubIssues = nonEmpty }
         if approved != isApproved { isApproved = approved }
     }
@@ -183,19 +245,26 @@ private struct LinearSpecView: View {
                 .padding(.vertical, DT.s8)
                 .background(Color.orange.opacity(0.12))
             }
-            if let doc = widget.specDoc {
-                let shown = widget.openedURL ?? doc.url
+            if let first = widget.tabs.first {
                 BrowserSurface(
                     spec: BrowserSurfaceSpec(
-                        url: shown,
+                        url: first.url,
                         selector: "",
                         dataStoreKey: "browser",
                         title: "Spec Document",
                         icon: "doc.text"
                     ),
-                    cacheKey: widget.id
+                    cacheKey: widget.id,
+                    configure: { [weak widget] model in
+                        guard let widget else { return }
+                        widget.browserModel = model
+                        widget.syncTabs()
+                        // Documents come from the issues' storage, so + has nothing to add.
+                        model.onNewTab = {}
+                        model.onTabClosed = { [weak widget] tabID in widget?.tabClosed(tabID) }
+                    }
                 )
-                .id(shown.absoluteString)
+                .onChange(of: widget.tabs.map(\.slugID)) { _, _ in widget.syncTabs() }
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {
                     LinearBrandMark(size: 28)
