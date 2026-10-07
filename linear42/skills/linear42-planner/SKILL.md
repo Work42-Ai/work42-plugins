@@ -86,17 +86,23 @@ acceptance criteria in EARS form ("WHEN <trigger>, THE SYSTEM SHALL <response>",
 AC1, AC2…). Reference confirmed artifacts in the Design section with `[[artifact:<id>]]`
 tokens, one per line, so Workers view each before implementing.
 
+Publish it with the helper, never with a bare `linear document create` (the helper turns each
+`[[artifact:<id>]]` token into an uploaded image plus an "Open in Work42" link, because Linear
+can't render the HTML itself; see `linear42-general`). Run it directly and pipe the markdown on
+stdin:
+
 ```bash
-linear document create --issue <KEY> --title "Spec" --content-file - <<'MD'
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "Spec" --file - <<'MD'
 # <task>: <one-line title>
 ## Context
 …
 MD
 ```
 
-The command prints the new document's URL; the slug is the last path segment
-(`https://linear.app/<ws>/document/<slug>`). **Verify before recording it:**
-`linear document view <slug> --json`. Then record it:
+It prints `{"slug","url"}` and exits 1, leaving the document untouched, if any artifact fails to
+render or upload (the Work42 app must be running). **Verify before recording it**, reading the
+document back as stored (not with `document view --raw`, which rewrites image links):
+`linear api 'query{document(id:"<slug>"){content}}'`. Then record it:
 
 ```bash
 work42 storage set linear/spec_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
@@ -127,7 +133,7 @@ four-field entry (`flow`, `variant`, `config`, `covers`) and select/record flows
 `linear42-qa-author`.
 
 ```bash
-linear document create --issue <KEY> --title "Testing plan" --content-file - <<'MD'
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "Testing plan" --file - <<'MD'
 …per-AC verification…
 MD
 work42 storage set linear/testing_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
@@ -155,7 +161,8 @@ work42 storage delete plan/approved_by
 work42 storage delete linear/approval_stamped
 ```
 
-(Planning is the only stage that allows `linear document update` and these deletes.) Then
+(Planning is the only stage that allows `publish-doc.py` and these deletes.) Revise the document
+by running `publish-doc.py` again with `--slug <slug>` and the whole new markdown. Then
 re-request approval.
 
 ## Commands
@@ -164,8 +171,8 @@ re-request approval.
 |---------|------|
 | `linear issue view <KEY>` | Read the bound issue |
 | `linear issue create --team <T> [--parent <KEY>] --title … --description-file -` | Create the issue / a sub-issue |
-| `linear document create --issue <KEY> --title … --content-file -` | Author the spec / testing plan |
-| `linear document view <slug> --json` · `update <slug> --content-file -` | Verify / revise a document |
+| `.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title … --file -` (`--slug <slug>` to revise) | Author / revise the spec / testing plan |
+| `linear api 'query{document(id:"<slug>"){content}}'` | Verify a document as stored (never `document view --raw` into an update) |
 | `work42 storage set linear/issue_ref` · `linear/spec_doc` · `linear/testing_doc` | Record what you created |
 | `work42 storage get plan/subtasks` | Confirm the sub-issue mirror |
 | `work42 artifact set/status/path <id>` | Render and validate artifacts |

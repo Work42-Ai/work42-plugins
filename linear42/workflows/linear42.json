@@ -3530,6 +3530,36 @@
       "kind": "execute",
       "pattern": "linear document update",
       "action": "block"
+    },
+    {
+      "stage": "Planning",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "allow"
+    },
+    {
+      "stage": "In-Progress",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "block"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "block"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "block"
+    },
+    {
+      "stage": "Done",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "block"
     }
   ]
 }

@@ -62,6 +62,18 @@ GitHub widget. Approval works from either side: click **Approve Plan**, or move 
 a started state in Linear while the session is still in Planning (only a move *into* started
 counts, so binding an issue that's already in progress never approves anything).
 
+## Specs, artifacts and `publish-doc.py`
+
+The Planner writes the spec and testing plan as Linear Documents. Linear renders neither raw HTML
+nor iframes, so an artifact (`[[artifact:<id>]]` in the markdown) can't appear in a document as
+such. `skills/linear42-general/publish-doc.py` publishes the markdown and replaces each token with a
+screenshot of the artifact (`work42 artifact snapshot`, uploaded through Linear's file upload) plus
+an **Open in Work42** link, `work42://session/<session id>/artifact/<artifact id>`, which reopens
+the live artifact in the app (also from outside it: Safari, the Linear desktop app). Unchanged
+artifacts aren't uploaded again, and a failed snapshot or upload leaves the document untouched.
+The Work42 app must be running (it hosts the artifact server). The uploaded images need a Linear login to view (an
+anonymous request for one returns 401).
+
 ## How the sync works (the `linear-issue` widget's background agent)
 
 The agent only works in `linear-task` sessions. The host starts a widget's background agent in

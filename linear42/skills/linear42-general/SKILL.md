@@ -66,8 +66,9 @@ Each stage has **block** rules (always refused) and **allow** rules (auto-approv
 any other command either runs or asks Yan to approve, depending on the session's permission
 mode. In **Planning** the Write/Edit tools are blocked, so don't write files: pipe content
 through stdin (`--content-file -` with a quoted heredoc) instead of using temp files. You can
-still create and update issues and documents there. `linear document create/update` is
-**blocked in every other stage** — the spec and testing plan are authored in Planning. In
+still create and update issues and documents there. `linear document create/update` (and
+the `publish-doc.py` helper that wraps them) is **blocked in every other stage** — the spec and
+testing plan are authored in Planning. In
 **In-Progress** you edit code and may create/update issues and comments. **Testing** adds
 `work42 storage set qa/…` and blocks edits. **Human Review** and **Done** are read-only plus
 comments (`gh pr create` and `work42 storage set github/prs` may ask Yan to approve there).
@@ -84,10 +85,44 @@ Install: `brew install schpet/tap/linear`; sign in once: `linear auth login`. Ex
 | `linear issue create --team <T> --title "…" --description-file - [--parent <KEY>] [--state <name\|type>]` | Create an issue or, with `--parent`, a sub-issue |
 | `linear issue update <KEY> --state completed` | Change state (by name or type); how the Worker completes a sub-issue |
 | `linear issue comment add <KEY> --body "…"` / `--body-file -` / `-a <file>` | Comment; `-a` uploads evidence (images render inline) |
-| `linear document create --issue <KEY> --title "…" --content-file -` | Create a document on an issue |
-| `linear document view <slug> --raw` / `--json` | Read a document (slug = last path segment of its URL) |
-| `linear document update <slug> --content-file -` | Replace a document's content (Planning only) |
+| `.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "…" --file - [--slug <slug>]` | Create a document on an issue, or with `--slug` update it. **The only way to write a spec or testing plan** (Planning only); see below |
+| `linear api 'query{document(id:"<slug>"){content}}'` | Read a document back exactly as stored (image URLs intact) |
+| `linear document view <slug> --raw` / `--json` | Read a document to understand it (slug = last path segment of its URL). **Never feed `--raw` output back into an update**: it rewrites image links to local cache paths and would break every image |
 | `linear team list --json` | Teams and their keys |
+
+### Publishing specs and testing plans
+
+Linear renders neither raw HTML nor iframes, so an artifact can't live in a document as such.
+Write the markdown with `[[artifact:<id>]]` tokens (one per line, as the Design section does)
+and publish it through `publish-doc.py`: it renders each artifact to a PNG
+(`work42 artifact snapshot`), uploads it to Linear, and replaces the token with the image plus an
+`[Open in Work42](work42://session/<id>/artifact/<id>)` link back to the live artifact. Run it
+**directly** (it is executable; the stage rules match it by name, not through `python3`), and pipe
+the markdown on stdin because Planning blocks file writes:
+
+```bash
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "Spec" --file - <<'MD'
+# <task>: <title>
+…
+[[artifact:layout]]
+MD
+```
+
+It prints `{"slug","url"}`; record those in `linear/spec_doc` / `linear/testing_doc`. To revise,
+run it again with `--slug <slug>` and the **whole** new markdown (unchanged artifacts are not
+uploaded again). If a snapshot or upload fails it exits 1 and the document is untouched. The
+artifact server is hosted by the Work42 app, so the app must be running. If `linear document
+update` refuses because the document has open comments (it would detach them), tell Yan and wait
+for them to be resolved — **never add `--force` yourself**.
+
+### Comments: the footer, and what reaches you
+
+Every comment you post to Linear (an issue comment, a QA report, a reply) **ends with the line
+`_Posted from Work42_`**. The sync agent relays every other new comment on the issue, its
+sub-issues and the spec / testing documents into this chat as a system event
+(`<name> left you a comment on Linear <url>`, the quoted passage for an inline comment, then the
+comment); the footer is how your own comments are recognized and not echoed back to you. Answer a
+relayed comment in chat first; reply on Linear only when asked, with the footer.
 
 ## Storage keys (`work42 storage get|set|delete|list <ns>/<key>`; values are JSON)
 

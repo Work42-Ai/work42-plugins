@@ -110,10 +110,15 @@ a temp file:
 ```bash
 linear issue comment add <KEY> --body-file - -a <evidence-file> -a <evidence-file> <<'MD'
 # QA Report: …
+
+_Posted from Work42_
 MD
 work42 storage set qa/report "$(jq -nc --arg r '<URL of the comment, or the issue URL if the command prints none>' '$r')"
 work42 storage set qa/verdict '"PASS"'     # or '"FAIL"'
 ```
+
+The report ends with the `_Posted from Work42_` line (see `linear42-general`): the comment relay
+skips comments that carry it, so your own report is not echoed back to you as a new comment.
 
 Write `qa/report` first and `qa/verdict` last. On **PASS** the Human Review gate holds and the
 session receives the "now available" message (the Lead runs the transition). The Linear comment
