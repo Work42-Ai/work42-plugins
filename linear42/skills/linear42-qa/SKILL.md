@@ -19,8 +19,8 @@ for the testing-plan document (nothing runs); **Testing phase (execution)** — 
 ## Inputs (read before anything)
 
 - The spec and testing plan, from Linear:
-  `linear document view "$(work42 storage get linear/spec_doc | jq -r .slug)" --raw` and the
-  same for `linear/testing_doc`. The bound issue: `linear issue view <KEY>`.
+  `linear document view "$(work42 storage get linear/issues/<KEY>/spec_doc | jq -r .slug)" --raw` and the
+  same for `linear/issues/<KEY>/testing_doc`, for each key in `linear/issue_keys`. An issue: `linear issue view <KEY>`.
 - The worktree (run from here) and branch.
 - The project QA guide at `~/.work42/<slug>/qa-guide.md` — Yan-authored. **Read it first. If it
   is missing, say so in chat and stop.**

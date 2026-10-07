@@ -8,9 +8,12 @@ Linear) followed by an "Open in Work42" link that reopens the live artifact in t
     ![artifact:<id>](<uploaded image url>)
     [Open in Work42](work42://session/<session id>/artifact/<id>)
 
-    publish-doc.py --issue WOR-6 --title "Spec" --file spec.md            # create on the issue
-    publish-doc.py --issue WOR-6 --title "Spec" --file spec.md --slug 2838a00c306b   # update
-    publish-doc.py --issue WOR-6 --title "Spec" --file - <<'MD' ... MD    # markdown on stdin
+    publish-doc.py --issue WOR-6 --kind spec --file spec.md            # create "WOR-6 Spec" on the issue
+    publish-doc.py --issue WOR-6 --kind spec --file spec.md --slug 2838a00c306b   # update (renames, sets icon)
+    publish-doc.py --issue WOR-6 --kind testing --file - <<'MD' ... MD   # "WOR-6 Testing Plan", markdown on stdin
+
+The document is titled `<KEY> Spec` (icon 📐) or `<KEY> Testing Plan` (icon 🧪), so documents on different
+issues never look alike in Linear, and Work42's Spec Document / Testing Plan Document widgets recognise them.
 
 Planning blocks file writes, so agents normally pipe the markdown in with `--file -`.
 
@@ -159,12 +162,17 @@ def rewrite(lines, tokens, session_id, workdir):
     return out
 
 
+KINDS = {"spec": ("Spec", "\U0001F4D0"), "testing": ("Testing Plan", "\U0001F9EA")}
+
+
 def publish(args, markdown_path):
+    label, icon = KINDS[args.kind]
+    title = "%s %s" % (args.issue, label)
     if args.slug:
-        command = ["linear", "document", "update", args.slug, "--title", args.title,
+        command = ["linear", "document", "update", args.slug, "--title", title, "--icon", icon,
                    "--content-file", markdown_path]
     else:
-        command = ["linear", "document", "create", "--issue", args.issue, "--title", args.title,
+        command = ["linear", "document", "create", "--issue", args.issue, "--title", title, "--icon", icon,
                    "--content-file", markdown_path]
     result = run(command)
     if result.returncode != 0:
@@ -179,10 +187,12 @@ def publish(args, markdown_path):
 def main(argv):
     parser = argparse.ArgumentParser(description="Publish markdown to a Linear document (artifacts become images).")
     parser.add_argument("--issue", required=True, help="Issue key the document is attached to (e.g. WOR-6).")
-    parser.add_argument("--title", required=True, help="Document title.")
+    parser.add_argument("--kind", required=True, choices=sorted(KINDS),
+                        help="spec -> '<KEY> Spec' (icon 📐), testing -> '<KEY> Testing Plan' (icon 🧪).")
     parser.add_argument("--file", required=True, help="Markdown file to publish, or - for stdin.")
     parser.add_argument("--slug", help="Update this existing document instead of creating one.")
     args = parser.parse_args(argv)
+    args.issue = args.issue.strip().upper()
 
     try:
         if args.file == "-":

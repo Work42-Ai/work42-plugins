@@ -30,15 +30,15 @@ a gate signal that stands for a human decision.
 ### Phase 1 — Planning
 
 Load `linear42-planner` and follow it with rich context: the session id and name; the bound
-issue (`work42 storage get linear/issue_ref`, `linear issue view <KEY>`); findings you have;
+issues (`work42 storage get linear/issue_keys`, `linear issue view <KEY>` for each); findings you have;
 subsystems and files worth reading. It walks you through the understanding loop, binding or
 creating the issue, and authoring the Linear spec document, the sub-issues and (when
 warranted) the testing-plan document.
 
-**Sanity-check the Plan before asking for approval:** `linear/spec_doc` is set and the
+**Sanity-check the Plan before asking for approval:** `linear/issues/<KEY>/spec_doc` is set for an attached issue and the
 document reads back (`linear document view <slug> --raw`); the sub-issues exist and the mirror
 shows them (`work42 storage get plan/subtasks`, every entry with a description); and either
-`linear/testing_doc` is set or you and Yan agreed to skip QA. Fix any gap with the Planner
+`linear/issues/<KEY>/testing_doc` is set or you and Yan agreed to skip QA. Fix any gap with the Planner
 process.
 
 **Ask Yan to approve.** The task does not leave Planning until Yan clicks **Approve Plan** on

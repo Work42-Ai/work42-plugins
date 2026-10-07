@@ -8,16 +8,17 @@ description: |
 
 # Testing Plan Document widget
 
-Shows `linear/testing_doc` (a `{slug,url}` object) in an embedded browser on the
-user's linear.app login. Before the document exists it shows "No testing plan yet".
+Shows the testing-plan documents of the attached issues (`linear/issues/<KEY>/testing_doc`, a `{slug,url}` object),
+one tab per document (`🧪 WOR-6 Testing Plan`), in an embedded browser on the user's linear.app login. Before any
+document exists it shows "No testing plan yet".
 
 The Planner creates it once the spec is settled:
 
 ```bash
-linear document create --issue <KEY> --title "Testing plan" --content-file - <<'MD'
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind testing --file - <<'MD'
 …testing plan markdown…
 MD
-work42 storage set linear/testing_doc '{"slug":"<slug>","url":"<document url>"}'
+work42 storage set linear/issues/<KEY>/testing_doc '{"slug":"<slug>","url":"<document url>"}'
 ```
 
 The widget never writes. There is no separate approval for the testing plan: the single

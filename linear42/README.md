@@ -58,20 +58,43 @@ the Planner then creates the issue in `default_team`.
 
 The Plan view has three tabs: **Issue Details** (the issue page, with sub-issues and comments),
 **Spec Document** (with **Approve Plan**) and **Testing Plan Document**. Review adds the
-GitHub widget. Approval works from either side: click **Approve Plan**, or move the issue to
+GitHub widget. Approval works from either side: click **Approve Plan**, or move an attached issue to
 a started state in Linear while the session is still in Planning (only a move *into* started
-counts, so binding an issue that's already in progress never approves anything).
+counts, so attaching an issue that's already in progress never approves anything).
+
+## Several issues in one session
+
+A session can have more than one Linear issue. Issue Details shows **one tab per attached issue**, the
+header shows **one pill per issue** (key on Linear purple, then its status in its own colour), and
+storage is scoped per issue: `linear/issue_keys` lists the attached keys and each issue keeps
+`linear/issues/<KEY>/{issue,spec_doc,testing_doc,last_state_type,pushed_stage}`. A single-issue session
+from an earlier version is migrated on its first poll (flat `linear/issue`, `linear/spec_doc`… move under
+the issue's key, then the old keys are removed). The agent decides how to plan across the issues: one shared
+plan or one plan per issue.
+
+- **Attach.** A link to an issue that isn't attached (a sub-issue, say) opens in a temporary tab with an
+  "Attach WOR-9 to this session?" bar: **Attach** adds it, **Not now** leaves it as a temporary tab.
+- **Detach.** Closing an attached issue's tab asks first; **Detach** removes it and its sub-issues leave the
+  subtask list. Nothing changes in Linear. The last attached issue can't be detached.
+- **Spec Document / Testing Plan Document** show one tab per document (`📐 WOR-6 Spec`, `🧪 WOR-6 Testing
+  Plan`). **Approve Plan** approves the whole session plan.
+- The sync (below) covers every attached issue: sub-issues of all of them are mirrored into `plan/subtasks`,
+  any of them moving to a started state approves the plan, a stage change moves all of them.
 
 ## Links between widgets
 
-Each widget owns the Linear URLs of its kind, with a regex, and handles them itself: a link to an issue
-(`/issue/WOR-6`) belongs to **Issue Details**, `/document/spec-…` to **Spec Document**, and
-`/document/testing-plan-…` to **Testing Plan Document**. Click one in any other browser widget (a spec
-that links to its issue, the issue page linking to the spec) and the owning widget's tab is focused and
-shows the page; the page you clicked in doesn't navigate. This also works for Linear's own in-page
-navigation, because the click is caught inside the page. Option-click navigates in place. Patterns live
-in `Linear42Links.swift`; a link to the page the owning widget already shows only focuses it. A URL no
-widget owns stays where you clicked it.
+Every link clicked in a browser widget goes to **Open Link**, which picks the best *available* widget for
+the URL (open or not): a regex or scheme match beats the Browser, which opens anything. Each Linear widget owns
+the URLs of its kind: `/issue/<KEY>` is **Issue Details**, a document titled `… Spec` is **Spec Document**,
+`… Testing Plan` is **Testing Plan Document** (patterns in `Linear42Links.swift`; a document of an issue that
+isn't attached opens in a temporary tab). The owning widget is brought forward with the focus ring and shows
+the page, so the page you clicked in doesn't navigate. This also works for Linear's own in-page navigation,
+because the click is caught inside the page. Option-click navigates in place.
+
+| You click in | Nobody owns it | One owner | Two or more |
+| -- | -- | -- | -- |
+| the built-in Browser | stays in the Browser | picker: the owner or *Keep in Browser* | picker: the owners or *Keep in Browser* |
+| a specific widget | the Browser opens it | the owner opens it (no picker) | picker: the owners |
 
 ## Specs, artifacts and `publish-doc.py`
 
@@ -91,13 +114,14 @@ The agent drives the session only in `linear-task` sessions. The host starts a w
 every session where the widget is *available*, not only where it is placed, so on its first cycle the agent
 reads its session's type (`work42 session show`). In a `linear-task` session it does everything below. In any
 other known type (a task42 or chat session where you added the widget and bound an issue) it only **shows**
-the labels (issue key, status, sub-issue count) and keeps `linear/issue` current: it never mirrors sub-issues
-into `plan/subtasks`, never approves or moves anything, and never posts comments. With no bound issue, or when
+the labels (issue key, status, sub-issue count) and keeps `linear/issues/<KEY>/issue` current: it never mirrors
+sub-issues into `plan/subtasks`, never approves or moves anything, and never posts comments. With no attached issue, or when
 the type can't be read (Home has no session), it stays idle.
 
-Every poll, one `linear api` GraphQL call feeds: issue resolution; the `plan/subtasks` mirror
+Every poll, one `linear api` GraphQL call **per attached issue** feeds: issue resolution; the `plan/subtasks` mirror (the
+sub-issues of all attached issues, each once, in attach order; left untouched when any issue failed to load)
 (a sub-issue is `done` only in a `completed` state — canceled doesn't count); approval
-read-back; the stage → Linear state push; and a retry of the approval stamp (a comment
+read-back (any attached issue); the stage → Linear state push; and a retry of the approval stamp (a comment
 linking the spec, plus the In-Progress state). It also **relays Linear comments to the agent**:
 a new comment or reply on the issue, on any of its sub-issues, or inline on the spec / testing
 documents arrives in the session's chat as a system event ("<name> left you a comment on Linear
@@ -116,7 +140,7 @@ linear42/
   plugin.yaml
   workflows/linear42.json          task42's stages/transitions/gates + per-stage rules for the linear CLI
   session-types/linear-task.json   same five tabs as task42; Plan = linear-issue/spec/testing, Review = github + linear-issue
-  intents/new-linear-task.json     "New Linear Task" (optional `issue` arg -> linear/issue_ref)
+  intents/new-linear-task.json     "New Linear Task" (optional `issue` arg -> linear/issue_ref, which seeds the first issue)
   Sources/Plugin.swift             onCreate hook: linked To-Do
   widgets/
     linear-issue/                  issue page, Attach form, notices; the background sync agent + header chips

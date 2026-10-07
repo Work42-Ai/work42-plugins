@@ -10,16 +10,17 @@ description: |
 
 # Spec Document widget
 
-Shows `linear/spec_doc` (a `{slug,url}` object the Planner writes after
-`linear document create --issue <KEY> --title Spec …`) in an embedded browser on the
-user's linear.app login. Before the document exists it shows "No spec yet".
+Shows the spec documents of the attached issues (`linear/issues/<KEY>/spec_doc`, a `{slug,url}` object the Planner
+writes after `publish-doc.py --issue <KEY> --kind spec`), one tab per document (`📐 WOR-6 Spec`), in an embedded
+browser on the user's linear.app login. Before any document exists it shows "No spec yet". A link to a spec
+document that no attached issue holds opens in a temporary tab.
 
 ## Approve Plan
 
 The green **Approve Plan** action (action area + command palette) is the human gate
 between Planning and In-Progress. It is enabled only while **all** hold:
 
-- `linear/spec_doc` is set,
+- a spec document is set on an attached issue (`linear/issues/<KEY>/spec_doc`),
 - `plan/subtasks` (the sub-issue mirror) is non-empty,
 - `plan/approved_at` is not set yet, and an approval isn't already running.
 

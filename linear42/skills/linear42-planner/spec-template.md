@@ -2,8 +2,8 @@
 
 <!--
 This is the canonical linear42 spec scaffold. Copy it, then fill in every
-section with concrete content, and create it as the Linear document "Spec"
-(`linear document create --issue <KEY> --title Spec --content-file -`).
+section with concrete content, and publish it as the Linear document "<KEY> Spec"
+(`publish-doc.py --issue <KEY> --kind spec --file -`).
 Linear does not validate it, so the discipline is yours: keep each H2 heading
 below, in this order — Context, Goals, Acceptance Criteria, Design, Out of
 Scope, Risks & Edge Cases, Open Questions. Write real content — no "TBD"/

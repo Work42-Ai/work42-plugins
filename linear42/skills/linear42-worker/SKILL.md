@@ -26,7 +26,8 @@ stand on its own. The spec is your **wider context**.
 1. **`cd` to the worktree** and confirm you are not in the main checkout.
 2. **Read your sub-issue, then the spec.**
    `linear issue view <SUBKEY>` for the title and description. Then the spec:
-   `SLUG="$(work42 storage get linear/spec_doc | jq -r .slug)"; linear document view "$SLUG" --raw`.
+   `SLUG="$(work42 storage get linear/issues/<KEY>/spec_doc | jq -r .slug)"; linear document view "$SLUG" --raw`
+   (`<KEY>` is the issue your sub-issue belongs to; `work42 storage get linear/issue_keys` lists them).
 3. **View every `[[artifact:<id>]]` in the spec before writing code** — they are confirmed
    visual decisions. `work42 artifact url <id>` / `status <id>`; your implementation must
    match. A missing artifact: say so in chat and pause for Yan — never guess a visual decision.

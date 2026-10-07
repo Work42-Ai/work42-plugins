@@ -15,8 +15,8 @@ through two CLIs: `work42` (session storage, transitions, artifacts) and `linear
 
 | What | Where | Who writes it |
 |------|-------|---------------|
-| The spec | a Linear **Document** attached to the issue (`linear/spec_doc` = `{slug,url}`) | the Planner |
-| The testing plan | a second Linear Document, titled "Testing plan" (`linear/testing_doc`) | the Planner |
+| The spec | a Linear **Document** attached to the issue, titled `<KEY> Spec` with a 📐 icon (`linear/issues/<KEY>/spec_doc` = `{slug,url}`) | the Planner |
+| The testing plan | a second Linear Document, titled `<KEY> Testing Plan` with a 🧪 icon (`linear/issues/<KEY>/testing_doc`) | the Planner |
 | Subtasks | Linear **sub-issues** of the issue (mirrored into `plan/subtasks`) | the Planner creates; the Worker completes in Linear |
 | Approval | `plan/approved_at` / `plan/approved_by` | the **Approve Plan** button, or the sync agent when you move the issue into a started state in Linear |
 | QA report | a Linear **comment** with evidence attached; `qa/report` holds its URL | QA |
@@ -85,7 +85,7 @@ Install: `brew install schpet/tap/linear`; sign in once: `linear auth login`. Ex
 | `linear issue create --team <T> --title "…" --description-file - [--parent <KEY>] [--state <name\|type>]` | Create an issue or, with `--parent`, a sub-issue |
 | `linear issue update <KEY> --state completed` | Change state (by name or type); how the Worker completes a sub-issue |
 | `linear issue comment add <KEY> --body "…"` / `--body-file -` / `-a <file>` | Comment; `-a` uploads evidence (images render inline) |
-| `.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "…" --file - [--slug <slug>]` | Create a document on an issue, or with `--slug` update it. **The only way to write a spec or testing plan** (Planning only); see below |
+| `.claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind spec|testing --file - [--slug <slug>]` | Create a document on an issue, or with `--slug` update it. **The only way to write a spec or testing plan** (Planning only); see below |
 | `linear api 'query{document(id:"<slug>"){content}}'` | Read a document back exactly as stored (image URLs intact) |
 | `linear document view <slug> --raw` / `--json` | Read a document to understand it (slug = last path segment of its URL). **Never feed `--raw` output back into an update**: it rewrites image links to local cache paths and would break every image |
 | `linear team list --json` | Teams and their keys |
@@ -101,14 +101,14 @@ and publish it through `publish-doc.py`: it renders each artifact to a PNG
 the markdown on stdin because Planning blocks file writes:
 
 ```bash
-.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "Spec" --file - <<'MD'
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind spec --file - <<'MD'
 # <task>: <title>
 …
 [[artifact:layout]]
 MD
 ```
 
-It prints `{"slug","url"}`; record those in `linear/spec_doc` / `linear/testing_doc`. To revise,
+It prints `{"slug","url"}`; record those in `linear/issues/<KEY>/spec_doc` / `linear/issues/<KEY>/testing_doc`. The title (`<KEY> Spec`, `<KEY> Testing Plan`) and icon are set for you. To revise,
 run it again with `--slug <slug>` and the **whole** new markdown (unchanged artifacts are not
 uploaded again). If a snapshot or upload fails it exits 1 and the document is untouched. The
 artifact server is hosted by the Work42 app, so the app must be running. If `linear document
@@ -126,9 +126,10 @@ relayed comment in chat first; reply on Linear only when asked, with the footer.
 
 ## Storage keys (`work42 storage get|set|delete|list <ns>/<key>`; values are JSON)
 
-`linear/issue_ref` (string) · `linear/issue` `{key,id,url,team,title}` · `linear/spec_doc`
-and `linear/testing_doc` `{slug,url}` · `linear/last_state_type`, `linear/pushed_stage`,
-`linear/approval_stamped` (sync agent) · `plan/subtasks` (sync agent) · `plan/approved_at`,
+`linear/issue_keys` (JSON array of the attached issue keys; a session can have several) · `linear/issue_ref` (string, seeds
+the first issue) · per issue `linear/issues/<KEY>/issue` `{key,id,url,team,title}`, `.../spec_doc` and
+`.../testing_doc` `{slug,url}`, `.../last_state_type`, `.../pushed_stage` (sync agent) · `linear/approval_stamped`
+(sync agent) · `plan/subtasks` (sync agent) · `plan/approved_at`,
 `plan/approved_by` · `qa/verdict`, `qa/report` · `github/prs`. The widget skills
 (`widget-linear-issue`, `widget-linear-spec`) document each one.
 

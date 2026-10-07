@@ -19,8 +19,9 @@ happens later via `linear42-worker`, and only *after* a human approves the Plan.
 ## What you need before starting
 
 - The session's worktree (`cd` there first) and branch.
-- The bound issue, if any: `work42 storage get linear/issue_ref`. If it is set, read it:
-  `linear issue view <KEY>`. If the session is **unbound**, you will create the issue once
+- The attached issues, if any: `work42 storage get linear/issue_keys` (a JSON array; a session can have
+  several, and you decide how to plan across them: one shared plan or one per issue). Also check
+  `linear/issue_ref`, the seed for the first issue. Read each one: `linear issue view <KEY>`. If the session is **unbound**, you will create the issue once
   you understand the task (see *Bind or create the issue*).
 - Config: `jq . ~/.config/linear42/config.json` (workspace, `default_team`). If it is
   missing or incomplete, stop and ask Yan — never guess a team.
@@ -59,7 +60,7 @@ them with the **`work42-artifact`** skill (`work42 artifact set <id>`, then `sta
 
 ### 4. Bind or create the issue
 
-If `linear/issue_ref` is unset, create the issue in the configured team and bind it:
+If neither `linear/issue_keys` nor `linear/issue_ref` is set, create the issue in the configured team and bind it:
 
 ```bash
 TEAM="$(jq -r .default_team ~/.config/linear42/config.json)"
@@ -70,8 +71,11 @@ MD
 work42 storage set linear/issue_ref '"<KEY>"'
 ```
 
-Within one poll the sync agent resolves it into `linear/issue`. Wait for that (poll
-`work42 storage get linear/issue`) before creating documents, so the issue exists for sure.
+Within one poll the sync agent resolves it into `linear/issues/<KEY>/issue` and writes `linear/issue_keys`.
+Wait for that (poll `work42 storage get linear/issues/<KEY>/issue`) before creating documents, so the issue
+exists for sure. To attach another issue to the session, append its key to `linear/issue_keys` (read the array,
+add the key, write the whole array back); to start from the issue the user wants, never overwrite
+`linear/issue_ref` once `linear/issue_keys` exists.
 
 ### 5. Author the Plan in Linear
 
@@ -92,7 +96,7 @@ can't render the HTML itself; see `linear42-general`). Run it directly and pipe 
 stdin:
 
 ```bash
-.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "Spec" --file - <<'MD'
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind spec --file - <<'MD'
 # <task>: <one-line title>
 ## Context
 …
@@ -105,7 +109,7 @@ document back as stored (not with `document view --raw`, which rewrites image li
 `linear api 'query{document(id:"<slug>"){content}}'`. Then record it:
 
 ```bash
-work42 storage set linear/spec_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
+work42 storage set linear/issues/<KEY>/spec_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
 ```
 
 **Subtasks → sub-issues.** One per subtask, each with a REQUIRED description a Worker loaded
@@ -133,10 +137,10 @@ four-field entry (`flow`, `variant`, `config`, `covers`) and select/record flows
 `linear42-qa-author`.
 
 ```bash
-.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title "Testing plan" --file - <<'MD'
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind testing --file - <<'MD'
 …per-AC verification…
 MD
-work42 storage set linear/testing_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
+work42 storage set linear/issues/<KEY>/testing_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
 ```
 
 There is no separate testing-plan approval — one Approve Plan click covers spec,
@@ -171,9 +175,9 @@ re-request approval.
 |---------|------|
 | `linear issue view <KEY>` | Read the bound issue |
 | `linear issue create --team <T> [--parent <KEY>] --title … --description-file -` | Create the issue / a sub-issue |
-| `.claude/skills/linear42-general/publish-doc.py --issue <KEY> --title … --file -` (`--slug <slug>` to revise) | Author / revise the spec / testing plan |
+| `.claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind spec|testing --file -` (`--slug <slug>` to revise) | Author / revise the spec / testing plan |
 | `linear api 'query{document(id:"<slug>"){content}}'` | Verify a document as stored (never `document view --raw` into an update) |
-| `work42 storage set linear/issue_ref` · `linear/spec_doc` · `linear/testing_doc` | Record what you created |
+| `work42 storage set linear/issue_ref` · `linear/issue_keys` · `linear/issues/<KEY>/spec_doc` · `linear/issues/<KEY>/testing_doc` | Record what you created |
 | `work42 storage get plan/subtasks` | Confirm the sub-issue mirror |
 | `work42 artifact set/status/path <id>` | Render and validate artifacts |
 | `work42 transition "In-Progress"` | After the "now available" message — never before |
