@@ -2,7 +2,7 @@
   "id": "task",
   "name": "Task",
   "workflow": "task42",
-  "layout_json": "[{\"id\":\"F6CF68E9-07D8-4719-9F69-D06806FB36A7\",\"templateId\":\"chat\",\"openItems\":[\"chat\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"204587A6-CE09-454B-AA51-C230675BB8F6\",\"templateId\":\"plan\",\"openItems\":[\"widget:spec\",\"widget:subtasks\",\"widget:testing-plan\"],\"pinnedItems\":[],\"isPlanView\":true},{\"id\":\"534D4710-AA13-4F23-84CA-1E5EA4F1C658\",\"templateId\":\"ide\",\"openItems\":[\"files\",\"terminal\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"4C8133C5-D2F0-4BA9-A7C4-2246A7FA29A5\",\"templateId\":\"debug\",\"openItems\":[\"debugConsole\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"48F4C39A-8FB0-4925-BD29-CFC16A611447\",\"templateId\":\"review\",\"openItems\":[\"widget:qa\"],\"pinnedItems\":[],\"isPlanView\":false}]",
+  "layout_json": "[{\"id\":\"F6CF68E9-07D8-4719-9F69-D06806FB36A7\",\"templateId\":\"chat\",\"openItems\":[\"chat\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"204587A6-CE09-454B-AA51-C230675BB8F6\",\"templateId\":\"plan\",\"openItems\":[\"widget:spec\",\"widget:subtasks\",\"widget:testing-plan\"],\"pinnedItems\":[],\"isPlanView\":true},{\"id\":\"534D4710-AA13-4F23-84CA-1E5EA4F1C658\",\"templateId\":\"ide\",\"openItems\":[\"files\",\"terminal\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"4C8133C5-D2F0-4BA9-A7C4-2246A7FA29A5\",\"templateId\":\"debug\",\"openItems\":[\"debugConsole\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"48F4C39A-8FB0-4925-BD29-CFC16A611447\",\"templateId\":\"review\",\"openItems\":[\"widget:qa\",\"widget:github\"],\"pinnedItems\":[],\"isPlanView\":false}]",
   "icon": "checklist",
   "enforce_capability_gate": true,
   "self_archives": false,

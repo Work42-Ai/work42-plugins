@@ -8,7 +8,7 @@
       "ordinal": 1,
       "is_initial": true,
       "is_terminal": false,
-      "entry_prompt": "You're in Planning. Invoke the linear42-planner skill.",
+      "entry_prompt": "You are in Planning. Your goal is to turn this task into a plan Yan can approve: a spec and a testing plan as Linear documents, and the sub-issues. Load the linear42-planner skill to run the planning process.",
       "entry_gate": null,
       "icon": "circle",
       "color_light": "#0284C7",
@@ -21,7 +21,7 @@
       "ordinal": 2,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "Plan approved \u2014 you're now In-Progress. Invoke the linear42-worker skill and implement the Linear sub-issues one at a time, moving each to Done in Linear when it is finished. If you find the plan is wrong, run `work42 transition \"Planning\"` to go back.",
+      "entry_prompt": "You are in In-Progress. Your goal is to implement the plan one Linear sub-issue at a time, completing each in Linear once it is committed and pushed. Load the linear42-worker skill for each sub-issue. If the plan turns out to be wrong, run `work42 transition \"Planning\"`.",
       "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"}]}",
       "icon": "play.circle.fill",
       "color_light": "#6D28D9",
@@ -34,12 +34,12 @@
       "ordinal": 3,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "All sub-issues are done \u2014 you're now in Testing. Invoke the linear42-qa skill and verify the acceptance criteria.",
+      "entry_prompt": "You are in Testing. Your goal is to execute the testing plan against the real build and prove the result. Load the linear42-qa skill: it launches the project with `work42 debug start`, records the run, publishes the QA report document and writes the verdict.",
       "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"},{\"forAll\":\"subtasks\",\"where\":{\"field\":\"done\",\"op\":\"equals\",\"value\":\"true\"}}]}",
       "icon": "testtube.2",
       "color_light": "#B45309",
       "color_dark": "#FFC766",
-      "model": "haiku",
+      "model": "sonnet",
       "provider": "claude"
     },
     {
@@ -47,7 +47,7 @@
       "ordinal": 4,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "QA passed \u2014 you're now in Human Review. Read + build/test only. Open the draft PR with `Fixes <issue key>` in its body (load the github plugin's using-github skill, or ask the user) and append it to github/prs. If changes are needed, go back: `work42 transition \"Planning\"`.",
+      "entry_prompt": "You are in Human Review. Your goal is to hand the finished work to Yan as a draft pull request that carries QA's screenshots and recordings. Load the linear42-lead skill to open the PR with `Fixes <issue key>`, attach the media and add it to github/prs. This stage is read, build and test only. If the work needs changes, run `work42 transition \"Planning\"`.",
       "entry_gate": "{\"or\":[{\"namespace\":\"qa\",\"key\":\"verdict\",\"op\":\"equals\",\"value\":\"PASS\"},{\"and\":[{\"namespace\":\"config\",\"key\":\"skip_testing\",\"op\":\"equals\",\"value\":\"true\"},{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"forAll\":\"subtasks\",\"where\":{\"field\":\"done\",\"op\":\"equals\",\"value\":\"true\"}}]}]}",
       "icon": "eye",
       "color_light": "#C2410C",
@@ -60,7 +60,7 @@
       "ordinal": 5,
       "is_initial": false,
       "is_terminal": true,
-      "entry_prompt": "Accepted \u2014 this task is Done. No further action needed.",
+      "entry_prompt": "You are in Done. The work is accepted and nothing is left to do.",
       "entry_gate": "{\"and\":[{\"exists\":\"github/prs\"},{\"forAll\":\"github/prs\",\"where\":{\"field\":\"status\",\"op\":\"equals\",\"value\":\"merged\"}}]}",
       "icon": "checkmark.circle.fill",
       "color_light": "#15803D",
@@ -625,7 +625,7 @@
       "stage": "Planning",
       "kind": "execute",
       "pattern": "work42 storage set plan/subtasks",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Planning",
@@ -1189,7 +1189,7 @@
       "stage": "In-Progress",
       "kind": "execute",
       "pattern": "work42 storage set plan/subtasks",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "In-Progress",
@@ -1753,7 +1753,7 @@
       "stage": "Testing",
       "kind": "execute",
       "pattern": "work42 storage set plan/subtasks",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Testing",
@@ -2317,7 +2317,7 @@
       "stage": "Human Review",
       "kind": "execute",
       "pattern": "work42 storage set plan/subtasks",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Human Review",
@@ -2881,7 +2881,7 @@
       "stage": "Done",
       "kind": "execute",
       "pattern": "work42 storage set plan/subtasks",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Done",
@@ -3067,13 +3067,13 @@
       "stage": "In-Progress",
       "kind": "execute",
       "pattern": "work42 artifact set",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Testing",
       "kind": "execute",
       "pattern": "work42 artifact set",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Human Review",
@@ -3097,13 +3097,13 @@
       "stage": "In-Progress",
       "kind": "execute",
       "pattern": "work42 artifact path",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Testing",
       "kind": "execute",
       "pattern": "work42 artifact path",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Human Review",
@@ -3127,13 +3127,13 @@
       "stage": "In-Progress",
       "kind": "execute",
       "pattern": "work42 artifact remove",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Testing",
       "kind": "execute",
       "pattern": "work42 artifact remove",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Human Review",
@@ -3367,19 +3367,19 @@
       "stage": "Testing",
       "kind": "execute",
       "pattern": "linear issue create",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Testing",
       "kind": "execute",
       "pattern": "linear issue update",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Testing",
       "kind": "execute",
       "pattern": "linear issue comment add",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Human Review",
@@ -3433,7 +3433,7 @@
       "stage": "Human Review",
       "kind": "execute",
       "pattern": "linear issue comment add",
-      "action": "allow"
+      "action": "block"
     },
     {
       "stage": "Done",
@@ -3547,7 +3547,7 @@
       "stage": "Testing",
       "kind": "execute",
       "pattern": "publish-doc.py",
-      "action": "block"
+      "action": "allow"
     },
     {
       "stage": "Human Review",
@@ -3560,6 +3560,66 @@
       "kind": "execute",
       "pattern": "publish-doc.py",
       "action": "block"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "work42 device",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "ffmpeg",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "screencapture",
+      "action": "allow"
+    },
+    {
+      "stage": "Testing",
+      "kind": "execute",
+      "pattern": "mkdir -p",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "gh pr create",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "gh pr edit",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "gh pr comment",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "gh pr view",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "work42 storage set github/prs",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "ffmpeg",
+      "action": "allow"
     }
   ]
 }
