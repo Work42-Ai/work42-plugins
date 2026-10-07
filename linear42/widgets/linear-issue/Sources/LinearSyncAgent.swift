@@ -45,6 +45,10 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     /// The approval timestamp we already commented on, so a retry after a failed
     /// state move doesn't post the comment twice.
     private var commentedApprovalAt: String?
+    /// This session's type, read once (a session's type never changes). The host runs this
+    /// agent in every session where the widget is available, so nothing below runs unless
+    /// it is a `linear-task` session.
+    private var sessionTypeId: String?
 
     func start(services: WidgetBackgroundServices) {
         pollTask?.cancel()
@@ -66,6 +70,20 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
 
     /// Returns the number of seconds to sleep before the next cycle.
     private func cycle(services: WidgetBackgroundServices) async -> Int {
+        if sessionTypeId == nil {
+            let command = "work42 session show --session \(shellQuote(services.sessionId)) --json"
+            if let result = try? await services.shell.run(command: command), result.exitCode == 0,
+               let data = result.stdout.data(using: .utf8) {
+                sessionTypeId = parseSessionTypeId(data)
+            }
+        }
+        // Unknown (read failed — Home has no session row — retried next interval) or any
+        // other session type: no Linear calls, no chips, no storage writes.
+        guard shouldSync(typeId: sessionTypeId) else {
+            publish([])
+            return Linear42Config.defaultPollSeconds
+        }
+
         let config: Linear42Config
         switch Linear42Config.load() {
         case .failure:

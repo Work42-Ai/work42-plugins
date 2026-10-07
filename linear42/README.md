@@ -64,6 +64,11 @@ counts, so binding an issue that's already in progress never approves anything).
 
 ## How the sync works (the `linear-issue` widget's background agent)
 
+The agent only works in `linear-task` sessions. The host starts a widget's background agent in
+every session where the widget is *available*, not only where it is placed, so on its first cycle
+the agent reads its session's type (`work42 session show`) and stays idle (no Linear calls, no
+chips, no storage writes) for any other type, including Home.
+
 Every poll, one `linear api` GraphQL call feeds: issue resolution; the `plan/subtasks` mirror
 (a sub-issue is `done` only in a `completed` state — canceled doesn't count); approval
 read-back; the stage → Linear state push; and a retry of the approval stamp (a comment

@@ -128,6 +128,19 @@ check(parseIssuePayload(Data(#"{"data":{"issue":null}}"#.utf8)) == nil, "null is
 check(parseIssuePayload(Data(#"{"errors":[{"message":"x"}]}"#.utf8)) == nil, "error envelope")
 check(parseIssuePayload(Data("nope".utf8)) == nil, "garbage")
 
+// MARK: - session scoping
+
+check(shouldSync(typeId: "linear-task"), "shouldSync: linear-task sessions sync")
+check(!shouldSync(typeId: "task"), "shouldSync: a task42 session does not")
+check(!shouldSync(typeId: "chat"), "shouldSync: a chat session does not")
+check(!shouldSync(typeId: nil), "shouldSync: unknown type (read not done or failed) does not")
+check(parseSessionTypeId(Data(#"{"id":"b0c6","name":"x","stage":"Planning","type_id":"task","workspace_id":"w"}"#.utf8)) == "task", "parseSessionTypeId: reads the real `session show` shape")
+check(parseSessionTypeId(Data(#"{"type_id":"linear-task"}"#.utf8)) == "linear-task", "parseSessionTypeId: linear-task")
+check(parseSessionTypeId(Data("{}".utf8)) == nil, "parseSessionTypeId: missing field is nil")
+check(parseSessionTypeId(Data(#"{"type_id":""}"#.utf8)) == nil, "parseSessionTypeId: empty is nil")
+check(parseSessionTypeId(Data("not json".utf8)) == nil, "parseSessionTypeId: invalid JSON is nil")
+check(parseSessionTypeId(Data(#"{"type_id":7}"#.utf8)) == nil, "parseSessionTypeId: wrong type is nil")
+
 // MARK: - linearCLIPathPrefix
 
 check(linearCLIPathPrefix.contains("$HOME/.local/bin") && linearCLIPathPrefix.contains("$HOME/.cargo/bin"), "user-level install dirs are on the CLI PATH")

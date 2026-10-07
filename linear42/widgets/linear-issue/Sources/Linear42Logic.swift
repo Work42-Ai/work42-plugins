@@ -188,6 +188,26 @@ func parseIssuePayload(_ data: Data) -> LinearIssuePayload? {
     )
 }
 
+// MARK: - Session scoping
+
+/// The host starts a widget's background agent in every session where the widget is
+/// *available*, not only where it is placed in the layout, so the sync agent must
+/// scope itself. It does nothing unless the session is of this type.
+let linearSessionTypeID = "linear-task"
+
+func shouldSync(typeId: String?) -> Bool {
+    typeId == linearSessionTypeID
+}
+
+/// Reads `type_id` from `work42 session show --session <id> --json`
+/// (`{"id","name","stage","type_id","workspace_id"}`).
+func parseSessionTypeId(_ data: Data) -> String? {
+    guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+          let typeId = object["type_id"] as? String, !typeId.isEmpty
+    else { return nil }
+    return typeId
+}
+
 // MARK: - Shell
 
 /// Widget shells inherit the app's PATH, which for a Finder-launched app is bare plus
