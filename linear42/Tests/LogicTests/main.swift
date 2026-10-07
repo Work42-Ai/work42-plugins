@@ -128,6 +128,12 @@ check(parseIssuePayload(Data(#"{"data":{"issue":null}}"#.utf8)) == nil, "null is
 check(parseIssuePayload(Data(#"{"errors":[{"message":"x"}]}"#.utf8)) == nil, "error envelope")
 check(parseIssuePayload(Data("nope".utf8)) == nil, "garbage")
 
+// MARK: - linearCLIPathPrefix
+
+check(linearCLIPathPrefix.contains("$HOME/.local/bin") && linearCLIPathPrefix.contains("$HOME/.cargo/bin"), "user-level install dirs are on the CLI PATH")
+check(linearCLIPathPrefix.hasPrefix("export PATH=\"$PATH:"), "appended, so a Homebrew copy still wins")
+check(linearCLIPathPrefix.hasSuffix("; "), "chains into the command that follows")
+
 // MARK: - shellQuote
 
 check(shellQuote("a b") == "'a b'", "plain")

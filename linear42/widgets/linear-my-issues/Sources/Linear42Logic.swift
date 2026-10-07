@@ -190,6 +190,12 @@ func parseIssuePayload(_ data: Data) -> LinearIssuePayload? {
 
 // MARK: - Shell
 
+/// Widget shells inherit the app's PATH, which for a Finder-launched app is bare plus
+/// Homebrew. The `linear` CLI is just as often installed to `~/.local/bin` (the official
+/// installer, a manual download) or `~/.cargo/bin`; appending them keeps a user-level
+/// install from reading as "CLI not installed". Appended, so a Homebrew copy still wins.
+let linearCLIPathPrefix = "export PATH=\"$PATH:$HOME/.local/bin:$HOME/.cargo/bin\"; "
+
 /// POSIX single-quote escaping for a value interpolated into a `/bin/sh -c` line.
 func shellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"

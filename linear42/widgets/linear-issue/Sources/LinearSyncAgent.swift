@@ -280,7 +280,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     private func fetch(key: String, services: WidgetBackgroundServices) async -> FetchOutcome {
         let variables = json(.object(["id": .string(key)]))
         let command = "linear api \(shellQuote(linearIssueQuery)) --variables-json \(shellQuote(variables))"
-        guard let result = try? await services.shell.run(command: command) else { return .transient }
+        guard let result = try? await services.shell.run(command: linearCLIPathPrefix + command) else { return .transient }
         switch result.exitCode {
         case 0:
             guard let data = result.stdout.data(using: .utf8), let payload = parseIssuePayload(data) else { return .transient }
@@ -297,7 +297,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     }
 
     private func run(_ command: String, _ services: WidgetBackgroundServices) async -> Bool {
-        guard let result = try? await services.shell.run(command: command) else { return false }
+        guard let result = try? await services.shell.run(command: linearCLIPathPrefix + command) else { return false }
         return result.exitCode == 0
     }
 

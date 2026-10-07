@@ -100,6 +100,13 @@ work42-plugins/
       using-jira/      Plugin-level skill: using both Jira widgets together
     tab-templates/
       jira-work.json       "Jira Work" template (UUID 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e)
+  linear42/            Linear-native task lifecycle (replaces task42): spec/testing plan as
+                       Linear documents, subtasks as sub-issues, QA as comments; reuses the
+                       github plugin's widget:github for code review. See linear42/README.md
+    plugin.yaml
+    workflows/linear42.json      session-types/linear-task.json      intents/new-linear-task.json
+    widgets/{linear-issue,linear-spec,linear-testing,linear-my-issues}/
+    skills/linear42-{general,lead,planner,worker,qa,qa-author}/
   patrol42/            Code Review plugin bundle
     plugin.yaml
     session-types/
@@ -123,6 +130,7 @@ work42-plugins/
 ```bash
 work42 plugin install /path/to/work42-plugins/github
 work42 plugin install /path/to/work42-plugins/jira
+work42 plugin install /path/to/work42-plugins/linear42
 ```
 
 ### From a git URL

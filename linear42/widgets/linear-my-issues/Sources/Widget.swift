@@ -95,7 +95,7 @@ final class LinearMyIssuesWidget: Work42Widget {
     private static func sessionName(forKey key: String, services: SessionServices) async -> String {
         let query = "query($id: String!) { issue(id: $id) { title } }"
         let variables = "{\"id\":\"\(key)\"}"
-        let command = "linear api \(shellQuote(query)) --variables-json \(shellQuote(variables))"
+        let command = linearCLIPathPrefix + "linear api \(shellQuote(query)) --variables-json \(shellQuote(variables))"
         guard let result = try? await services.shell.run(command: command),
               result.exitCode == 0,
               let data = result.stdout.data(using: .utf8),
