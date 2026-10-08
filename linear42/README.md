@@ -56,9 +56,9 @@ Start a session three ways (like the Jira plugin): the **My Linear Issues** widg
 Linear Session*, **New Linear Task** with an issue key or URL, or **New Linear Task** blank —
 the Planner then creates the issue in `default_team`.
 
-A new Linear task opens with five tabs: **Chat** (chat 1/4 and **Issue Details** 3/4, the issue page with
-sub-issues and comments), **Plan** (**Spec Document** 3/4, with **Approve Plan**, and **Testing Plan Document**
-1/4), **Code**, **Debug**, and **Review** (the **GitHub** PR 3/4 and **QA Report Document** 1/4). Approval works from either side: click **Approve Plan**, or move an attached issue to
+A new Linear task opens with five tabs: **Chat** (chat 1/3 and **Issue Details** 2/3, the issue page with
+sub-issues and comments), **Plan** (**Spec Document** 2/3, with **Approve Plan**, and **Testing Plan Document**
+1/3), **Code**, **Debug**, and **Review** (the **GitHub** PR 2/3 and **QA Report Document** 1/3). Approval works from either side: click **Approve Plan**, or move an attached issue to
 a started state in Linear while the session is still in Planning (only a move *into* started
 counts, so attaching an issue that's already in progress never approves anything).
 
