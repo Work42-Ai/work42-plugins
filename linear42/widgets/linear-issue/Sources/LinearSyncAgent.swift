@@ -462,8 +462,8 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
 
     // MARK: - Chips
 
-    /// One segmented pill per attached issue, in attach order (a failed issue keeps its last pill), then one
-    /// sub-issue count for the whole session, then any warnings.
+    /// One segmented pill per attached issue, in attach order (a failed issue keeps its last pill, count
+    /// included), then any warnings.
     private func chips(
         for issues: [LinearIssuePayload],
         states: [String: String],
@@ -477,24 +477,15 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             labels += pill
         }
         labels += kept.flatMap { $0 }
-        let children = unionSubIssues(issues.map { (key: $0.key, children: $0.children) })
-        if !children.isEmpty {
-            let done = children.filter(\.done).count
-            labels.append(WidgetHeaderLabel(
-                text: "\(done)/\(children.count) sub-issues",
-                systemIcon: "checklist",
-                tint: done == children.count ? .success : .neutral,
-                url: issues.first.flatMap { URL(string: $0.url) }
-            ))
-        }
         return labels + extra
     }
 
     /// One issue's segmented pill: the key on Linear purple with the Linear mark, joined to the status filled
-    /// with that status's own Linear color (neutral when Linear sent none).
+    /// with that status's own Linear color (neutral when Linear sent none), and, when the issue has
+    /// sub-issues, the done/total count of THAT issue's sub-issues.
     private func issuePill(_ issue: LinearIssuePayload, stateName: String) -> [WidgetHeaderLabel] {
         let url = URL(string: issue.url)
-        return [
+        var segments = [
             brandedKeyChip(issue.key, url: url),
             WidgetHeaderLabel(
                 text: stateName,
@@ -504,6 +495,17 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
                 groupId: issue.key
             ),
         ]
+        if !issue.children.isEmpty {
+            let done = issue.children.filter(\.done).count
+            segments.append(WidgetHeaderLabel(
+                text: "\(done)/\(issue.children.count)",
+                systemIcon: "checklist",
+                tint: done == issue.children.count ? .success : .neutral,
+                url: url,
+                groupId: issue.key
+            ))
+        }
+        return segments
     }
 
     /// The issue key segment: Linear purple fill, white Linear mark (the host tints the monochrome
