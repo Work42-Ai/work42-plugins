@@ -1,0 +1,32 @@
+{
+  "id": "linear-task",
+  "name": "Linear Task",
+  "workflow": "linear42",
+  "layout_json": "[{\"id\":\"504D48AE-E37E-4200-8AAC-D01449195757\",\"templateId\":\"chat\",\"openItems\":[\"chat\",\"widget:linear-issue\"],\"pinnedItems\":[],\"isPlanView\":false,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.33,0.67],\"children\":[{\"leaf\":{\"_0\":\"chat\"}},{\"leaf\":{\"_0\":\"widget:linear-issue\"}}]}}}},{\"id\":\"A0146721-C1C3-4092-90FF-3B651A1F3650\",\"templateId\":\"plan\",\"openItems\":[\"widget:linear-spec\",\"widget:linear-testing\"],\"pinnedItems\":[],\"isPlanView\":true,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.67,0.33],\"children\":[{\"leaf\":{\"_0\":\"widget:linear-spec\"}},{\"leaf\":{\"_0\":\"widget:linear-testing\"}}]}}}},{\"id\":\"3BC8BFC8-1D6D-4C9C-B3DF-38321F67BF71\",\"templateId\":\"ide\",\"openItems\":[\"files\",\"terminal\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"BFCF580A-3160-4A02-94FF-45917F17441E\",\"templateId\":\"debug\",\"openItems\":[\"debugConsole\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"3B81A8EF-3305-46E8-84A2-930CCDBC6189\",\"templateId\":\"review\",\"openItems\":[\"widget:github\",\"widget:linear-qa\"],\"pinnedItems\":[],\"isPlanView\":false,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.67,0.33],\"children\":[{\"leaf\":{\"_0\":\"widget:github\"}},{\"leaf\":{\"_0\":\"widget:linear-qa\"}}]}}}}]",
+  "icon": "checklist",
+  "enforce_capability_gate": true,
+  "self_archives": false,
+  "list_shape": "task",
+  "shows_in_new_session_menu": true,
+  "shows_in_session_list": true,
+  "sort_order": 0,
+  "session_skills": [
+    "linear42-general",
+    "linear42-lead",
+    "linear42-planner",
+    "linear42-worker",
+    "linear42-qa",
+    "linear42-qa-author"
+  ],
+  "create_intent": "new-linear-task",
+  "args": [
+    {
+      "key": "issue",
+      "label": "Linear issue (key or URL)",
+      "type": "string",
+      "required": false,
+      "storage": "linear/issue_ref",
+      "placeholder": "WOR-123"
+    }
+  ]
+}

@@ -1,55 +1,29 @@
 ---
 name: widget-spec
-description: |
-  How the Spec widget (session tab kindId widget:spec) works on a task
-  session. It renders the task's spec markdown (plan/spec) with the
-  standard `.work42` theme, inline [[artifact:id]] embeds, and shared
-  pinned comments, and exposes the "Approve Plan" action. Use
-  `work42 storage set plan/spec` / `work42 storage get plan/spec` to
-  author or read the spec directly.
+description: How the Spec widget (kindId widget:spec) works on a task session. It renders the task's spec markdown (plan/spec) with the .work42 theme, inline [[artifact:id]] embeds and shared pinned comments, and exposes the Approve Plan action, including revoking an approval. Author or read the spec with `work42 storage set|get plan/spec`.
 ---
 
 # Spec widget
 
-Renders a task session's spec — the plan's Context / Acceptance Criteria /
-Out of Scope document — as read-only themed markdown, with inline artifact
-embeds and the shared comment layer, plus the Approve Plan action.
-
-## Storage convention
+Renders the session's spec (Context / Acceptance Criteria / Out of Scope…) as read-only themed markdown, with inline artifact embeds and the shared comment layer, plus the Approve Plan action.
 
 | Key | Type | Description |
-|-----|------|--------------|
-| `plan/spec` | string (markdown) | The spec document. Written by the agent, never by this widget. |
-| `plan/approved_at` | string (ISO-8601) | Set by Approve Plan. Presence = approved. |
-| `plan/approved_by` | string | The approver's username, set alongside `approved_at`. |
-
-## Agent usage
+|-----|------|-------------|
+| `plan/spec` | string (markdown) | The spec. Written by the agent, never by this widget. |
+| `plan/approved_at` | string (ISO-8601) | Set by Approve Plan; presence means approved. |
+| `plan/approved_by` | string | The approver's username. |
 
 ```bash
-# Read the current spec
 work42 storage get plan/spec
-
-# Write/replace the spec
-work42 storage set plan/spec '"# Context\n...\n## Acceptance Criteria\n..."'
-
-# Check approval state
 work42 storage get plan/approved_at
 ```
 
-## Approve Plan
+To write the spec, pipe the markdown through `jq -Rs .` to make it a JSON string (see `task42-planner`).
 
-The widget's action-area button ("Approve Plan") stamps `plan/approved_at`
-(now, ISO-8601) and `plan/approved_by` (the approver's macOS username)
-through the widget's own storage. It is enabled only once `plan/spec` is
-non-empty and not yet approved; once approved it renders as "Plan
-approved" and is no longer tappable. There is no separate approval
-table — a task's In-Progress gate reads `plan/approved_at`'s presence
-directly.
+## Approve Plan and revoke
+
+The action-area button **Approve Plan** stamps `plan/approved_at` (now, ISO-8601) and `plan/approved_by` (the macOS username). It is enabled once `plan/spec` is non-empty and not yet approved; the In-Progress gate reads `plan/approved_at`'s presence. Once approved it reads **Plan approved**; tapping it asks to revoke, and confirming deletes both keys. Each session has its own button state.
 
 ## Comments and artifacts
 
-Selecting text in the rendered spec offers "Add comment", pinned under
-`<sessionId>/plan/spec` and shared with every other widget reading the
-same `pendingComments` environment key. A `[[artifact:<id>]]` token on its
-own line renders as a live embed, resolved via the session's artifact
-server.
+Selecting text offers "Add comment", pinned under `<sessionId>/plan/spec` and shared with every other widget reading the same `pendingComments`. A `[[artifact:<id>]]` token on its own line renders as a live embed from the session's artifact server.

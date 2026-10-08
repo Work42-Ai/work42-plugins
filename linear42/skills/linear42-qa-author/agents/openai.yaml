@@ -1,0 +1,4 @@
+interface:
+  display_name: "linear42 QA Author"
+  short_description: "Plan explicit Flow42 variant coverage for a linear42 testing plan"
+  default_prompt: "Use $linear42-qa-author to select explicit flow and variant coverage for this testing plan."

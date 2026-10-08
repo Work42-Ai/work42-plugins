@@ -57,11 +57,9 @@ final class QAWidget: Work42Widget {
     func load() async {
         guard let services else { return }
         let value = (try? await services.storage.get(namespace: "qa", key: "report")) ?? nil
-        if case .string(let text)? = value {
-            report = text
-        } else {
-            report = nil
-        }
+        let newReport: String?
+        if case .string(let text)? = value { newReport = text } else { newReport = nil }
+        if newReport != report { report = newReport }
     }
 }
 
@@ -88,7 +86,16 @@ private struct QAWidgetView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, DT.s8)
         }
-        .task { await widget.load() }
+        .task {
+            // Live refresh: agent/CLI writes to `qa/report` land while this tab is
+            // open. `.task` is cancelled when the view leaves the screen.
+            await widget.load()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
+                if Task.isCancelled { break }
+                await widget.load()
+            }
+        }
     }
 }
 
