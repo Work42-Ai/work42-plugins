@@ -55,7 +55,7 @@ Concise Markdown in `qa/report`: one line per AC (`[AC3]` tags, never restating 
 
 ## Submit
 
-Write the report to `qa/report` as a JSON string (build it with `python3 -c 'import json,sys;print(json.dumps(sys.stdin.read()))'` over the report on stdin), then `qa/verdict` as `"PASS"` or `"FAIL"`, last. Each is `work42 storage set <key> '<json>'`.
+Write the report to `qa/report` as a JSON string (pipe the markdown through `jq -Rs .` from a quoted heredoc, since Testing blocks file edits), then `qa/verdict` as `"PASS"` or `"FAIL"`, last. Each is `work42 storage set <key> '<json>'`.
 
 PASS opens the Human Review gate (the session says so; the Lead runs the transition and opens the PR). FAIL goes back to In-Progress, where the Lead adds fix subtasks. On a re-test, check the previously failed ACs first with fresh evidence, still walk the rest for regressions, and say what changed.
 
