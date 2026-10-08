@@ -10,17 +10,17 @@ for f in Linear42Config.swift Linear42Logic.swift; do
     exit 1
   fi
 done
-# The brand assets and the icon view are in all four widgets.
+# The brand assets and the icon view are in all five widgets.
 for f in Linear42Brand.swift LinearBrandMark.swift; do
-  for w in linear-my-issues linear-spec linear-testing; do
+  for w in linear-my-issues linear-spec linear-testing linear-qa; do
     if ! diff -q "$widgets/linear-issue/Sources/$f" "$widgets/$w/Sources/$f" >/dev/null 2>&1; then
       echo "DRIFT: widgets/$w/Sources/$f is missing or differs from widgets/linear-issue/Sources/$f"
       exit 1
     fi
   done
 done
-# The link patterns are in the three widgets that claim links.
-for w in linear-spec linear-testing; do
+# The link patterns are in the four widgets that claim links.
+for w in linear-spec linear-testing linear-qa; do
   if ! diff -q "$widgets/linear-issue/Sources/Linear42Links.swift" "$widgets/$w/Sources/Linear42Links.swift" >/dev/null 2>&1; then
     echo "DRIFT: widgets/$w/Sources/Linear42Links.swift is missing or differs from widgets/linear-issue/Sources/Linear42Links.swift"
     exit 1
@@ -37,8 +37,9 @@ check_title() {
 check_title linear-issue "Issue Details" surface
 check_title linear-spec "Spec Document" surface
 check_title linear-testing "Testing Plan Document" surface
+check_title linear-qa "QA Report Document" surface
 check_title linear-my-issues "My Linear Issues"
-echo "widget titles: Issue Details / Spec Document / Testing Plan Document / My Linear Issues"
+echo "widget titles: Issue Details / Spec Document / Testing Plan Document / QA Report Document / My Linear Issues"
 out="$(mktemp -d)/linear42-logic-tests"
 swiftc -o "$out" "$here/main.swift" "$widgets/linear-issue/Sources/Linear42Config.swift" "$widgets/linear-issue/Sources/Linear42Logic.swift" "$widgets/linear-issue/Sources/Linear42Brand.swift" "$widgets/linear-issue/Sources/Linear42Links.swift" 2>&1 | grep -v '^$' || true
 "$out"

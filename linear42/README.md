@@ -56,9 +56,9 @@ Start a session three ways (like the Jira plugin): the **My Linear Issues** widg
 Linear Session*, **New Linear Task** with an issue key or URL, or **New Linear Task** blank —
 the Planner then creates the issue in `default_team`.
 
-The Plan view has three tabs: **Issue Details** (the issue page, with sub-issues and comments),
-**Spec Document** (with **Approve Plan**) and **Testing Plan Document**. Review adds the
-GitHub widget. Approval works from either side: click **Approve Plan**, or move an attached issue to
+A new Linear task opens with five tabs: **Chat** (chat 1/4 and **Issue Details** 3/4, the issue page with
+sub-issues and comments), **Plan** (**Spec Document** 3/4, with **Approve Plan**, and **Testing Plan Document**
+1/4), **Code**, **Debug**, and **Review** (the **GitHub** PR 3/4 and **QA Report Document** 1/4). Approval works from either side: click **Approve Plan**, or move an attached issue to
 a started state in Linear while the session is still in Planning (only a move *into* started
 counts, so attaching an issue that's already in progress never approves anything).
 
@@ -141,13 +141,14 @@ records the stage without pushing, so an in-progress issue is never demoted.
 linear42/
   plugin.yaml
   workflows/linear42.json          task42's stages/transitions/gates + per-stage rules for the linear CLI
-  session-types/linear-task.json   same five tabs as task42; Plan = linear-issue/spec/testing, Review = github + linear-issue
+  session-types/linear-task.json   five tabs with split fractions: Chat = chat + linear-issue, Plan = linear-spec + linear-testing, Review = github + linear-qa
   intents/new-linear-task.json     "New Linear Task" (optional `issue` arg -> linear/issue_ref, which seeds the first issue)
   Sources/Plugin.swift             onCreate hook: linked To-Do
   widgets/
     linear-issue/                  issue page, Attach form, notices; the background sync agent + header chips
     linear-spec/                   spec document + Approve Plan
     linear-testing/                testing-plan document
+    linear-qa/                     QA report document (from `qa/docs`)
     linear-my-issues/              assigned issues + Start Linear Session
   skills/
     linear42-{general,lead,planner,worker,qa,qa-author}/

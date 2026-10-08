@@ -6,7 +6,7 @@
 // resolves with); a leading `(?i)` is translated for the in-page interceptor. Linear workspaces are
 // matched generically: a link to another workspace is still a Linear page of that kind.
 //
-// Verbatim copies live in linear-issue, linear-spec and linear-testing (run.sh fails on drift).
+// Verbatim copies live in linear-issue, linear-spec, linear-testing and linear-qa (run.sh fails on drift).
 
 import Foundation
 
@@ -21,6 +21,9 @@ let linearSpecDocLinkPattern = #"(?i)^https?://linear\.app/[^/?#]+/document/(?:[
 /// `https://linear.app/<workspace>/document/[<title slug>-]testing-plan-<12 hex>` — "<KEY> Testing Plan"
 /// (or the older "Testing plan").
 let linearTestingDocLinkPattern = #"(?i)^https?://linear\.app/[^/?#]+/document/(?:[^/?#]*-)?testing-plan-[0-9a-f]{12}(?:[/?#].*)?$"#
+
+/// `https://linear.app/<workspace>/document/[<title slug>-]qa-report-<12 hex>` — "<KEY> QA Report".
+let linearQADocLinkPattern = #"(?i)^https?://linear\.app/[^/?#]+/document/(?:[^/?#]*-)?qa-report-[0-9a-f]{12}(?:[/?#].*)?$"#
 
 /// The unique slug id Linear appends to a document URL (`.../document/wor-6-spec-2838a00c306b` ->
 /// `2838a00c306b`): the 12 hex characters after the last `-` of the last path component. Nil for
