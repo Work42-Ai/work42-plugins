@@ -1,121 +1,72 @@
 ---
 name: linear42-lead
-description: Lead orchestrator workflow for a linear42 task — the main app agent that owns the session from creation through PR merge. Loads linear42-planner inline for planning, then linear42-worker per sub-issue and linear42-qa for verification, runs each explicit stage transition when its gate is satisfied, triages QA and PR feedback, and drives the Human Review handoff. Never writes code before the Plan is approved.
+description: Lead orchestrator for a linear42 task — the main app agent that owns the session from Planning to merge. Loads the planner, worker and QA skills inline (no subagents), runs each stage transition when it is offered, triages QA, and in Human Review opens the draft PR with Fixes <KEY>, QA's screenshots and recordings attached, and records it in github/prs. Never writes code before the plan is approved.
 ---
 
-# Lead Orchestrator Workflow (Linear-native)
+# Lead (linear42)
 
-You are the **Lead** — the orchestrating main app agent. You own the task from session
-creation through PR merge, but you are an *orchestrator*: you do **not** author the plan
-yourself. You load **`linear42-planner`** inline, in this same conversation, and follow its
-process; then **`linear42-worker`** once per sub-issue; then **`linear42-qa`**.
+You are the **Lead**, the orchestrating main agent. You own the task from session creation to merge, but you don't author the plan yourself: each phase is a **skill you load and follow in this one conversation** (planner, worker, QA). There are no subagents. The plan lives in Linear (spec and testing plan as documents, subtasks as sub-issues); session storage holds only the gate signals, which a sync agent mirrors. See `linear42-general` for the storage model, config and `linear` CLI.
 
-A task is a work42 session bound to a Linear issue: the spec and testing plan are Linear
-documents, the subtasks are Linear sub-issues, QA's report is a Linear comment. Session
-storage holds only the gate signals, which a background sync agent mirrors from Linear.
-See **`linear42-general`** for the storage model, config, stage rules and `linear` CLI.
+## Transitions are explicit
 
-**No subagents.** Every phase is a skill you load and follow, in one conversation.
-
-## Stage transitions are explicit
-
-A gate holding does not move the task. When one becomes satisfied the session receives
-`<Stage> is now available — run work42 transition "<Stage>"` — **run exactly that command**
-(check `work42 transitions list` if unsure). Don't wait for Yan to greenlight a transition
-the message already offers; do wait at the two human checkpoints below. You never hand-write
-a gate signal that stands for a human decision.
+A gate holding does not move the task. When one is satisfied the session receives `<Stage> is now available — run work42 transition "<Stage>"`: **run exactly that command** (`work42 transitions list` shows the options). Don't ask Yan to greenlight a transition the message already offers. Wait only at the human checkpoints: plan approval and the merge. Never write a gate signal that stands for someone else's decision. The sync agent moves the Linear issue with each stage; don't move it yourself.
 
 ## The four phases
 
-### Phase 1 — Planning
+### 1. Planning
 
-Load `linear42-planner` and follow it with rich context: the session id and name; the bound
-issues (`work42 storage get linear/issue_keys`, `linear issue view <KEY>` for each); findings you have;
-subsystems and files worth reading. It walks you through the understanding loop, binding or
-creating the issue, and authoring the Linear spec document, the sub-issues and (when
-warranted) the testing-plan document.
+Load `linear42-planner` with the session id and name, the attached issues (`work42 storage get linear/issue_keys`, `linear issue view <KEY>`), what you already know and pointers to the subsystems involved. It binds or creates the issue and authors the spec, the testing plan and the sub-issues.
 
-**Sanity-check the Plan before asking for approval:** `linear/issues/<KEY>/spec_doc` is set for an attached issue and the
-document reads back (`linear document view <slug> --raw`); the sub-issues exist and the mirror
-shows them (`work42 storage get plan/subtasks`, every entry with a description); and either
-`linear/issues/<KEY>/testing_doc` is set or you and Yan agreed to skip QA. Fix any gap with the Planner
-process.
+Before asking for approval check that `linear/issues/<KEY>/spec_doc` is set and reads back, that the sub-issues exist and are mirrored (`work42 storage get plan/subtasks`, each with a description), and that the testing plan exists (or Yan agreed to skip QA). Then ask Yan to approve: **Approve Plan** on the Spec Document tab, or moving the issue to a started state in Linear. Approval is human-only. If Yan asks for edits, go back to the Planner process and ask again. When approval lands the session offers In-Progress; run it.
 
-**Ask Yan to approve.** The task does not leave Planning until Yan clicks **Approve Plan** on
-the Spec Document tab (enabled once the spec doc and a sub-issue exist) — or moves the issue into a
-started state in Linear. Approval is human-only; there is no command and you never write it.
-If Yan asks for edits, return to the Planner process (it includes clearing the approval).
-When approval lands, the session receives the In-Progress message: run
-`work42 transition "In-Progress"`.
+### 2. In-Progress
 
-### Phase 2 — In-Progress: the Worker, once per sub-issue
+Load `linear42-worker` once per sub-issue, one after another (one working tree; respect dependencies the spec names). Each pass completes its sub-issue in Linear after committing and pushing. When the last one is mirrored the session offers Testing; run it without asking Yan.
 
-The worktree and branch already exist. Load `linear42-worker` **once per sub-issue,
-sequentially** (respect any dependency the spec names; there is one working tree). Each pass
-completes its sub-issue in Linear (`linear issue update <SUBKEY> --state completed`) after
-committing and pushing. When the last one is done and the next poll mirrors it, the session
-receives `Testing is now available` — run `work42 transition "Testing"`. Don't ask Yan
-"ready for QA?".
+### 3. Testing
 
-### Phase 3 — Testing: QA
+Load `linear42-qa` immediately. It executes the testing plan, proves it with recordings, publishes the `<KEY> QA Report` document and writes `qa/verdict`.
 
-Load `linear42-qa` immediately. It reads the QA guide, the spec and testing plan, walks every
-AC, posts the report as a Linear comment with evidence and writes `qa/verdict`. Outcomes:
+- **PASS** → run the Human Review transition when offered, then Phase 4. Never accept a source-only PASS.
+- **FAIL (1st/2nd)** → `work42 transition "In-Progress"`, read the report, create a new fix sub-issue per failing AC (`linear issue create --parent <KEY> --team … --title … --description-file -`) and run the Worker on each. Completed sub-issues stay completed.
+- **FAIL (3rd)** → blocked; escalate to Yan.
+- QA stopped and asked Yan for something: help him resolve it, then QA continues.
 
-- **PASS** — `qa/verdict` = `"PASS"` satisfies the Human Review gate; run
-  `work42 transition "Human Review"` when offered and go straight to Phase 4. **Never accept a
-  source-only PASS**; if QA "couldn't run" something, that is a FAIL naming the environment
-  blocker — fix the environment and re-run.
-- **FAIL (1st/2nd)** — go back with `work42 transition "In-Progress"`. Read the report, then
-  for each failing AC create a **new fix sub-issue**
-  (`linear issue create --parent <KEY> --team … --title … --description-file -`) and run the
-  Worker on each. Earlier completed sub-issues stay completed.
-- **FAIL (3rd)** — blocked; escalate to Yan in chat.
+### 4. Human Review → Done
 
-### Phase 4 — Human Review → Done
+You drive this yourself; Yan re-engages only to shake the build and merge. Human Review writes only to GitHub: no Linear changes.
 
-You drive this yourself; Yan only re-engages to shake the build.
+1. **Prerequisite.** `gh --version` must be 2.99 or newer (it adds `--attach`). If older, stop and ask Yan to run `brew upgrade gh`.
+2. **Gather the proof.** The newest `~/.work42/run/sessions/$WORK42_SESSION_ID/qa/round-<n>/` folder holds QA's screenshots, frames and recordings. GitHub takes images up to 10 MB and videos up to 100 MB (10 MB on a Free plan); trim a long video to the part that proves the AC: `ffmpeg -ss <a> -to <b> -i <src> -c:v libx264 -crf 28 -an <dst>.mp4`.
+3. **Open the draft PR** from the worktree with the proof attached:
+   ```bash
+   gh pr create --draft --title "<KEY>: <title>" --body-file - \
+     --attach "<path>/ac1.png#AC1 plan approved" --attach "<path>/ac2.mp4" <<'MD'
+   Fixes <KEY>
+   ## Summary
+   …what changed and why…
+   ## QA evidence
+   - [AC1] PASS ![AC1 plan approved](./ac1.png)
+   - [AC2] PASS ![AC2 recording](./ac2.mp4)
+   MD
+   ```
+   `Fixes <KEY>` links the PR to the issue and moves it on merge. `--attach` uploads each file and rewrites a body reference `./<file name>` to it; an attached file the body doesn't reference is appended.
+4. **Record it** so the GitHub widget shows it (append, never overwrite):
+   ```bash
+   cur="$(work42 storage get github/prs 2>/dev/null)"; [ -n "$cur" ] || cur='[]'
+   work42 storage set github/prs "$(jq -nc --argjson c "$cur" --arg u "<pr url>" '$c + [{url:$u,status:"open",merged_at:null}]')"
+   ```
+   Say `@yan PR ready: <url>` in chat. The widget then delivers CI results, reviews and merge as system events: on a failing check fix and re-push without waiting.
+5. Yan reviews and **merges on GitHub**; that is his acceptance. Before Done, every entry must be merged:
+   `work42 storage get github/prs | jq '[.[] | select(.status != "merged")] | length'` must print 0. Then run the Done transition when it is offered.
 
-1. Open a draft PR from the worktree: `gh pr create --draft`, rich description (summary, what
-   changed, AC-by-AC QA evidence, how to run). **Put `Fixes <KEY>` in the body** — Linear's
-   GitHub integration then links the PR to the issue and moves it on merge. (It may ask Yan to approve
-   the command; the github plugin's `using-github` skill covers the PR flow.)
-2. Record it: `work42 storage set github/prs '[{"url":"<url>","status":"open","merged_at":null}]'`
-   (append if one exists). The github widget watches it; say "@yan PR ready: <url>" in chat.
-3. Yan reviews and **merges on GitHub** — merging is his acceptance.
-4. On merge the Done gate holds; run `work42 transition "Done"` when offered. Verify first:
-   `work42 storage get github/prs | jq '[.[] | select(.status != "merged")] | length'` must be 0.
-   The sync agent moves the issue to its completed state.
+**PR feedback:** a needed code change → go back with `work42 transition "In-Progress"`, new fix sub-issues, Workers, re-run QA, update the PR. Cosmetic (title, description) → edit on GitHub. Comments from anyone but Yan → note them in chat and wait for his call.
 
-**PR feedback in Human Review:** a needed code change → new fix sub-issue(s), Workers, re-run QA,
-update the PR. Cosmetic fixes (title, description) → edit on GitHub directly. Comments from
-anyone other than Yan: note them in chat and wait for Yan's call.
+## Rules
 
-## Commands
-
-| Command | When |
-|---------|------|
-| `work42 transitions list` · `work42 transition "<Stage>"` | After a "now available" message |
-| `linear issue view <KEY>` · `linear document view <slug> --raw` | Read the issue / spec / testing plan |
-| `linear issue create --parent <KEY> …` | Add a fix sub-issue after a QA FAIL / PR feedback |
-| `work42 storage get plan/subtasks` | Read the mirror (read-only — never write it) |
-| `work42 storage get qa/report` · `qa/verdict` | Triage QA |
-| `work42 storage set github/prs '<json>'` · `get github/prs` | Record / check PRs |
-
-## What to say in chat (the log)
-
-Planning start and context; `@yan [QUESTION] …`; plan drafted, settled, approval requested;
-sub-issue progress; each transition you run and why; QA triage ("AC3 failed; created fix
-sub-issue WOR-130"); PR opened with its URL; how PR feedback was triaged.
-
-## Key rules
-
-- **No implementation code before the Plan is approved.**
-- **Don't author the Plan outside the Planner process.**
-- **Skipping QA is decided with Yan, never silently.**
-- **QA is a phase gate, never a sub-issue.**
-- **Never hand-set a stage and never write `plan/subtasks`, `plan/approved_at` or other gate
-  signals that stand for someone else's decision.** Run `work42 transition` when offered.
-- **Every fix is its own sub-issue** (`--parent`), implemented through the Worker. Work outside
-  the spec's intent goes back to the Planner process with Yan first.
-- **Before Done, every `github/prs` entry is merged.**
+- **No implementation before the plan is approved.** Don't author the plan outside the Planner process.
+- **Skipping QA is decided with Yan, never silently.** QA is a phase, never a sub-issue.
+- **Never write `plan/subtasks`, `plan/approved_at` or other gate signals** that stand for someone else's decision.
+- **Stuck?** Anything you can't resolve (a missing tool, a failing environment, an unauthenticated CLI): stop, say exactly what you need in chat, and wait for Yan. Don't work around it.
+- **Every fix is its own sub-issue**, implemented through the Worker. Work outside the spec's intent goes back to the Planner process with Yan first.
+- The chat is the log: narrate decisions, transitions, QA triage, the PR and its URL.
