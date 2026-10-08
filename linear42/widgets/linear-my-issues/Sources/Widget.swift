@@ -72,17 +72,17 @@ final class LinearMyIssuesWidget: Work42Widget {
                     guard let self, let services = self.services,
                           let key = linearIssueKey(from: currentURL)
                     else { return }
-                    let name = await Self.sessionName(forKey: key, services: services)
-                    try await services.intents.execute(
-                        id: "session.open",
-                        params: [
-                            "typeId": .string("linear-task"),
-                            "name": .string(name),
-                            "initialWidgetStorage": .object([
-                                "linear": .object(["issue_ref": .string(key)]),
-                            ]),
-                        ]
-                    )
+                    let launch = await Self.sessionLaunch(forKey: key, services: services)
+                    var params: [String: WidgetJSONValue] = [
+                        "typeId": .string("linear-task"),
+                        "name": .string(launch.name),
+                        "initialWidgetStorage": .object([
+                            "linear": .object(["issue_ref": .string(key)]),
+                        ]),
+                    ]
+                    // The branch Linear suggests for the issue, so its GitHub integration links the PR.
+                    if let branch = launch.branchName { params["branchName"] = .string(branch) }
+                    try await services.intents.execute(id: "session.open", params: params)
                 }
             ),
         ]
@@ -92,21 +92,14 @@ final class LinearMyIssuesWidget: Work42Widget {
         browserModel?.urlDraft ?? BrowserSurface.model(forKey: id)?.urlDraft ?? ""
     }
 
-    /// `"<KEY>: <title>"` from a fail-soft `linear api` lookup, else the bare key —
-    /// a nicer name when the CLI answers, never blocking or failing the launch.
-    private static func sessionName(forKey key: String, services: SessionServices) async -> String {
-        let query = "query($id: String!) { issue(id: $id) { title } }"
+    /// `"<KEY>: <title>"` and Linear's `branchName` from one fail-soft `linear api` lookup, else the bare
+    /// key and no branch: a nicer name and branch when the CLI answers, never blocking or failing the launch.
+    private static func sessionLaunch(forKey key: String, services: SessionServices) async -> LinearSessionLaunch {
+        let query = "query($id: String!) { issue(id: $id) { title branchName } }"
         let variables = "{\"id\":\"\(key)\"}"
         let command = linearCLIPathPrefix + "linear api \(shellQuote(query)) --variables-json \(shellQuote(variables))"
-        guard let result = try? await services.shell.run(command: command),
-              result.exitCode == 0,
-              let data = result.stdout.data(using: .utf8),
-              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let issue = (root["data"] as? [String: Any])?["issue"] as? [String: Any],
-              let title = (issue["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !title.isEmpty
-        else { return key }
-        return "\(key): \(title)"
+        let result = try? await services.shell.run(command: command)
+        return linearSessionLaunch(key: key, apiOutput: result?.exitCode == 0 ? result?.stdout : nil)
     }
 
     // MARK: Lifecycle

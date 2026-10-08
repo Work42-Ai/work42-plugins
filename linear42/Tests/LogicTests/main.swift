@@ -420,3 +420,11 @@ check(!shouldPostRevoke(approvalStamped: false, approvedAt: nil), "never stamped
 check(!shouldPostRevoke(approvalStamped: false, approvedAt: "2026-10-07T12:00:00Z"), "approved, not yet stamped -> the stamp retry handles it")
 
 if failures == 0 { print("linear42 logic tests: all passed") } else { print("linear42 logic tests: \(failures) FAILED"); exit(1) }
+
+// Start Linear Session: one lookup gives the name and Linear's branch; anything unreadable degrades to the key.
+let launchJSON = #"{"data":{"issue":{"title":" Linear-native plugin ","branchName":"me/wor-6-linear-native-plugin"}}}"#
+check(linearSessionLaunch(key: "WOR-6", apiOutput: launchJSON) == LinearSessionLaunch(name: "WOR-6: Linear-native plugin", branchName: "me/wor-6-linear-native-plugin"), "launch reads the title and the branch")
+check(linearSessionLaunch(key: "WOR-6", apiOutput: #"{"data":{"issue":{"title":"T","branchName":""}}}"#) == LinearSessionLaunch(name: "WOR-6: T", branchName: nil), "an empty branch is no branch")
+check(linearSessionLaunch(key: "WOR-6", apiOutput: #"{"data":{"issue":null}}"#) == LinearSessionLaunch(name: "WOR-6", branchName: nil), "an unknown issue gives the bare key")
+check(linearSessionLaunch(key: "WOR-6", apiOutput: "not json") == LinearSessionLaunch(name: "WOR-6", branchName: nil), "garbage gives the bare key")
+check(linearSessionLaunch(key: "WOR-6", apiOutput: nil) == LinearSessionLaunch(name: "WOR-6", branchName: nil), "a failed CLI call gives the bare key")

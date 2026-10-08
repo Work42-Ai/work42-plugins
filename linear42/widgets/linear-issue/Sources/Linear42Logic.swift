@@ -469,3 +469,23 @@ let linearCLIPathPrefix = "export PATH=\"$PATH:$HOME/.local/bin:$HOME/.cargo/bin
 func shellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
+
+/// What Start Linear Session needs from one `linear api` issue lookup: the session name and Linear's
+/// suggested branch (the name its GitHub integration links on). Fail-soft: anything unreadable gives the
+/// bare key and no branch, so the session still starts (on a random branch).
+struct LinearSessionLaunch: Equatable {
+    var name: String
+    var branchName: String?
+}
+
+func linearSessionLaunch(key: String, apiOutput: String?) -> LinearSessionLaunch {
+    guard let data = apiOutput?.data(using: .utf8),
+          let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let issue = (root["data"] as? [String: Any])?["issue"] as? [String: Any]
+    else { return LinearSessionLaunch(name: key, branchName: nil) }
+    func text(_ field: String) -> String? {
+        let value = (issue[field] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (value?.isEmpty ?? true) ? nil : value
+    }
+    return LinearSessionLaunch(name: text("title").map { "\(key): \($0)" } ?? key, branchName: text("branchName"))
+}
