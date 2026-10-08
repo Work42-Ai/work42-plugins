@@ -34,7 +34,7 @@ Load `linear42-qa` immediately. It executes the testing plan, proves it with rec
 
 ### 4. Human Review → Done
 
-You drive this yourself; Yan re-engages only to shake the build and merge. Human Review writes only to GitHub: no Linear changes.
+You drive this yourself; Yan re-engages only to shake the build and merge. Human Review writes only to GitHub, plus a `linear issue comment add` if Yan needs a note.
 
 1. **Prerequisite.** `gh --version` must be 2.99 or newer (it adds `--attach`). If older, stop and ask Yan to run `brew upgrade gh`.
 2. **Gather the proof.** The newest `~/.work42/run/sessions/$WORK42_SESSION_ID/qa/round-<n>/` folder holds QA's screenshots, frames and recordings. GitHub takes images up to 10 MB and videos up to 100 MB (10 MB on a Free plan); trim a long video to the part that proves the AC: `ffmpeg -ss <a> -to <b> -i <src> -c:v libx264 -crf 28 -an <dst>.mp4`.

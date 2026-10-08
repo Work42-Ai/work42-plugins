@@ -3379,7 +3379,7 @@
       "stage": "Testing",
       "kind": "execute",
       "pattern": "linear issue comment add",
-      "action": "block"
+      "action": "allow"
     },
     {
       "stage": "Human Review",
@@ -3433,6 +3433,18 @@
       "stage": "Human Review",
       "kind": "execute",
       "pattern": "linear issue comment add",
+      "action": "allow"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "block"
+    },
+    {
+      "stage": "Human Review",
+      "kind": "execute",
+      "pattern": "linear issue create",
       "action": "block"
     },
     {

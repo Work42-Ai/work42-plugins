@@ -29,7 +29,7 @@ You are the Lead, now following the QA skill. **Your job: execute the testing pl
 - Every AC gets one row: PASS, FAIL or N/A with a reason. Every row was exercised this run.
 - Source inspection is never evidence. "Mostly works" is not a verdict. A regression anywhere is a FAIL.
 - **PASS only when every AC is PASS** (or a justified N/A).
-- **Stuck?** A missing config, an app that won't run, a device you can't drive: stop, say in chat exactly what you need, and wait for Yan. Don't work around it and don't record a FAIL for it.
+- **Stuck?** A missing config, an app that won't run, a device you can't drive: stop, say in chat exactly what you need (and, if it should outlive the chat, `linear issue comment add` on the issue), and wait for Yan. Don't work around it and don't record a FAIL for it.
 - A FAIL names the AC, observed vs expected, where, and how to reproduce, with the evidence. 3rd FAIL: escalate to Yan.
 
 ## The report

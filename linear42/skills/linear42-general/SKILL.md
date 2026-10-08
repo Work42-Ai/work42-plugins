@@ -43,8 +43,8 @@ The workflow blocks the rest (a blocked command is refused, an unlisted one may 
 |-------|-----------|
 | Planning | Plan content only: documents (`publish-doc.py` spec/testing, `linear document create/update`), artifacts, `plan/spec`, `plan/testing`, `linear/` keys, issues and sub-issues, clearing the approval. File edits blocked: pipe content on stdin. |
 | In-Progress | Code (edits, git), issues, sub-issues, comments. No documents, no artifacts. |
-| Testing | `qa/` keys, `publish-doc.py --kind qa`, device recordings, `ffmpeg`, `screencapture`. No file edits, no Linear issue writes, no other documents. |
-| Human Review | `gh pr …` and `github/prs`. No Linear writes, no artifacts. |
+| Testing | `qa/` keys, `publish-doc.py --kind qa`, device recordings, `ffmpeg`, `screencapture`. No file edits, no issue create/update, no other documents; `linear issue comment add` is allowed. |
+| Human Review | `gh pr …` and `github/prs`; `linear issue comment add` is allowed. No other Linear writes, no artifacts. |
 | Done | Nothing. |
 
 Reads (`linear … view/list/query`, `work42 storage get/list`, `work42 artifact list/status/url`) are allowed everywhere.
@@ -71,7 +71,7 @@ Sign in once with `linear auth login`. Exit codes: 0 ok · 3 not found · 4 auth
 
 ## Comments
 
-End every comment you post to Linear with `_Posted from Work42_`; the sync agent relays every other new comment on the issues, sub-issues and documents into chat as a system event (`<name> left you a comment on Linear <url>`). Answer in chat first; reply on Linear only when asked.
+End every comment you post to Linear with `_Posted from Work42_`; the sync agent relays every other new comment on the issues, sub-issues and documents into chat as a system event (`<name> left you a comment on Linear <url>`). Answer in chat first; reply on Linear only when asked. In Testing and Human Review a comment is the one Linear write allowed besides the QA report: use it for a question, blocker or note for Yan, never in place of the report.
 
 ## When something goes wrong
 
