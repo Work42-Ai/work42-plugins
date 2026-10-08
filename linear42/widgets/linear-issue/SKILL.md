@@ -1,108 +1,44 @@
 ---
 name: widget-linear-issue
-description: |
-  How the Linear Issue widget (session tab kindId widget:linear-issue) works on
-  a linear-task session, and the full `linear/*` session-storage contract the
-  linear42 plugin uses. The widget renders the bound Linear issue (sub-issues
-  and comments included) from linear.app; a per-session background agent
-  mirrors Linear state into the keys the workflow gates read. Use this when
-  you need to bind a session to an issue, read what the sync agent resolved,
-  or understand why a Linear change did or did not reach the gates.
+description: How the Issue Details widget (kindId widget:linear-issue) works, and the `linear/*` session-storage contract the linear42 plugin uses. It shows the attached Linear issues; a per-session background sync agent mirrors Linear into the keys the workflow gates read. Use it to bind a session to an issue, read what the sync agent resolved, or understand why a Linear change did or didn't reach the gates.
 ---
 
-# Linear Issue widget
+# Issue Details widget
 
-Shows the Linear issue(s) attached to this session in an embedded browser, one tab per issue (your normal
-linear.app login — no token handling here). A link to an issue that isn't attached opens in a temporary tab with
-an "Attach <KEY> to this session?" bar; closing an attached tab asks before detaching it (the last one can't be
-detached). Three states:
+Shows the Linear issues attached to this session in an embedded browser, one tab per issue (your normal linear.app login; no token handling here). A link to an issue that isn't attached opens a temporary tab with an "Attach <KEY> to this session?" bar; closing an attached tab asks before detaching it (the last can't be detached). States: **Unbound** (an Attach field: a key like `WOR-123` or an issue URL), **Bound** (a tab per issue, with notice bars for `linear` CLI problems), **Not configured** (a notice naming what is wrong with `~/.config/linear42/config.json`; see `linear42-general`).
 
-- **Unbound** — an Attach field. Enter a key (`WOR-123`) or an issue URL.
-- **Bound** — one tab per attached issue. Notice bars appear above it for `linear` CLI
-  problems.
-- **Not configured** — a notice naming what is wrong with
-  `~/.config/linear42/config.json`.
+## Header pills
 
-## Config — `~/.config/linear42/config.json`
+Each attached issue is one capsule: the key on Linear purple, the status in that state's own Linear colour, and, when the issue has sub-issues, its own `done/total` count. A failed issue keeps its last pill. Warnings (`linear42: not configured`, `linear CLI not installed`, `linear: sign in`, `not found`, `no state "<name>"`) show as chips; fix the cause and the chip clears on the next poll.
 
-Re-read on every poll and action; edits take effect without a restart.
-
-```json
-{
-  "workspace": "work42",
-  "default_team": "WOR",
-  "poll_seconds": 60,
-  "stage_states": { "WOR": { "Human Review": "In Review" } }
-}
-```
-
-`workspace` and `default_team` are required. `poll_seconds` defaults to 60
-(minimum 15). `stage_states` pins a workflow stage to an exact Linear state name
-for a team; stages without an entry resolve by state *type*.
-
-## Storage keys (all in the `linear` namespace unless noted)
+## Storage keys (`linear` namespace unless noted)
 
 | Key | Shape | Written by |
 |-----|-------|------------|
-| `linear/issue_keys` | JSON array of the attached issue keys | sync agent (first issue, migration), Attach / Detach in the widget, the Planner (to attach another) |
-| `linear/issue_ref` | string — issue key or URL | create arg, Attach field, My Linear issues; **seeds the first issue only** |
-| `linear/issues/<KEY>/issue` | `{"key","id","url","team","title"}` | sync agent, once the issue resolves |
-| `linear/resolve_error` | `"not_found"` | sync agent |
-| `linear/cli_error` | `"missing"` or `"auth"` | sync agent |
-| `linear/issues/<KEY>/spec_doc` | `{"slug","url"}` | Planner, after `publish-doc.py --kind spec` |
-| `linear/issues/<KEY>/testing_doc` | `{"slug","url"}` | Planner, after `publish-doc.py --kind testing` |
-| `linear/issues/<KEY>/last_state_type` | Linear state type of that issue at the last poll | sync agent |
-| `linear/issues/<KEY>/pushed_stage` | last workflow stage pushed to that issue | sync agent |
+| `linear/issue_keys` | array of attached issue keys | sync agent, Attach/Detach, the Planner (to attach another) |
+| `linear/issue_ref` | issue key or URL; **seeds the first issue only** | create arg, Attach field, My Linear Issues |
+| `linear/issues/<KEY>/issue` | `{key,id,url,team,title}` | sync agent, once resolved |
+| `linear/issues/<KEY>/spec_doc`, `testing_doc` | `{slug,url}` | Planner, after `publish-doc.py` |
+| `linear/issues/<KEY>/last_state_type`, `pushed_stage` | state type at the last poll; last stage pushed | sync agent |
+| `linear/resolve_error`, `linear/cli_error` | `"not_found"`; `"missing"` or `"auth"` | sync agent |
 | `linear/approval_stamped` | `true` once Linear shows the approval | Approve action / sync agent |
-| `plan/subtasks` | `[{"id","title","description","done","state"}]` — mirror of the sub-issues | sync agent **only** |
-| `plan/approved_at`, `plan/approved_by` | approval signal the In-Progress gate reads | Approve action, sync agent |
-
-## Agent usage
+| `plan/subtasks` | `[{id,title,description,done,state}]`, the sub-issue mirror | sync agent **only** |
+| `plan/approved_at`, `plan/approved_by` | the In-Progress gate's signal | Approve action, sync agent |
 
 ```bash
-# Bind this session to an existing issue (or let the widget's Attach field do it)
-work42 storage set linear/issue_ref '"WOR-123"'
-
-# Attach another issue to the session (append to the array)
-work42 storage set linear/issue_keys '["WOR-123","WOR-124"]'
-
-# See what the sync agent resolved
-work42 storage get linear/issues/WOR-123/issue
+work42 storage set linear/issue_ref '"WOR-123"'                    # bind (or use the Attach field)
+work42 storage set linear/issue_keys '["WOR-123","WOR-124"]'       # attach another: write the whole array
+work42 storage get linear/issues/WOR-123/issue                     # what the sync agent resolved
 ```
 
-Never write `plan/subtasks` yourself: the sync agent rewrites it from the
-sub-issues on every poll. Create or complete sub-issues with the `linear` CLI
-instead; the next poll updates the gates.
+Never write `plan/subtasks` yourself: create or complete sub-issues with `linear` and the next poll updates the gates.
 
-## The sync agent (what keeps Linear and the gates aligned)
+## The sync agent
 
-A per-session background agent runs every `poll_seconds` with one `linear api` call:
+Runs per session every `poll_seconds` with one `linear api` call.
 
-- **Resolves** each attached issue into `linear/issues/<KEY>/issue` (`linear/issue_ref` seeds the first).
-- **Mirrors sub-issues** into `plan/subtasks`. A sub-issue is `done` only in a
-  `completed` state (canceled does not count). Completing one in Linear, by you or
-  by the Worker, is what opens the Testing gate. A failed poll leaves the mirror
-  untouched.
-- **Reads approval back.** If the issue moves INTO a `started` state while the
-  session is in Planning, a spec doc and at least one sub-issue exist, and it was
-  not already started when first seen, the agent writes `plan/approved_at`
-  (`plan/approved_by` = `linear`). That write re-checks the gates and posts the
-  usual "In-Progress is now available" message. You then run
-  `work42 transition "In-Progress"`.
-- **Pushes the stage** to Linear when the session stage changes: Planning ->
-  `unstarted`, In-Progress and Testing -> `started`, Human Review -> a started state
-  named like "review", Done -> `completed` (lowest position of that type, or the exact
-  name in `stage_states`). The first poll of a freshly bound session never demotes
-  the issue: it records the stage without pushing.
-- **Stamps approvals** made in Work42 onto the issue (a comment linking the spec, and
-  the In-Progress state), retrying until `linear/approval_stamped` is `true`.
+- **Resolves** each attached issue and **shows its pill** in every session type that has a bound issue.
+- **Pushes the stage** to each issue's Linear state when the session stage changes: Planning → `unstarted`, In-Progress and Testing → `started`, Human Review → a started state named like "review", Done → `completed` (lowest position of that type, or the exact name in `stage_states`). This happens in any known session type, so a task42 session with an issue attached follows its stage too. A freshly bound session in Planning never demotes the issue.
+- **`linear-task` sessions only**, it also drives the session: mirrors sub-issues into `plan/subtasks` (`done` only in a `completed` state; a failed poll leaves the mirror untouched), reads approval back (the issue moving INTO a started state in Planning, with a spec document and a sub-issue, writes `plan/approved_at` with `plan/approved_by = linear`), stamps Work42 approvals onto the issue (retrying until `linear/approval_stamped`), posts "Plan approval revoked in Work42" when an approval is cleared, and relays other people's Linear comments into chat.
 
-Problems show up as header chips and notices rather than chat events: `linear42: not
-configured`, `linear CLI not installed`, `linear: sign in`, `not found`, and
-`no state "<name>"` (a `stage_states` entry that doesn't exist for the team).
-Fix the cause (config, install, `linear auth login`) and the chip clears on the next poll.
-
-## What the widget does NOT do
-
-It does not publish the header chips or talk to Linear itself: both come from
-the background sync agent. It never writes outside the `linear` namespace.
+The widget never talks to Linear itself and never writes outside the `linear` namespace.

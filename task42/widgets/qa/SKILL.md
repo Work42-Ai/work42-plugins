@@ -1,34 +1,17 @@
 ---
 name: widget-qa
-description: |
-  How the QA widget (session tab kindId widget:qa) works on a task
-  session. It's a read-only render of the session's `qa/report` storage
-  as themed markdown. Use `work42 storage get qa/report` to read the
-  report directly, or `work42 qa <id> --report <md> ...` to write one.
+description: How the QA widget (kindId widget:qa) works on a task session. A read-only render of the session's `qa/report` storage as themed markdown, with the recording frames QA cites. Read the report with `work42 storage get qa/report`.
 ---
 
 # QA widget
 
-Renders the task session's QA report — read-only themed markdown, no
-editing affordance in the widget itself.
-
-## Storage convention
+Renders the task session's QA report as read-only themed markdown: status chips, video frames that open the Work42 recording at the cited event, console panels and a clickable AC index. The grammar the renderer implements is in the `task42-qa` skill. Before any report exists it shows "No QA report yet".
 
 | Key | Type | Description |
-|-----|------|--------------|
-| `qa/report` | string (markdown) | The QA report. Written by the QA agent, never by this widget. |
-
-## Agent usage
+|-----|------|-------------|
+| `qa/report` | string (markdown) | The report. Written by the QA agent, never by this widget. |
+| `qa/verdict` | `"PASS"` or `"FAIL"` | Written last; satisfies (or fails) the Human Review gate. |
 
 ```bash
-# Read the current report
-work42 storage get qa/report
-
-# Attach a QA verdict + report (see the task42-qa skill for the full flow)
-work42 qa <id> --report qa-report.md --verdict PASS
+work42 storage get qa/report     # read the current report
 ```
-
-## Empty state
-
-Before any report exists, the widget shows "No QA report yet" with a hint
-pointing at `qa/report` storage.
