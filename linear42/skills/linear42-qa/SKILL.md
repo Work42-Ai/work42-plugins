@@ -1,137 +1,75 @@
 ---
 name: linear42-qa
-description: The QA contract the Lead follows at Testing (and consults at spec time) for a linear42 task. Defines the bar for PASS, the always-reject list, how a reject reads, how to write a concise evidence-backed report, and how to publish it as a Linear comment plus the qa/verdict + qa/report storage signals. Test-method-agnostic: flows are one evidence source, terminal/CLI/curl checks another. Source inspection is never evidence; never soft-pass.
+description: QA for a linear42 task at Testing — execute the testing plan against the real build (launched with work42 debug start), prove every acceptance criterion with recordings or screenshots, publish the QA report as the issue's "<KEY> QA Report" Linear document with the media uploaded, then write qa/report and qa/verdict. Never soft-pass; when blocked, stop and ask Yan.
 ---
 
-# QA Contract (Linear-native)
+# QA (linear42)
 
-You are the Lead, now following the QA skill. When a session reaches Testing, verify that
-what was built actually matches the spec, the way a human tester would, and leave a
-**concise, evidence-backed report** (a Linear comment) plus a **PASS or FAIL** verdict.
+You are the Lead, now following the QA skill. **Your job: execute the testing plan against the real build, prove each acceptance criterion with what you saw, and publish the result.** Read the testing plan like a script and follow it in order; don't swap in a test of your own. You report bugs, you never fix them.
 
-This skill is the contract, not a flow tutorial. *How* you exercise an AC — a recorded flow,
-a terminal command, a `curl`, a produced file — is your choice; the bar, the reject rules and
-the report shape are the same.
+## Inputs
 
-Two moments: **spec time (advisory)** — help the Planner decide which ACs need which evidence
-for the testing-plan document (nothing runs); **Testing phase (execution)** — everything below.
+- The spec and testing plan: for each key in `work42 storage get linear/issue_keys`,
+  `linear document view "$(work42 storage get linear/issues/<KEY>/spec_doc | jq -r .slug)" --raw` (and `testing_doc`). Read only; never feed `--raw` output back into an update.
+- The project QA guide `~/.work42/<slug>/qa-guide.md`. Read it first.
+- The session worktree, on the task branch.
 
-## Inputs (read before anything)
+## Run the plan
 
-- The spec and testing plan, from Linear:
-  `linear document view "$(work42 storage get linear/issues/<KEY>/spec_doc | jq -r .slug)" --raw` and the
-  same for `linear/issues/<KEY>/testing_doc`, for each key in `linear/issue_keys`. An issue: `linear issue view <KEY>`.
-- The worktree (run from here) and branch.
-- The project QA guide at `~/.work42/<slug>/qa-guide.md` — Yan-authored. **Read it first. If it
-  is missing, say so in chat and stop.**
+1. **Launch.** `work42 debug configs`, then `work42 debug start "<config>"`; wait until it is ready.
+2. **Prove each step with a visual.**
+   - Browser, iOS or Android flow: `work42 device start --device <d>`, drive it (`work42 device actions` lists the verbs), `work42 device stop`. The stop prints the bundle path; its `recording.mov` is the video and `events.jsonl` has step times, so a frame is `ffmpeg -ss <t> -i <bundle>/recording.mov -frames:v 1 <out>.png`. If the plan names a flow and variant, follow it with the `flow-player` skill.
+   - No device fits (the macOS app, a CLI): `screencapture -v` or screenshots.
+   - Visual proof is strongly encouraged, not a hard gate: an AC without one says `no visual proof: <why>`.
+3. **Keep the proof.** Put every file in `~/.work42/run/sessions/$WORK42_SESSION_ID/qa/round-<n>/` (`mkdir -p` it; `n` is 1 more than the folders already there; copy a recording with `ffmpeg -i <src> -c copy <dst>`). The Lead attaches this folder to the PR.
+4. **Try the edges**, not only the happy path.
 
-## The bar for PASS
+## The bar
 
-1. **Walk EVERY acceptance criterion** — one verdict row each (PASS / FAIL / N/A).
-2. **Actually exercise it.** Reading source helps you understand an AC; it is **never** evidence.
-3. **Every PASS is backed by evidence you produced this run:** a UI AC → a recording or
-   screenshot; a CLI/API/data AC → the terminal output that shows it.
-4. **Try the edges**, not just the happy path.
-5. **PASS the task only when EVERY AC is PASS** (or a justified N/A) and no blocking edge fails.
+- Every AC gets one row: PASS, FAIL or N/A with a reason. Every row was exercised this run.
+- Source inspection is never evidence. "Mostly works" is not a verdict. A regression anywhere is a FAIL.
+- **PASS only when every AC is PASS** (or a justified N/A).
+- **Stuck?** A missing config, an app that won't run, a device you can't drive: stop, say in chat exactly what you need, and wait for Yan. Don't work around it and don't record a FAIL for it.
+- A FAIL names the AC, observed vs expected, where, and how to reproduce, with the evidence. 3rd FAIL: escalate to Yan.
 
-## Always REJECT (these are always FAIL)
+## The report
 
-- **"Mostly works."** Half-passing is the worst verdict. Decide.
-- **Any AC you did not verify** and can't justify as N/A.
-- **A source-inspection-only "pass."**
-- **An environment blocker** — build fails, product won't launch, disk full. FAIL and **name the
-  exact blocker**, and say it's the environment, not necessarily the code under test.
-- **A PASS with no evidence** behind it.
-- **A regression** you introduced or spotted, even outside the changed ACs.
-
-Escalation: 1st/2nd FAIL → back to In-Progress (the Lead creates fix sub-issues); **3rd FAIL →
-blocked.** Don't soft-pass to dodge it.
-
-## How a REJECT reads
-
-For each failing AC: **(1)** which AC, **(2)** what's broken (observed vs expected), **(3)**
-where (file:line if known, else the screen/step), **(4)** how to reproduce. Point at the
-evidence. You're QA — **don't fix the bug**; report it.
-
-## Be concise
-
-One line per AC in the index, referenced by tag (`[AC3]`) without restating it. Quote only the
-evidence that proves a claim. No preamble, no hedging. **No "Verdict:" line in the report** —
-the verdict is the `qa/verdict` value.
-
-## Evidence method: optional flow guidance
-
-Flow42 is optional. The testing-plan document names each requested definition with separate
-`flow`, `variant`, `config` and `covers` fields. Never infer a variant. For a UI AC covered by a
-saved definition: collect those fields (stop and ask if flow or variant is missing); launch with
-`work42 debug start "<config>"` (confirm names with `work42 debug configs`); invoke the global
-`flow-player` skill with the flow and variant (it brackets device actions with
-`work42 device start/stop` and retains a normal Work42 recording); then judge each AC against
-what the recording actually shows. A zero-flow, verification-only plan is valid and uses
-terminal/manual evidence. If an approved plan *requires* a flow that is unavailable, FAIL
-naming that blocker instead of reducing coverage. For widget/storage ACs use a Work42 device
-screenshot and cross-check `work42 storage get <ns>/<key>`.
-
-## Testing linear42 itself (or anything needing Linear fixtures)
-
-When the task under test needs real Linear issues, create **throwaway** ones in the configured
-team, titled `[linear42 QA] <what it's for>`:
-`linear issue create --team "$(jq -r .default_team ~/.config/linear42/config.json)" --title "[linear42 QA] …"`.
-List every one you created at the end of the report so Yan can clean them up. Never use real work
-issues as fixtures.
-
-## Write and publish the report
-
-The report is Markdown posted to the **issue as a comment** — Linear renders it, and images you
-attach render inline. Shape:
+One continuous, concise Markdown body: one line per AC (`[AC3]` tags, never restating the AC), the media inline, nothing else unless it earns its place. Reference every file by absolute path (`![AC3 approved](/Users/.../round-1/ac3.png)`, videos the same way); `publish-doc.py` uploads them to Linear.
 
 ```markdown
 # QA Report: <task name>
+Round <n> · <config> on <device>
 
-<Prose: what you verified and how, with [ACn] tags inline. Name the run config and device.>
+- [AC1] PASS — <one line>
+![AC1 plan approved](/abs/path/round-1/ac1.png)
+- [AC2] FAIL — <what's broken, where, how to reproduce>
+![AC2 recording](/abs/path/round-1/ac2.mov)
+- [AC3] N/A — <why>
 
-```console
-<only the lines that prove a claim>
+## Previous rounds
+<one line per earlier round: its date and its failing ACs>
 ```
 
-## Acceptance Criteria
-- [AC1] PASS — <one-liner>
-- [AC2] FAIL — <what's broken + where>
-- [AC3] N/A — <why not exercisable this run>
+## Publish and record
 
-## Observations
-<only if needed beyond the rows>
-```
-
-Publish it with the evidence attached (screenshots, recordings exported to files), then record
-the signals. The Testing stage blocks file edits, so pipe the report on stdin rather than writing
-a temp file:
+The Testing stage blocks file edits and Linear issue writes: pipe the body on stdin; the QA document is the only thing you write to Linear.
 
 ```bash
-linear issue comment add <KEY> --body-file - -a <evidence-file> -a <evidence-file> <<'MD'
-# QA Report: …
-
-_Posted from Work42_
+.claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind qa --file - [--slug <slug>] <<'MD'
+…the report…
 MD
-work42 storage set qa/report "$(jq -nc --arg r '<URL of the comment, or the issue URL if the command prints none>' '$r')"
-work42 storage set qa/verdict '"PASS"'     # or '"FAIL"'
 ```
 
-The report ends with the `_Posted from Work42_` line (see `linear42-general`): the comment relay
-skips comments that carry it, so your own report is not echoed back to you as a new comment.
+It creates (or with `--slug` rewrites) `<KEY> QA Report` and prints `{"slug","url"}`. Do it once per attached issue. Round 1 creates; later rounds rewrite the same document with the `--slug` read from the `qa/docs` storage key, keeping earlier rounds as the short "Previous rounds" section.
 
-Write `qa/report` first and `qa/verdict` last. On **PASS** the Human Review gate holds and the
-session receives the "now available" message (the Lead runs the transition). The Linear comment
-is the report of record; `qa/report` just points at it.
+Then record the signals, `qa/verdict` last:
 
-## Verdict flow, re-test, key rules
+- `qa/docs`: a JSON object `{"<KEY>": {"slug": "...", "url": "..."}}` with an entry per issue. Build it with `jq -nc --arg`.
+- `qa/report`: the JSON string of the first issue's document URL.
+- `qa/verdict`: `"PASS"` or `"FAIL"`.
 
-- **PASS** → Human Review; the Lead opens the draft PR with `Fixes <KEY>`.
-- **FAIL (1st/2nd)** → In-Progress; the Lead creates fix sub-issues. Re-test the previously failed
-  ACs FIRST (fresh evidence), still walk the rest for regressions, and reference the prior report
-  ("previously failed AC3, now: …"). Post a **new comment** each round.
-- **FAIL (3rd)** → blocked; escalate to Yan.
+Each is written with `work42 storage set <key> '<json>'`.
 
-Non-negotiables: **read the QA guide or stop · exercise every AC · source inspection is never
-evidence · couldn't run → FAIL with the named blocker · every PASS has evidence · don't fix bugs ·
-fresh report per round · be concise · narrate every meaningful step in chat.**
+PASS opens the Human Review gate (the session says so; the Lead runs the transition). FAIL goes back to In-Progress, where the Lead creates fix sub-issues. On a re-test, check the previously failed ACs first with fresh evidence, still walk the rest for regressions, and say what changed.
+
+Narrate every meaningful step in chat.
