@@ -7,7 +7,7 @@ A first-party replacement for [`task42`](../task42) where **Linear holds the pla
 | Spec | a **Document** attached to the issue |
 | Testing plan | a second **Document**, "Testing plan" |
 | Subtasks | **sub-issues** of the issue |
-| QA report | a **comment** with evidence attached |
+| QA report | a third **Document**, "QA Report", with the screenshots and recordings uploaded into it |
 | PR | `Fixes <KEY>` in its body, so Linear's GitHub integration links it |
 
 The workflow is task42's: **Planning → In-Progress → Testing → Human Review → Done**, with
@@ -101,9 +101,11 @@ because the click is caught inside the page. Option-click navigates in place.
 The Planner writes the spec and testing plan as Linear Documents. Linear renders neither raw HTML
 nor iframes, so an artifact (`[[artifact:<id>]]` in the markdown) can't appear in a document as
 such. `skills/linear42-general/publish-doc.py` publishes the markdown and replaces each token with a
-screenshot of the artifact (`work42 artifact snapshot`, uploaded through Linear's file upload) plus
-an **Open in Work42** link, `work42://session/<session id>/artifact/<artifact id>`, which reopens
-the live artifact in the app (also from outside it: Safari, the Linear desktop app). Unchanged
+screenshot of the artifact (`work42 artifact snapshot`, uploaded through Linear's file upload) under
+a link titled with the artifact's name, `work42://session/<session id>/artifact/<artifact id>`, which
+reopens the live artifact in the app (also from outside it: Safari, the Linear desktop app). Linear
+keeps the title link but not a link wrapped around the image. Local images and videos in the markdown
+are uploaded too (that is how the `QA Report` document carries its proof). Unchanged
 artifacts aren't uploaded again, and a failed snapshot or upload leaves the document untouched.
 The Work42 app must be running (it hosts the artifact server). The uploaded images need a Linear login to view (an
 anonymous request for one returns 401).
