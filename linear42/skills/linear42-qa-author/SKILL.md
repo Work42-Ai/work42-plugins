@@ -5,24 +5,17 @@ description: Select or prepare reusable Flow42 definitions for a linear42 testin
 
 # linear42 QA Author
 
-Help linear42 express optional reusable UI guidance in the testing-plan document. This skill does not create a
-task-local flow pack, execute a flow, or own evidence. Saved definitions belong
-to Flow42's global registry; execution and recording belong to Work42.
+Express optional, reusable UI guidance in the testing-plan document. This skill doesn't run a flow, own evidence or create task-local flow packs: saved definitions live in Flow42's global registry, and Work42 executes and records them.
 
-## Decide whether a flow adds value
+## When a flow adds value
 
-Use flow guidance for repeatable UI journeys whose visual behavior must be
-exercised. Terminal/API/data acceptance criteria use terminal evidence. A
-verification-only testing plan with no flows is valid.
+Use one for a repeatable UI journey whose visual behaviour must be exercised. Terminal, API and data acceptance criteria use terminal evidence; a testing plan with no flows is valid.
 
-Before naming a flow, inspect `~/.work42/flows/<flow>/manifest.yaml` directly.
-Require an explicit variant key whose mapped `flow.yaml` exists. Read the whole
-variant and its referenced screenshots to ensure it actually covers the desired
-acceptance criteria. Never infer a default variant or use similarity alone.
+Before naming a flow, read `~/.work42/flows/<flow>/manifest.yaml`. Require an explicit variant key whose mapped `flow.yaml` exists, and read the whole variant and its screenshots to be sure it covers the criteria. Never infer a default variant or go by similarity.
 
-## Testing plan contract
+## The entry
 
-Write one entry per requested device variant in the testing-plan Linear document:
+One per requested device variant:
 
 ```markdown
 - flow: login
@@ -34,43 +27,19 @@ Write one entry per requested device variant in the testing-plan Linear document
   [login / browser](flow42://flow/login?variant=browser)
 ```
 
-`flow` and `variant` are separate and required. For browser, iOS, and Android
-coverage, repeat the conceptual flow three times. The variant selects the
-definition; Work42 selects the concrete compatible registered device when the
-global `flow-player` skill runs.
-
-Confirm the exact launch configuration with `work42 debug configs`. A launch
-config starts the product, not a Flow42 runtime, and does not replace the
-variant field.
+`flow` and `variant` are separate and required; browser, iOS and Android coverage repeats the entry three times. Confirm `config` with `work42 debug configs` (it starts the product and doesn't replace the variant).
 
 ## Missing coverage
 
-If the family or required variant does not exist:
+If the flow or variant doesn't exist:
 
-1. State which acceptance criteria lack reusable guidance.
-2. Ask the user whether they want to record that device variant.
-3. If accepted, let Work42 choose the concrete device and create one or more
-   completed Work42 recordings.
-4. Invoke the global `flow-creator` skill to propose the standalone variant.
-   The user must confirm it before it is added to the manifest.
-5. Add the testing-plan entry only after the saved manifest maps that variant.
+1. Say which criteria lack reusable guidance and ask Yan whether to record that variant.
+2. If yes, let Work42 pick the device and create one or more completed Work42 recordings.
+3. Invoke the global `flow-creator` skill to propose the standalone variant; Yan confirms it before it is added to the manifest.
+4. Add the testing-plan entry only once the saved manifest maps that variant. Never invent empty variants, translate another platform's steps, author from coordinates or keep recording identifiers.
 
-Do not invent empty variants, translate another platform's steps, author from
-coordinates, retain recording identifiers, or use legacy embeds/replicate
-commands. Direct human/agent authoring is allowed, but prior knowledge from one
-or more recordings is preferred.
+## Boundary and handoff
 
-## Optional-plugin boundary
+linear42 works without Flow42: don't import its code, require its widget, or add flows to criteria that other evidence covers. If an approved plan requires a flow that is unavailable at Testing, QA stops and asks Yan; it never swaps in other coverage.
 
-linear42 must work without Flow42. Do not import Flow42 code, require its widget,
-or add flow coverage to criteria that can be verified through approved non-flow
-evidence. If an approved testing plan explicitly requires a saved flow and the
-plugin or definition is unavailable at Testing time, QA reports that named
-blocker; it does not silently replace the requested platform coverage.
-
-## Handoff
-
-Return the exact Markdown entries, the ACs covered by each, and the expected
-visual outcome. Do not run the flow during planning. At Testing time,
-`linear42-qa` invokes `flow-player`; the resulting ordinary Work42 recording is
-cited through the existing recording card and timeline grammar.
+Return the exact entries, the criteria each covers and the expected visual outcome. Don't run the flow while planning; at Testing `linear42-qa` follows it with `flow-player`.
