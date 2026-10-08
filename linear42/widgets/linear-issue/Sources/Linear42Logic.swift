@@ -429,9 +429,16 @@ func eventPostCommand(sessionId: String, fingerprint: String, message: String) -
 let linearSessionTypeID = "linear-task"
 
 /// Whether the bound issue may DRIVE the session: mirror its sub-issues into `plan/subtasks`, read
-/// approval back, push the stage to Linear, relay comments. Only `linear-task` sessions.
+/// approval back, relay comments (and push the stage). Only `linear-task` sessions.
 func shouldSync(typeId: String?) -> Bool {
     typeId == linearSessionTypeID
+}
+
+/// Whether the session's stage moves the bound issue's Linear state. Any session whose type is known
+/// (`task`, `linear-task`, ...): a task42 session with an issue attached follows the same stage mapping.
+/// Nothing else of `shouldSync` applies there.
+func shouldPushStage(typeId: String?) -> Bool {
+    typeId != nil
 }
 
 /// Whether a bound issue's labels (key, status, sub-issue count) show in the header. Any session whose

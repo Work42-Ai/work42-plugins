@@ -143,7 +143,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             }
         }
         await apply(issues, keys: keys, complete: complete, keptPills: pills, config: config,
-                    fullSync: fullSync, services: services)
+                    fullSync: fullSync, pushStages: shouldPushStage(typeId: sessionTypeId), services: services)
         return config.pollSeconds
     }
 
@@ -199,6 +199,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         keptPills: [[WidgetHeaderLabel]],
         config: Linear42Config,
         fullSync: Bool,
+        pushStages: Bool,
         services: WidgetBackgroundServices
     ) async {
         guard !issues.isEmpty else { return }
@@ -214,11 +215,23 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             ]), services)
         }
 
-        // Outside a linear-task session the issues only DISPLAY (labels in the header): nothing below
-        // may run, because it would overwrite the session's own plan/subtasks, approve its plan, move an
-        // issue, or post comments (what an earlier version did to a task42 session).
+        // Outside a linear-task session the issues DISPLAY (labels in the header) and follow the session's
+        // stage (a task42 session moves its Linear issue the same way). Nothing else below may run there,
+        // because it would overwrite the session's own plan/subtasks, approve its plan, or post comments
+        // (what an earlier version did to a task42 session).
         guard fullSync else {
-            publish(chips(for: issues, states: [:], extra: [], kept: keptPills))
+            var states: [String: String] = [:]
+            var warnings: [WidgetHeaderLabel] = []
+            if pushStages {
+                let stage = stageName(await read("session", "stage", services))
+                for issue in issues {
+                    var currentState = issue.stateName
+                    await pushStage(stage, issue: issue, config: config, services: services,
+                                    currentState: &currentState, warnings: &warnings)
+                    states[issue.key] = currentState
+                }
+            }
+            publish(chips(for: issues, states: states, extra: warnings, kept: keptPills))
             return
         }
 
