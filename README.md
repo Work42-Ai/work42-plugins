@@ -15,8 +15,7 @@ work42 plugin install /path/to/plugin-folder
 work42 plugin install https://github.com/work42-ai/work42-plugins --path github
 ```
 
-You can also use **Settings → Plugins** in the app. `work42 plugin setup <name>` (or the **Set up**
-button) opens a chat that checks the plugin has everything it needs.
+You can also use **Settings → Plugins** in the app. A plugin that needs a tool says so in its skills' `## Prerequisites`; the agent follows them (or the plugin's `<name>-setup` skill) when something is missing.
 
 ### Plugins that live with their tool
 
