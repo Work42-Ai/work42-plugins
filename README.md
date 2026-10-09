@@ -18,6 +18,16 @@ work42 plugin install https://github.com/work42-ai/work42-plugins --path github
 You can also use **Settings → Plugins** in the app. `work42 plugin setup <name>` (or the **Set up**
 button) opens a chat that checks the plugin has everything it needs.
 
+### Plugins that live with their tool
+
+`meet42` (meeting capture and transcription) is not in this repository: it is its own tool, with its own signed
+releases and its Work42 plugin in the same repository,
+[`Work42-Ai/meet42`](https://github.com/Work42-Ai/meet42):
+
+```bash
+work42 plugin install https://github.com/Work42-Ai/meet42 --path work42-plugin
+```
+
 ### Install order
 
 A plugin that builds on another declares it in `requires`, and install fails until the other
