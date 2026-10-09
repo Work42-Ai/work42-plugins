@@ -4,3 +4,4 @@ description: Structured, device-specific flow guidance built exclusively on Work
 author: work42
 sdk_version: 11
 global_skills: flow-creator, flow-player
+requires: []

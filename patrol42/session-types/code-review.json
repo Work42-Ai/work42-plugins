@@ -3,6 +3,13 @@
   "name": "Code Review",
   "workflow": "code-review",
   "layout_json": "[{\"id\":\"20BDC83F-CF50-4351-A881-C22C620F087A\",\"templateId\":\"codeReviewChat\",\"openItems\":[\"chat\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"93A12758-D335-40B3-A0BF-748CE7FA600C\",\"templateId\":\"codeReviewCode\",\"openItems\":[\"files\",\"terminal\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"3B89292A-254E-4BB1-B561-1B81BE99D4D4\",\"templateId\":\"debug\",\"openItems\":[\"debugConsole\"],\"pinnedItems\":[],\"isPlanView\":false},{\"id\":\"9F06DE48-B96B-4050-B7B9-301E7B2AAEA2\",\"templateId\":\"codeReviewReview\",\"openItems\":[\"widget:github\"],\"pinnedItems\":[],\"isPlanView\":false}]",
+  "widgets": [
+    "chat",
+    "files",
+    "terminal",
+    "debugConsole",
+    "widget:github"
+  ],
   "icon": "checkmark.shield",
   "accent_hex": null,
   "fresh_per_session": false,

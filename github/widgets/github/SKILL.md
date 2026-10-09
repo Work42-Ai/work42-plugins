@@ -8,12 +8,21 @@ description: |
   merged_at}). Use `task42 storage set <id> github/prs '<json>'` on a task,
   to attach
   PRs without the widget open. The widget delivers PR activity as
-  `[system event]`s via `task42 event`. The widget is
-  installed by default; the user can opt out via the My Widgets settings
-  panel.
+  `[system event]`s via `task42 event`. The widget comes with the `github`
+  plugin (added with `work42 plugin install`); it is not bundled with the app.
 ---
 
 # GitHub PR widget
+
+## Prerequisites
+
+The background PR watch uses the GitHub CLI. Check it before relying on this widget:
+
+1. `command -v gh` must print a path. If it prints nothing, install it: `brew install gh`.
+2. `gh auth status` must say you are logged in. If not, ask the user to run `gh auth login` themselves (it is
+   interactive; do not try to answer its prompts).
+
+Without a working `gh` the watch loop skips each PR and no PR activity is delivered; nothing else breaks.
 
 ## Overview
 

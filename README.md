@@ -1,8 +1,9 @@
 # work42-plugins
 
 Installable [Work42](https://github.com/work42-ai/work42) plugin bundles — the
-first-party plugins that ship with the app (Jira, GitHub) and any community
-plugins built the same way.
+first-party plugins (GitHub, Jira, Figma, Linear, ...) and any community plugins built
+the same way. **Work42 ships with none of them and installs none automatically**: you
+add the ones you want.
 
 A Work42 plugin is a **source folder** (or git repo) containing a `plugin.yaml`
 manifest plus any combination of widgets, skills, and tab templates. Install
@@ -10,9 +11,25 @@ the entire bundle in one command:
 
 ```bash
 work42 plugin install /path/to/plugin-folder
-# or from a git URL:
-work42 plugin install https://github.com/work42-ai/work42-plugins/github
+# or from a git URL (--path picks the plugin folder inside the repository):
+work42 plugin install https://github.com/work42-ai/work42-plugins --path github
 ```
+
+You can also use **Settings → Plugins** in the app. `work42 plugin setup <name>` (or the **Set up**
+button) opens a chat that checks the plugin has everything it needs.
+
+### Install order
+
+A plugin that builds on another declares it in `requires`, and install fails until the other
+plugin is installed. Install the required ones first:
+
+| Plugin | `requires` | Notes |
+|--------|------------|-------|
+| `github` | – | needs the `gh` CLI signed in (`brew install gh`, `gh auth login`) |
+| `jira`, `figma`, `flow42` | – | |
+| `task42` | `github` | task lifecycle session type |
+| `linear42` | `github` | needs the `linear` CLI (`brew install schpet/tap/linear`, `linear auth login`) and `~/.config/linear42/config.json` |
+| `patrol42` | `github` | code-review session type |
 
 ## Plugin bundle format
 
@@ -22,15 +39,20 @@ optional and discovered by convention — no per-item lists in the manifest):
 ```
 <plugin-name>/
   plugin.yaml              required: name, version, description, author, sdk_version
+                           optional: requires (plugins this one depends on)
   widgets/
     <slug>/
       Sources/
         Widget.swift       Work42Widget implementation + @_cdecl entry points
       SKILL.md             agent-facing widget skill (storage keys, CLI verbs)
       # widget.yaml and .dylib are generated at install time — do not commit them
+  session-types/
+    <id>.json              a session type; its "widgets" list is the widgets its sessions have
   skills/
     <name>/
-      SKILL.md             plugin-level skill (how to use the plugin's widgets together)
+      SKILL.md             plugin-level skill (how to use the plugin's widgets together).
+                           A skill for something that needs an external tool or config starts
+                           with a "## Prerequisites" section: exact commands to check and install it.
   tab-templates/
     <name>.json            UserTabTemplate JSON (must have a stable hardcoded UUID id)
 ```
@@ -44,6 +66,7 @@ optional and discovered by convention — no per-item lists in the manifest):
 | `description` | yes | Human-readable description of the plugin. |
 | `author` | yes | Author name or organization. |
 | `sdk_version` | yes | Widget SDK ABI version. Must match the installed Work42 ABI. |
+| `requires` | no | Names of plugins this one depends on, e.g. `requires: [github]`. Install fails until they are installed; `work42 plugin remove` refuses to remove one that is still required. |
 
 Example `plugin.yaml`:
 ```yaml
@@ -51,7 +74,8 @@ name: github
 version: 1
 description: GitHub PR browser and open-PRs list widgets for Work42.
 author: work42
-sdk_version: 4
+sdk_version: 11
+requires: []
 ```
 
 ### Tab template JSON shape
@@ -136,7 +160,7 @@ work42 plugin install /path/to/work42-plugins/linear42
 ### From a git URL
 
 ```bash
-work42 plugin install https://github.com/work42-ai/work42-plugins/github
+work42 plugin install https://github.com/work42-ai/work42-plugins --path github
 ```
 
 The installer:

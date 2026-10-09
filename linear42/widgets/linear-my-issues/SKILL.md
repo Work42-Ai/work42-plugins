@@ -10,3 +10,10 @@ An embedded browser on `https://linear.app/<workspace>/my-issues/assigned`. The 
 **Start Linear Session** (action area and command palette) is enabled whenever the page shows an issue (`…/issue/WOR-123/…`). It opens a `linear-task` session named `WOR-123: <issue title>` on Linear's suggested branch for the issue (the same name its GitHub integration links on; the bare key and a random branch if the `linear` CLI can't be reached) and seeds its `linear/issue_ref` with the key, so Issue Details loads the issue at once and the sync agent resolves it. Greyed out? Open an issue from the list first: the widget reads the current page URL.
 
 The widget stores nothing and has no background agent.
+
+## Prerequisites
+
+This widget reads Linear through the `linear` CLI. If `command -v linear` prints nothing, install it with
+`brew install schpet/tap/linear`; if `linear auth whoami` does not show a user, ask the user to run
+`linear auth login`; and it needs `~/.config/linear42/config.json` (`workspace`, `default_team`, `poll_seconds`).
+The full steps are in the `linear42-general` skill.
