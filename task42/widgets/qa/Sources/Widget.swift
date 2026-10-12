@@ -72,8 +72,7 @@ private struct QAWidgetView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: DT.s12) {
                 if let report = widget.report, !report.isEmpty {
-                    Markdown(report)
-                        .markdownTheme(.work42)
+                    Work42MarkdownText(report)
                 } else {
                     Text("No QA report yet")
                         .font(.system(size: DT.f13, weight: .semibold))
