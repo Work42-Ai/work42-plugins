@@ -11,3 +11,4 @@ description: >
   onCreate hook. Reuses the github plugin's widget:github as the review surface.
 author: work42
 sdk_version: 11
+requires: [github]

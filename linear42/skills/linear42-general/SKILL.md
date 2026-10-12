@@ -7,6 +7,21 @@ description: The linear42 task lifecycle — a Linear-native replacement for tas
 
 A **task is a work42 session** of type `linear-task`, bound to one or more Linear issues. The plan lives in Linear; the workflow's **gates** live in session storage, and a background **sync agent** keeps them aligned. You use two CLIs: `work42` (storage, transitions, artifacts, devices) and `linear`. Never edit `~/.work42/work42.db` by hand.
 
+## Prerequisites
+
+linear42 needs three things. Check each, and set up whatever is missing before relying on the lifecycle:
+
+1. **The `linear` CLI** (schpet/linear-cli, not the Linear desktop app). `command -v linear` must print a path.
+   If it prints nothing: `brew install schpet/tap/linear`, then `linear --version` to confirm.
+2. **A signed-in workspace.** `linear auth whoami` must show who you are. If not, ask the user to run
+   `linear auth login` themselves (it asks for an API key; do not enter one for them).
+3. **`~/.config/linear42/config.json`** (see *Config* below). If it is missing, ask the user for their Linear
+   workspace slug and default team key (`linear team list` shows the keys), then write:
+   `{ "workspace": "<slug>", "default_team": "<KEY>", "poll_seconds": 60 }`. Never guess a team.
+
+linear42 also `requires` the **github** plugin (its code-review tab); if `work42 plugin list` does not show it, ask
+the user to install it first. The PR flow needs `gh` signed in: see the github plugin's skills.
+
 ## Where things live
 
 | What | Where | Written by |

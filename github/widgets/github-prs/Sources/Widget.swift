@@ -15,7 +15,7 @@
 //
 // TABS:
 //   One BrowserSurface tab per workspace repo at its /pulls page. Uses
-//   model.replaceTabs (via configure closure and BrowserSurface.model(forKey:)).
+//   model.replaceTabs (via the configure closure, which saves the model in `browserModel`).
 //
 // ACTION-AREA INTENT:
 //   "Review GitHub PR" — placement: [.palette, .actionArea].
@@ -196,13 +196,12 @@ final class GitHubPRsWidget: Work42Widget {
                 title: "Review GitHub PR",
                 icon: "arrow.triangle.pull",
                 iconImageData: GitHubPRsReviewAgent.githubMarkPNG,
-                brandColorHex: "#1F2328",
                 keywords: ["review", "code review", "pr", "pull request", "session"],
                 placement: [.palette, .actionArea],
                 actionAreaStyle: .labeled,
                 isEnabled: { [weak self] in
                     guard let self else { return false }
-                    let urlString = BrowserSurface.model(forKey: self.id)?.urlDraft ?? ""
+                    let urlString = self.liveBrowserModel()?.urlDraft ?? ""
                     guard let reference = githubPRReference(urlString),
                           case .ready(let repos) = self.loadState
                     else { return false }
@@ -212,7 +211,7 @@ final class GitHubPRsWidget: Work42Widget {
                 },
                 perform: { [weak self] in
                     guard let self else { return }
-                    let urlString = BrowserSurface.model(forKey: self.id)?.urlDraft ?? ""
+                    let urlString = self.liveBrowserModel()?.urlDraft ?? ""
                     guard let reference = githubPRReference(urlString) else { return }
                     guard let svc = self.services else { return }
                     guard case .ready(let repos) = self.loadState,
@@ -281,6 +280,15 @@ final class GitHubPRsWidget: Work42Widget {
     private var services: SessionServices?
     private var enumerationTask: Task<Void, Never>?
 
+    /// The surface's model, saved by the view's `configure:` closure; nil until the view has mounted.
+    var browserModel: BrowserWidgetModel?
+
+    /// The surface's model: the one `configure:` saved, else the cache entry under this widget's scope. The SDK
+    /// keys each surface by `"<session id or home>/<widget id>"`, so the unscoped lookup finds nothing.
+    private func liveBrowserModel() -> BrowserWidgetModel? {
+        browserModel ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")
+    }
+
     // MARK: - Lifecycle
 
     func activate(services: SessionServices) {
@@ -296,6 +304,7 @@ final class GitHubPRsWidget: Work42Widget {
         enumerationTask?.cancel()
         enumerationTask = nil
         services = nil
+        browserModel = nil
         loadState = .loading
         showingAddRepoForm = false
         BrowserSurfaceCache.shared.teardown(key: id)
@@ -478,7 +487,7 @@ final class GitHubPRsWidget: Work42Widget {
 
     private func publishRepos(_ repos: [RepoInfo]) {
         loadState = .ready(repos)
-        if let model = BrowserSurface.model(forKey: id) {
+        if let model = liveBrowserModel() {
             syncTabs(to: model, repos: repos)
         }
     }
@@ -621,6 +630,7 @@ private struct GitHubPRsBrowserView: View {
             cacheKey: widget.id,
             configure: { [weak widget] model in
                 guard let widget else { return }
+                widget.browserModel = model
                 widget.syncTabs(to: model, repos: repos)
                 model.onNewTab = { [weak widget] in
                     widget?.showingAddRepoForm = true
@@ -725,9 +735,13 @@ private struct GitHubBrandMark: View {
 private let ghReviewPathPrefix =
     "export PATH=\"$PATH:/opt/homebrew/bin:/usr/local/bin:/opt/local/bin\""
 
-/// GitHub mark (50x50 PNG) as base64 — leads the "to review" chip with the
-/// brand logo. Sourced from the app's github-logo.png.
-private let githubMarkPNGBase64 = "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"
+/// The GitHub mark as a small embedded PNG, base64-encoded, so header chips and widget icons show it with no
+/// network and no bundle resources. Source: GitHub's official Invertocat from the brand kit
+/// (https://brand.github.com/GitHub_Logos.zip, SVG/GitHub_Invertocat_Black.svg, the plain file, not the
+/// _Clearspace one), shape unchanged, recoloured green #58BC51 with the cat filled black, 64 x 64 with no
+/// transparent margin. One image for light and dark. It goes on a NEUTRAL chip: a chip with a brand fill makes
+/// the host redraw the mark as a one-colour silhouette (a blank disc).
+private let githubMarkPNGBase64 = "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"
 
 /// Background agent for the GitHub PRs board: publishes a single "N to review"
 /// header label — the count of OPEN PRs where the authenticated `gh` user is a
@@ -811,7 +825,6 @@ final class GitHubPRsReviewAgent: WidgetBackgroundAgent {
         return WidgetHeaderLabel(
             text: "\(n) \(noun) \(suffix)",
             iconImageData: githubMarkPNG,
-            brandColorHex: "#1F2328",   // GitHub dark
             tint: .neutral
         )
     }

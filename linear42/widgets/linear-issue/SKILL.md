@@ -7,6 +7,13 @@ description: How the Issue Details widget (kindId widget:linear-issue) works, an
 
 Shows the Linear issues attached to this session in an embedded browser, one tab per issue (your normal linear.app login; no token handling here). A link to an issue that isn't attached opens a temporary tab with an "Attach <KEY> to this session?" bar; closing an attached tab asks before detaching it (the last can't be detached). States: **Unbound** (an Attach field: a key like `WOR-123` or an issue URL), **Bound** (a tab per issue, with notice bars for `linear` CLI problems), **Not configured** (a notice naming what is wrong with `~/.config/linear42/config.json`; see `linear42-general`).
 
+## Prerequisites
+
+This widget reads Linear through the `linear` CLI. If `command -v linear` prints nothing, install it with
+`brew install schpet/tap/linear`; if `linear auth whoami` does not show a user, ask the user to run
+`linear auth login`; and it needs `~/.config/linear42/config.json` (`workspace`, `default_team`, `poll_seconds`).
+The full steps are in the `linear42-general` skill.
+
 ## Header pills
 
 Each attached issue is one capsule: the key on Linear purple, the status in that state's own Linear colour, and, when the issue has sub-issues, its own `done/total` count. A failed issue keeps its last pill. Warnings (`linear42: not configured`, `linear CLI not installed`, `linear: sign in`, `not found`, `no state "<name>"`) show as chips; fix the cause and the chip clears on the next poll.

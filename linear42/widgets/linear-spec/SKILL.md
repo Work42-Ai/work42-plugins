@@ -7,6 +7,13 @@ description: How the Spec Document widget (kindId widget:linear-spec) works on a
 
 Shows the spec documents of the attached issues (`linear/issues/<KEY>/spec_doc`, a `{slug,url}` the Planner writes after `publish-doc.py --issue <KEY> --kind spec`), one tab per document (`📐 WOR-6 Spec`), in an embedded browser on your linear.app login. Before any document exists it shows "No spec yet". A link to a spec document no attached issue holds opens in a temporary tab.
 
+## Prerequisites
+
+This widget reads Linear through the `linear` CLI. If `command -v linear` prints nothing, install it with
+`brew install schpet/tap/linear`; if `linear auth whoami` does not show a user, ask the user to run
+`linear auth login`; and it needs `~/.config/linear42/config.json` (`workspace`, `default_team`, `poll_seconds`).
+The full steps are in the `linear42-general` skill.
+
 ## Approve Plan
 
 The green **Approve Plan** action (action area and command palette) is the human gate between Planning and In-Progress. It is enabled only while a spec document is set on an attached issue, `plan/subtasks` (the sub-issue mirror) is non-empty, and `plan/approved_at` isn't set. Clicking it writes `plan/approved_by` (the macOS username) then `plan/approved_at` (ISO-8601); that second write re-checks the gates and the session receives "In-Progress is now available". Approving from the other side also works: moving the issue into a started state in Linear while in Planning.

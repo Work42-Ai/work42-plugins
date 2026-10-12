@@ -193,7 +193,7 @@ final class JiraBoardWidget: Work42Widget {
                     // Prefer the stashed model; fall back to the static cache
                     // accessor in case configure hasn't fired yet.
                     let urlDraft = self.browserModel?.urlDraft
-                        ?? BrowserSurface.model(forKey: self.id)?.urlDraft
+                        ?? BrowserSurface.model(forKey: self.id, scope: self.services?.sessionId ?? "home")?.urlDraft
                         ?? ""
                     // Enabled whenever the browser names a Jira issue — a
                     // /browse/ page OR an issue open in a board/backlog/nav modal
@@ -203,7 +203,8 @@ final class JiraBoardWidget: Work42Widget {
                 },
                 perform: { [weak self] in
                     guard let self else { return }
-                    let model = self.browserModel ?? BrowserSurface.model(forKey: self.id)
+                    let model = self.browserModel
+                        ?? BrowserSurface.model(forKey: self.id, scope: self.services?.sessionId ?? "home")
                     let currentURL = model?.urlDraft ?? ""
                     guard !currentURL.isEmpty else { return }
                     guard let services = self.services else { return }

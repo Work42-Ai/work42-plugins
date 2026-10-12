@@ -267,10 +267,16 @@ final class JiraWidget: Work42Widget {
 
     // MARK: - Tab sync
 
+    /// The surface's model: the one `configure:` saved, else the cache entry under this widget's scope. The SDK
+    /// keys each surface by `"<session id or home>/<widget id>"`, so the unscoped lookup finds nothing.
+    private func liveBrowserModel() -> BrowserWidgetModel? {
+        browserModel ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")
+    }
+
     /// Sync the BrowserSurface model's tab list from `displayedURLs` — one tab
     /// per attached issue (plus a transient opened-link tab).
     func syncTabs() {
-        guard let model = BrowserSurface.model(forKey: id) else { return }
+        guard let model = liveBrowserModel() else { return }
         let tabs: [BrowserTab] = displayedURLs.map { url in
             let urlString = url.absoluteString
             let label = keyForURL(urlString) ?? (url.host ?? urlString)
