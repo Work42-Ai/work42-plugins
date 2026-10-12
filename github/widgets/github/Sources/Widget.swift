@@ -77,6 +77,8 @@ struct PRRef: Sendable {
     var repo: String
     var number: Int
     var displayName: String { "\(owner)/\(repo)#\(number)" }
+    /// What the header chip and the browser tab show: "#299 · work42". Agent-facing messages keep `displayName`.
+    var shortName: String { "#\(number) \u{00B7} \(repo)" }
     var inlineCommentsEndpoint: String { "repos/\(owner)/\(repo)/pulls/\(number)/comments" }
 }
 
@@ -643,7 +645,7 @@ final class GitHubBackgroundAgent: WidgetBackgroundAgent {
     /// Recompute `headerLabels` from `headerStates`. Called at the end of each
     /// successful poll cycle. Emits ONE segmented group per attached PR (in the
     /// stored order), sharing `groupId = the PR url` so the host renders each PR
-    /// as a single pill: a GitHub-marked id segment (`owner/repo#N`, the green
+    /// as a single pill: a GitHub-marked id segment (`#N · repo`, the green
     /// mark on a neutral chip) that opens the PR, followed by its CI and review status
     /// segments (semantic tints) that deep-link to the checks / PR. Every PR
     /// gets at least its id segment, so none is lost.
@@ -653,9 +655,9 @@ final class GitHubBackgroundAgent: WidgetBackgroundAgent {
         for entry in prs {
             guard let st = headerStates[entry.url] else { continue }
             let gid = entry.url
-            let idText = parseGitHubPRRef(entry.url)?.displayName ?? entry.url
+            let idText = parseGitHubPRRef(entry.url)?.shortName ?? entry.url
 
-            // ID segment — brand mark + owner/repo#N on the GitHub brand fill.
+            // ID segment — the GitHub mark + "#N · repo" on a neutral chip.
             labels.append(WidgetHeaderLabel(
                 text: idText,
                 iconImageData: githubMarkPNG,
@@ -901,7 +903,7 @@ final class GitHubPRWidget: Work42Widget {
         let tabs: [BrowserTab] = displayedURLs.map { url in
             let urlString = url.absoluteString
             let ref = parseGitHubPRRef(urlString)
-            let label = ref?.displayName ?? urlString
+            let label = ref?.shortName ?? urlString
             return BrowserTab(id: stableTabID(for: urlString), url: url, title: label, icon: "arrow.triangle.pull")
         }
         model.replaceTabs(tabs)
