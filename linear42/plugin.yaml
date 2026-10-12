@@ -9,5 +9,5 @@ description: >
   storage mirrors just the gate signals. Reuses the github plugin's widget
   for code review. Configured entirely from ~/.config/linear42/config.json.
 author: work42
-sdk_version: 11
+sdk_version: 12
 requires: [github]

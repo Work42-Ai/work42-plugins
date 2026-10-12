@@ -9,5 +9,5 @@ description: >
   Figma's approved MCP Catalog, so the agent (e.g. Claude, an approved client)
   connects it via its own connector settings instead.
 author: work42
-sdk_version: 11
+sdk_version: 12
 requires: []
