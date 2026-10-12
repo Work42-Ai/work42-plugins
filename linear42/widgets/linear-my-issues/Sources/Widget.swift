@@ -89,7 +89,7 @@ final class LinearMyIssuesWidget: Work42Widget {
     }
 
     private var currentURL: String {
-        browserModel?.urlDraft ?? BrowserSurface.model(forKey: id)?.urlDraft ?? ""
+        browserModel?.urlDraft ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")?.urlDraft ?? ""
     }
 
     /// `"<KEY>: <title>"` and Linear's `branchName` from one fail-soft `linear api` lookup, else the bare

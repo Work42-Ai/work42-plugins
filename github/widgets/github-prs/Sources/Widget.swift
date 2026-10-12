@@ -15,7 +15,7 @@
 //
 // TABS:
 //   One BrowserSurface tab per workspace repo at its /pulls page. Uses
-//   model.replaceTabs (via configure closure and BrowserSurface.model(forKey:)).
+//   model.replaceTabs (via the configure closure, which saves the model in `browserModel`).
 //
 // ACTION-AREA INTENT:
 //   "Review GitHub PR" — placement: [.palette, .actionArea].
@@ -202,7 +202,7 @@ final class GitHubPRsWidget: Work42Widget {
                 actionAreaStyle: .labeled,
                 isEnabled: { [weak self] in
                     guard let self else { return false }
-                    let urlString = BrowserSurface.model(forKey: self.id)?.urlDraft ?? ""
+                    let urlString = self.liveBrowserModel()?.urlDraft ?? ""
                     guard let reference = githubPRReference(urlString),
                           case .ready(let repos) = self.loadState
                     else { return false }
@@ -212,7 +212,7 @@ final class GitHubPRsWidget: Work42Widget {
                 },
                 perform: { [weak self] in
                     guard let self else { return }
-                    let urlString = BrowserSurface.model(forKey: self.id)?.urlDraft ?? ""
+                    let urlString = self.liveBrowserModel()?.urlDraft ?? ""
                     guard let reference = githubPRReference(urlString) else { return }
                     guard let svc = self.services else { return }
                     guard case .ready(let repos) = self.loadState,
@@ -281,6 +281,15 @@ final class GitHubPRsWidget: Work42Widget {
     private var services: SessionServices?
     private var enumerationTask: Task<Void, Never>?
 
+    /// The surface's model, saved by the view's `configure:` closure; nil until the view has mounted.
+    var browserModel: BrowserWidgetModel?
+
+    /// The surface's model: the one `configure:` saved, else the cache entry under this widget's scope. The SDK
+    /// keys each surface by `"<session id or home>/<widget id>"`, so the unscoped lookup finds nothing.
+    private func liveBrowserModel() -> BrowserWidgetModel? {
+        browserModel ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")
+    }
+
     // MARK: - Lifecycle
 
     func activate(services: SessionServices) {
@@ -296,6 +305,7 @@ final class GitHubPRsWidget: Work42Widget {
         enumerationTask?.cancel()
         enumerationTask = nil
         services = nil
+        browserModel = nil
         loadState = .loading
         showingAddRepoForm = false
         BrowserSurfaceCache.shared.teardown(key: id)
@@ -478,7 +488,7 @@ final class GitHubPRsWidget: Work42Widget {
 
     private func publishRepos(_ repos: [RepoInfo]) {
         loadState = .ready(repos)
-        if let model = BrowserSurface.model(forKey: id) {
+        if let model = liveBrowserModel() {
             syncTabs(to: model, repos: repos)
         }
     }
@@ -621,6 +631,7 @@ private struct GitHubPRsBrowserView: View {
             cacheKey: widget.id,
             configure: { [weak widget] model in
                 guard let widget else { return }
+                widget.browserModel = model
                 widget.syncTabs(to: model, repos: repos)
                 model.onNewTab = { [weak widget] in
                     widget?.showingAddRepoForm = true
