@@ -9,8 +9,8 @@ Used in the **Design** stage of every Product Shape session, after `linear42-pro
 
 ## Prerequisites
 
-1. **Figma tools.** `mcp__figma__*` tools must be available. work42 does not inject a Figma MCP; the user enables Figma in their agent's connector settings (see the `using-figma` skill). If the tools are missing, tell the user exactly that and wait. Don't describe frames in text as a substitute.
-2. **The Figma skills ship with the `figma` plugin and are already in this session:** `figma-use` (**load it before every `use_figma` call**), `figma-generate-design` (building a flow or screen from a description) and `figma-create-new-file` (a new file when the user has none). Follow them for *how* to build; this skill decides *what* to draw. They talk about code and design systems: here there is no code, so build from the Product Shape document, and reuse the product's design system only if the user points you at one.
+1. **Figma tools.** `mcp__figma__*` tools must be available. work42 does not inject a Figma MCP; the user enables Figma in their agent's connector settings (see the `widget-figma` skill). If the tools are missing, tell the user exactly that and wait. Don't describe frames in text as a substitute.
+2. **Load `widget-figma`, which follows this session's active Figma widget. It gives the installed paths for the bundled guides:** `figma-use` (**read its bundled file before every `use_figma` call**), `figma-generate-design` (building a flow or screen from a description) and `figma-create-new-file` (a new file when the user has none). Follow them for *how* to build; this skill decides *what* to draw. They talk about code and design systems: here there is no code, so build from the Product Shape document, and reuse the product's design system only if the user points you at one.
 3. **A destination.** Ask the user which Figma file or team/project to use, or whether to create a new file. Never create files in a team you weren't given.
 
 ## What to draw

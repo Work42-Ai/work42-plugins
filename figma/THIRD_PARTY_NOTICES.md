@@ -1,7 +1,7 @@
 # Third-party notices
 
 The skills `figma-use`, `figma-generate-design` and `figma-create-new-file` are bundled **unmodified** from
-https://github.com/figma/mcp-server-guide (`skills/`, commit b0bfad2) so any session with this plugin can build in
+https://github.com/figma/mcp-server-guide (`skills/`, commit b0bfad2) as supporting resources for widget-figma, so any session with the active Figma widget can build in
 Figma through the agent's own Figma connector.
 
 That repository ships no license file. Its README states that by using the Figma MCP server and the related resources,

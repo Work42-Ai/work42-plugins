@@ -54,7 +54,7 @@ when to load each one; their license and source are in `THIRD_PARTY_NOTICES.md`.
 |-------|------|----------|
 | `create-prd`, `user-stories`, `job-stories`, `pre-mortem`, `test-scenarios`, `prioritization-frameworks`, `brainstorm-ideas-new` | `phuryn/pm-skills` | Problem statement, stories, risks, scenarios, options |
 | `jobs-to-be-done` | `wondelai/skills` | The job behind a feature |
-| `figma-use`, `figma-generate-design`, `figma-create-new-file` | `figma/mcp-server-guide`, shipped by the `figma` plugin | Building the frames in Design |
+| `figma-use`, `figma-generate-design`, `figma-create-new-file` | `figma/mcp-server-guide`, bundled resources loaded through `widget-figma` | Building the frames in Design |
 
 They are general product-management methods. **Use their method, not their scope:** where one asks for an engineer's view,
 technical considerations, estimates, a release plan or market sizing you weren't asked for, skip that part. Where one
@@ -70,4 +70,4 @@ End every comment you post with `_Posted from Work42_`. The sync agent shows the
 
 ## When something goes wrong
 
-Missing `linear` CLI, sign-in, or config: follow `linear42-general`. No Figma tools (`mcp__figma__*`) in Design: tell the user to enable the Figma connector in their agent's connector settings (see the `using-figma` skill), then wait; never fake frames.
+Missing `linear` CLI, sign-in, or config: follow `linear42-general`. No Figma tools (`mcp__figma__*`) in Design: tell the user to enable the Figma connector in their agent's connector settings (see the `widget-figma` skill), then wait; never fake frames.

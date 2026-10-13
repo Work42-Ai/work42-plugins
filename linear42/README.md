@@ -86,8 +86,10 @@ shared rules. The public skills they use **ship with the plugins**, unmodified, 
 `create-prd`, `user-stories`, `job-stories`, `pre-mortem`, `test-scenarios`, `prioritization-frameworks` and
 `brainstorm-ideas-new` from `phuryn/pm-skills`, and `jobs-to-be-done` from `wondelai/skills` (all in `linear42/skills/`,
 licenses in `THIRD_PARTY_NOTICES.md`), plus the Figma skills `figma-use`, `figma-generate-design` and
-`figma-create-new-file`, which belong to the `figma` plugin. The session type lists all of them in `session_skills`. The
-Design stage needs the user's own Figma connector (see the `figma` plugin's `using-figma` skill).
+`figma-create-new-file`, which belong to the `figma` plugin and are loaded through its
+`widget-figma` skill. Every session with the active Figma widget gets that skill;
+only the Linear/PM skills are listed in this type's `session_skills`. The Design
+stage needs the user's own Figma connector (see `widget-figma`).
 
 The sync agent only *displays* the issue in these sessions (header chips, no sub-issue mirror, no approval read-back), and
 the product stages don't move the issue's Linear state unless `stage_states` pins them. `publish-doc.py --kind shape`
