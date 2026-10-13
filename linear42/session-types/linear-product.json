@@ -2,12 +2,12 @@
   "id": "linear-product",
   "name": "Product Shape",
   "workflow": "linear42-product",
-  "layout_json": "[{\"id\":\"6F1D2A10-0B7E-4C55-9A21-0D3B7C9E1A01\",\"templateId\":\"chat\",\"openItems\":[\"chat\",\"widget:linear-issue\"],\"pinnedItems\":[],\"isPlanView\":false,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.33,0.67],\"children\":[{\"leaf\":{\"_0\":\"chat\"}},{\"leaf\":{\"_0\":\"widget:linear-issue\"}}]}}}},{\"id\":\"6F1D2A10-0B7E-4C55-9A21-0D3B7C9E1A02\",\"templateId\":\"plan\",\"openItems\":[\"widget:linear-spec\",\"widget:figma\"],\"pinnedItems\":[],\"isPlanView\":true,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.4,0.6],\"children\":[{\"leaf\":{\"_0\":\"widget:linear-spec\"}},{\"leaf\":{\"_0\":\"widget:figma\"}}]}}}}]",
+  "layout_json": "[{\"id\":\"6F1D2A10-0B7E-4C55-9A21-0D3B7C9E1A01\",\"templateId\":\"chat\",\"openItems\":[\"chat\",\"artifacts\"],\"pinnedItems\":[],\"isPlanView\":false,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.4,0.6],\"children\":[{\"leaf\":{\"_0\":\"chat\"}},{\"leaf\":{\"_0\":\"artifacts\"}}]}}},\"displayName\":\"Chat\"},{\"id\":\"6F1D2A10-0B7E-4C55-9A21-0D3B7C9E1A02\",\"templateId\":\"linear-product-design\",\"openItems\":[\"widget:figma\"],\"pinnedItems\":[],\"isPlanView\":false,\"layoutTree\":{\"version\":1,\"root\":{\"leaf\":{\"_0\":\"widget:figma\"}}},\"displayName\":\"Design\"},{\"id\":\"6F1D2A10-0B7E-4C55-9A21-0D3B7C9E1A03\",\"templateId\":\"linear-product-issue\",\"displayName\":\"Issue Details\",\"openItems\":[\"widget:linear-issue\"],\"pinnedItems\":[],\"isPlanView\":false,\"layoutTree\":{\"version\":1,\"root\":{\"leaf\":{\"_0\":\"widget:linear-issue\"}}}}]",
   "widgets": [
     "chat",
-    "widget:linear-issue",
-    "widget:linear-spec",
-    "widget:figma"
+    "artifacts",
+    "widget:figma",
+    "widget:linear-issue"
   ],
   "icon": "square.on.square.dashed",
   "enforce_capability_gate": true,

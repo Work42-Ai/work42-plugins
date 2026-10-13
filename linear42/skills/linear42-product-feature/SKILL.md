@@ -27,7 +27,13 @@ Use `jobs-to-be-done` to find the job and `create-prd`'s value-proposition part 
 
 ## Shape
 
-Draft in chat, publish when confirmed. Build the document in this order (use `[[artifact:<id>]]` lines for flow diagrams; `work42-artifact-explainer` for the mermaid/HTML):
+Start with Chat artifacts, not a finished document: render the relevant proposed
+UI, flows and edge states, let the user review them, and revise in place. Follow
+`linear42-product`'s artifact-first loop. Publish the agreed brief and explicitly
+confirm the current artifact direction before recording `shape/ideation_approved_at`
+and moving to Figma.
+
+Iterate in Chat artifacts, publish when confirmed. Build the document in this order (use `[[artifact:<id>]]` lines for flow diagrams; `work42-artifact-explainer` for the mermaid/HTML):
 
 1. **Problem and goal** (from Discover) and the **success signal**.
 2. **Primary flow**: numbered steps from the user's point of view, each with what they see and what they choose.

@@ -72,13 +72,16 @@ perspective only (no files, APIs or implementation). Its workflow is **Discover 
 | Stage | Output | Gate to enter |
 |-------|--------|---------------|
 | Discover | A confirmed problem statement | none |
-| Shape | The `<KEY> Product Shape` Linear document (flows, rules, edge cases and failure states, scope) | `shape/discovery_done` |
-| Design | Figma frames, one per flow step and edge state, linked from the issue | `shape/doc` |
+| Shape | Interactive Chat artifacts and the agreed Product Shape document | `shape/discovery_done` |
+| Design | Figma frames based on the approved artifact direction, validated against product scenarios | `shape/doc`, `shape/artifact`, `shape/ideation_approved_at` |
 | Ready | Handoff to engineering | `figma/links` and `shape/approved_at` |
 
 `shape/approved_at` is written **by the user only** (`work42 storage set shape/approved_at "$(date -u +%FT%TZ)"`); the
-agent asks for approval and the workflow doesn't allow it to write the key. Tabs: **Chat** (chat and **Issue Details**) and
-**Plan** (**Spec Document**, which shows the Product Shape document, and **Figma**).
+agent asks for approval and the workflow doesn't allow it to write the key. Tabs: **Chat** (chat and **Artifacts**, split 40/60), **Design** (Figma),
+and **Issue Details** (Linear issue). Ideate and validate UI proposals in artifacts
+first; start Figma only after explicit approval of the current artifact direction.
+Revising that direction clears its prior approval. The product brief stays linked
+on the Linear issue rather than occupying a separate specification widget.
 
 There is one skill per issue type, chosen from the issue's labels or by asking: `linear42-product-feature`,
 `linear42-product-bug`, `linear42-product-other`, plus `linear42-product-figma` for Design and `linear42-product` for the

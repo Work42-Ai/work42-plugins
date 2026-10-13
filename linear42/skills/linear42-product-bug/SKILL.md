@@ -27,6 +27,12 @@ Confirm a one-paragraph report in chat, then `work42 storage set shape/discovery
 
 ## Shape
 
+Start with Chat artifacts, not a finished document: render the relevant proposed
+UI, flows and edge states, let the user review them, and revise in place. Follow
+`linear42-product`'s artifact-first loop. Publish the agreed brief and explicitly
+confirm the current artifact direction before recording `shape/ideation_approved_at`
+and moving to Figma.
+
 Publish the Product Shape document with:
 
 1. **Report** (from Discover) and **severity with the reason**.
