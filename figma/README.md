@@ -22,7 +22,7 @@ MCP — design-data access is the host agent's own Figma connector.
 - **`widgets/figma/SKILL.md` (`widget-figma`)** — automatically composed into
   every session with the active Figma widget, for any session type. It covers
   connector setup, attached files, and routes to the full bundled design guides
-  at `~/.work42/plugins/figma/skills/`. No global skills or cross-plugin
+  at `~/.work42/plugins/figma/skills/` (`plugins-qa` in Work42 QA). No global skills or cross-plugin
   `session_skills` references are needed.
 - **`skills/using-figma`** — additional plugin documentation for attached files and connectors; the
   widget skill includes the instructions sessions need.
