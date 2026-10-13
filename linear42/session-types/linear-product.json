@@ -1,0 +1,49 @@
+{
+  "id": "linear-product",
+  "name": "Product Shape",
+  "workflow": "linear42-product",
+  "layout_json": "[{\"id\":\"6F1D2A10-0B7E-4C55-9A21-0D3B7C9E1A01\",\"templateId\":\"chat\",\"openItems\":[\"chat\",\"widget:linear-issue\"],\"pinnedItems\":[],\"isPlanView\":false,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.33,0.67],\"children\":[{\"leaf\":{\"_0\":\"chat\"}},{\"leaf\":{\"_0\":\"widget:linear-issue\"}}]}}}},{\"id\":\"6F1D2A10-0B7E-4C55-9A21-0D3B7C9E1A02\",\"templateId\":\"plan\",\"openItems\":[\"widget:linear-spec\",\"widget:figma\"],\"pinnedItems\":[],\"isPlanView\":true,\"layoutTree\":{\"version\":1,\"root\":{\"split\":{\"direction\":\"horizontal\",\"fractions\":[0.4,0.6],\"children\":[{\"leaf\":{\"_0\":\"widget:linear-spec\"}},{\"leaf\":{\"_0\":\"widget:figma\"}}]}}}}]",
+  "widgets": [
+    "chat",
+    "widget:linear-issue",
+    "widget:linear-spec",
+    "widget:figma"
+  ],
+  "icon": "square.on.square.dashed",
+  "enforce_capability_gate": true,
+  "self_archives": false,
+  "list_shape": "task",
+  "shows_in_new_session_menu": true,
+  "shows_in_session_list": true,
+  "sort_order": 1,
+  "session_skills": [
+    "linear42-general",
+    "linear42-product",
+    "linear42-product-feature",
+    "linear42-product-bug",
+    "linear42-product-other",
+    "linear42-product-figma",
+    "create-prd",
+    "user-stories",
+    "job-stories",
+    "pre-mortem",
+    "test-scenarios",
+    "prioritization-frameworks",
+    "brainstorm-ideas-new",
+    "jobs-to-be-done",
+    "figma-use",
+    "figma-generate-design",
+    "figma-create-new-file"
+  ],
+  "create_intent": "new-linear-product",
+  "args": [
+    {
+      "key": "issue",
+      "label": "Linear issue (key or URL)",
+      "type": "string",
+      "required": false,
+      "storage": "linear/issue_ref",
+      "placeholder": "WOR-123"
+    }
+  ]
+}

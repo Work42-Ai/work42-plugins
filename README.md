@@ -37,7 +37,7 @@ plugin is installed. Install the required ones first:
 | `github` | – | needs the `gh` CLI signed in (`brew install gh`, `gh auth login`) |
 | `jira`, `figma`, `flow42` | – | |
 | `task42` | `github` | task lifecycle session type |
-| `linear42` | `github` | needs the `linear` CLI (`brew install schpet/tap/linear`, `linear auth login`) and `~/.config/linear42/config.json` |
+| `linear42` | `github`, `figma` | needs the `linear` CLI (`brew install schpet/tap/linear`, `linear auth login`) and `~/.config/linear42/config.json` |
 | `patrol42` | `github` | code-review session type |
 
 ## Plugin bundle format
@@ -135,11 +135,14 @@ work42-plugins/
       jira-work.json       "Jira Work" template (UUID 2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e)
   linear42/            Linear-native task lifecycle (replaces task42): spec/testing plan as
                        Linear documents, subtasks as sub-issues, QA as comments; reuses the
-                       github plugin's widget:github for code review. See linear42/README.md
+                       github plugin's widget:github for code review; also the Product Shape session
+                       type (product-only shaping + Figma). See linear42/README.md
     plugin.yaml
     workflows/linear42.json      session-types/linear-task.json      intents/new-linear-task.json
+    workflows/linear42-product.json  session-types/linear-product.json  intents/new-linear-product.json
     widgets/{linear-issue,linear-spec,linear-testing,linear-my-issues}/
     skills/linear42-{general,lead,planner,worker,qa,qa-author}/
+    skills/linear42-product{,-feature,-bug,-other,-figma}/
   patrol42/            Code Review plugin bundle
     plugin.yaml
     session-types/

@@ -62,6 +62,37 @@ sub-issues and comments), **Plan** (**Spec Document** 2/3, with **Approve Plan**
 a started state in Linear while the session is still in Planning (only a move *into* started
 counts, so attaching an issue that's already in progress never approves anything).
 
+## Product Shape sessions
+
+A second session type, **Product Shape** (`linear-product`, intent **New Product Shape**), is for the work *before* a
+task: turning an idea, bug or request into a product shape on a Linear issue plus Figma frames, from the product
+perspective only (no files, APIs or implementation). Its workflow is **Discover → Shape → Design → Ready**
+(`workflows/linear42-product.json`):
+
+| Stage | Output | Gate to enter |
+|-------|--------|---------------|
+| Discover | A confirmed problem statement | none |
+| Shape | The `<KEY> Product Shape` Linear document (flows, rules, edge cases and failure states, scope) | `shape/discovery_done` |
+| Design | Figma frames, one per flow step and edge state, linked from the issue | `shape/doc` |
+| Ready | Handoff to engineering | `figma/links` and `shape/approved_at` |
+
+`shape/approved_at` is written **by the user only** (`work42 storage set shape/approved_at "$(date -u +%FT%TZ)"`); the
+agent asks for approval and the workflow doesn't allow it to write the key. Tabs: **Chat** (chat and **Issue Details**) and
+**Plan** (**Spec Document**, which shows the Product Shape document, and **Figma**).
+
+There is one skill per issue type, chosen from the issue's labels or by asking: `linear42-product-feature`,
+`linear42-product-bug`, `linear42-product-other`, plus `linear42-product-figma` for Design and `linear42-product` for the
+shared rules. The public skills they use **ship with the plugins**, unmodified, so nothing is installed at run time:
+`create-prd`, `user-stories`, `job-stories`, `pre-mortem`, `test-scenarios`, `prioritization-frameworks` and
+`brainstorm-ideas-new` from `phuryn/pm-skills`, and `jobs-to-be-done` from `wondelai/skills` (all in `linear42/skills/`,
+licenses in `THIRD_PARTY_NOTICES.md`), plus the Figma skills `figma-use`, `figma-generate-design` and
+`figma-create-new-file`, which belong to the `figma` plugin. The session type lists all of them in `session_skills`. The
+Design stage needs the user's own Figma connector (see the `figma` plugin's `using-figma` skill).
+
+The sync agent only *displays* the issue in these sessions (header chips, no sub-issue mirror, no approval read-back), and
+the product stages don't move the issue's Linear state unless `stage_states` pins them. `publish-doc.py --kind shape`
+publishes the document and is allowed only in Shape or Design.
+
 ## Several issues in one session
 
 A session can have more than one Linear issue. Issue Details shows **one tab per attached issue**, the

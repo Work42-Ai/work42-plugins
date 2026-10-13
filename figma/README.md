@@ -21,6 +21,10 @@ MCP — design-data access is the host agent's own Figma connector.
   Figma connector in their agent settings.
 - **`skills/using-figma`** — how the agent reads `figma/links` and reaches design
   data through its own Figma connector.
+- **`skills/figma-use`, `skills/figma-generate-design`, `skills/figma-create-new-file`** — Figma's own agent skills
+  (from `figma/mcp-server-guide`), bundled unmodified: how to write to a Figma file through the connector's `use_figma`
+  tool, build a page or flow from a description, and create a new file. See `THIRD_PARTY_NOTICES.md` for the source,
+  commit and the Figma Developer Terms they fall under.
 - **`tab-templates/figma-work.json`** — a "Figma Work" tab opening `widget:figma`.
 
 ## Install

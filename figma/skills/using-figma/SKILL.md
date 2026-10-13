@@ -84,6 +84,13 @@ applies. Do not try to configure or bridge it yourself — it is the user's acco
 Until a Figma connector is enabled, you can still see whatever is rendered
 visually in the widget's browser tab, just not query structured design data.
 
+## Building in Figma: the bundled skills
+
+When you have Figma tools and need to *write* to a file, this plugin also ships Figma's own skills: load **`figma-use`**
+before every `use_figma` call, **`figma-generate-design`** to build a page, flow or dashboard from a description, and
+**`figma-create-new-file`** when the user has no file yet. After creating or finding the file, attach it with
+`figma/links` (above) so it shows in the widget.
+
 ## Typical flow
 
 1. User attaches a Figma file (paste-URL empty state, or the `+` in the tab bar).

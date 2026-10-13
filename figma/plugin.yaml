@@ -5,6 +5,8 @@ description: >
   per attached figma.com link, sharing the "browser" cookie jar) plus a
   using-figma skill that explains how to read the attached links from storage
   and — for design data — how to enable Figma through the agent's own connector.
+  Also bundles Figma's own figma-use, figma-generate-design and figma-create-new-file
+  skills for building in a file through that connector.
   work42 does NOT inject a Figma MCP: Figma's MCP is restricted to clients on
   Figma's approved MCP Catalog, so the agent (e.g. Claude, an approved client)
   connects it via its own connector settings instead.
