@@ -30,10 +30,7 @@
     "test-scenarios",
     "prioritization-frameworks",
     "brainstorm-ideas-new",
-    "jobs-to-be-done",
-    "figma-use",
-    "figma-generate-design",
-    "figma-create-new-file"
+    "jobs-to-be-done"
   ],
   "create_intent": "new-linear-product",
   "args": [
