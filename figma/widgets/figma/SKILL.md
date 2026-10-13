@@ -22,14 +22,18 @@ skill, not independently registered session or global skills.
 2. If the tools are missing or unauthenticated, ask the user to enable or sign
    in to their Figma connector in the agent's settings. The widget's browser
    sign-in alone does not authenticate the connector.
-3. The bundled guides must exist under `~/.work42/plugins/figma/skills/`.
+3. The bundled guides must exist under the current app's plugin directory:
+   `~/.work42/plugins/figma/skills/` in Work42, or
+   `~/.work42/plugins-qa/figma/skills/` in Work42 QA.
    If missing, reinstall or update the Figma plugin. Do not download skills
    into the user's global agent directories.
 
 ## Bundled Figma guides: load before using tools
 
 Read these files from the installed plugin directory with your file-reading
-or shell tool (expand `~` to the user's home directory):
+or shell tool (expand `~` to the user's home directory). **In Work42 QA,
+replace `plugins/` with `plugins-qa/` in every path below.** Use the directory
+for the app hosting the session; do not fall back to another app's plugin copy:
 
 | Task | Required guide |
 |------|----------------|
