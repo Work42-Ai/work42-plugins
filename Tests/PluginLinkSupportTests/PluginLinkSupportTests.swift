@@ -92,4 +92,59 @@ struct PluginLinkSupportTests {
         #expect(!githubHandler.contains("storage."))
         #expect(!jiraHandler.contains("storage."))
     }
+
+    // MARK: Same pull request stays in the tab (WOR-148)
+
+    private func samePR(_ url: String, _ page: String) -> Bool {
+        GitHubWidgetLinkSupport.isSamePullRequest(URL(string: url)!, as: URL(string: page)!)
+    }
+
+    @Test("every sub-route and anchor of the pull request being viewed is the same page")
+    func subRoutesAreTheSamePage() {
+        let pr = "https://github.com/work42-ai/work42/pull/42"
+        for sub in ["", "/", "/files", "/commits", "/checks", "/files?w=1", "/files#diff-abc", "/commits/abc123",
+                    "#discussion_r99", "?diff=split#L20", "/changes"] {
+            #expect(samePR(pr + sub, pr), "\(sub)")
+            #expect(samePR(pr, pr + sub), "back from \(sub)")
+            #expect(samePR(pr + sub, pr + "/files"), "\(sub) from /files")
+        }
+    }
+
+    @Test("owner and repository compare case-insensitively, the host may be www, the scheme http")
+    func sameIdentityDespiteSpelling() {
+        #expect(samePR("https://github.com/Work42-AI/Work42/pull/42/files", "https://github.com/work42-ai/work42/pull/42"))
+        #expect(samePR("https://www.github.com/work42-ai/work42/pull/42", "https://github.com/work42-ai/work42/pull/42/files"))
+        #expect(samePR("http://github.com/work42-ai/work42/pull/42", "https://github.com/work42-ai/work42/pull/42"))
+        #expect(samePR("https://github.com/work42-ai/work42/pull/042", "https://github.com/work42-ai/work42/pull/42"))
+    }
+
+    @Test("another pull request, another repository, or a non-PR page is not the same page")
+    func differentPagesAreNot() {
+        let page = "https://github.com/work42-ai/work42/pull/42/files"
+        for other in [
+            "https://github.com/work42-ai/work42/pull/43",
+            "https://github.com/work42-ai/work42/pull/4",
+            "https://github.com/work42-ai/other/pull/42",
+            "https://github.com/someone/work42/pull/42",
+            "https://github.com/work42-ai/work42",
+            "https://github.com/work42-ai/work42/issues/42",
+            "https://github.com/work42-ai/work42/pulls",
+            "https://github.com/work42-ai/work42/pull/not-a-number",
+            "https://github.com/settings/profile",
+            "https://github.com.evil.example/work42-ai/work42/pull/42",
+            "https://example.com/work42-ai/work42/pull/42",
+            "git@github.com:work42-ai/work42.git",
+        ] {
+            #expect(!samePR(other, page), "\(other)")
+        }
+    }
+
+    @Test("a page that is not a pull request makes nothing the same page")
+    func nonPullRequestPageNeverMatches() {
+        for page in ["https://github.com/work42-ai/work42", "https://github.com/work42-ai/work42/issues/42",
+                     "https://github.com/work42-ai/work42/pulls", "https://example.com/"] {
+            #expect(!samePR("https://github.com/work42-ai/work42/pull/42", page), "\(page)")
+            #expect(!samePR(page, page), "\(page) is not a pull request, so it is not the same page as itself either")
+        }
+    }
 }

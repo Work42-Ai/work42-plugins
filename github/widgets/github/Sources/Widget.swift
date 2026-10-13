@@ -774,6 +774,13 @@ final class GitHubPRWidget: Work42Widget {
         ]
     }
 
+    /// A link inside the pull request being viewed (its files, commits, checks, an anchor, or back to the PR
+    /// itself) navigates in the current tab. Another PR, a repository or an issue still opens a tab of its own,
+    /// and "Open in New Tab in GitHub" in the right-click menu splits any link off.
+    func isSamePage(_ url: URL, as pageURL: URL) -> Bool {
+        GitHubWidgetLinkSupport.isSamePullRequest(url, as: pageURL)
+    }
+
     // MARK: - Observed state (drives the view)
 
     /// Current PR list from `github/prs`. Updated by loadAndSyncPRs on activate
