@@ -16,6 +16,7 @@ image, or, for a video, a `[▶ alt](<video>)` link followed by a poster frame l
     publish-doc.py --issue WOR-6 --kind spec --file spec.md --slug 2838a00c306b   # update (renames, sets icon)
     publish-doc.py --issue WOR-6 --kind testing --file - <<'MD' ... MD   # "WOR-6 Testing Plan", markdown on stdin
     publish-doc.py --issue WOR-6 --kind qa --file - <<'MD' ... MD        # "WOR-6 QA Report"
+    publish-doc.py --issue WOR-6 --kind shape --file - <<'MD' ... MD     # "WOR-6 Product Shape" (Product Shape sessions)
 
 Titles and icons: `<KEY> Spec` (📐), `<KEY> Testing Plan` (🧪), `<KEY> QA Report` (🧾), so documents on
 different issues never look alike in Linear, and Work42's document widgets recognise them. The spec and
@@ -41,7 +42,7 @@ FENCE = re.compile(r"^\s*(```|~~~)")
 DOCUMENT_URL = re.compile(r"https://linear\.app/\S+?/document/(\S+)")
 CACHE_FILE = ".linear-upload.json"
 MEDIA = re.compile(r"!\[([^\]]*)\]\(((?:/|~/)[^)\s]+)\)")
-PLANNING_ONLY = ("spec", "testing")
+STAGE_LOCKED = {"spec": ("Planning",), "testing": ("Planning",), "shape": ("Shape", "Design")}
 CONTENT_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
     ".webp": "image/webp", ".mov": "video/quicktime", ".mp4": "video/mp4", ".webm": "video/webm",
@@ -251,13 +252,13 @@ def rewrite_media(lines, workdir):
 
 # Linear takes the icon as an emoji shortcode (the emoji character itself is rejected).
 KINDS = {"spec": ("Spec", ":triangular_ruler:"), "testing": ("Testing Plan", ":test_tube:"),
-         "qa": ("QA Report", ":receipt:")}
+         "qa": ("QA Report", ":receipt:"), "shape": ("Product Shape", ":jigsaw:")}
 
 
-def require_planning(session_id):
-    """The spec and testing plan are authored in Planning only; refuse in any other stage."""
+def require_stage(session_id, allowed):
+    """The spec and testing plan are authored in Planning only, the product shape in Shape or Design; refuse elsewhere."""
     if not session_id:
-        raise Failure("WORK42_SESSION_ID isn't set; it is needed to check the session is in Planning")
+        raise Failure("WORK42_SESSION_ID isn't set; it is needed to check the session is in %s" % " or ".join(allowed))
     result = run(["work42", "session", "show", "--session", session_id, "--json"])
     try:
         stage = json.loads(result.stdout)["stage"] if result.returncode == 0 else None
@@ -265,8 +266,8 @@ def require_planning(session_id):
         stage = None
     if stage is None:
         raise Failure("couldn't read the session stage: %s" % (result.stderr or result.stdout).strip()[:200])
-    if stage != "Planning":
-        raise Failure("the spec and testing plan can only be published in Planning (this session is in %s)" % stage)
+    if stage not in allowed:
+        raise Failure("this document can only be published in %s (this session is in %s)" % (" or ".join(allowed), stage))
 
 
 def publish(args, markdown_path):
@@ -293,6 +294,7 @@ def main(argv):
     parser.add_argument("--issue", required=True, help="Issue key the document is attached to (e.g. WOR-6).")
     parser.add_argument("--kind", required=True, choices=sorted(KINDS),
                         help="spec -> '<KEY> Spec' (📐), testing -> '<KEY> Testing Plan' (🧪), both Planning only; "
+                             "shape -> '<KEY> Product Shape' (🧩), Shape or Design only (Product Shape sessions); "
                              "qa -> '<KEY> QA Report' (🧾).")
     parser.add_argument("--file", required=True, help="Markdown file to publish, or - for stdin.")
     parser.add_argument("--slug", help="Update this existing document instead of creating one.")
@@ -312,8 +314,8 @@ def main(argv):
     tokens = artifact_lines(lines)
     session_id = os.environ.get("WORK42_SESSION_ID", "")
     try:
-        if args.kind in PLANNING_ONLY:
-            require_planning(session_id)
+        if args.kind in STAGE_LOCKED:
+            require_stage(session_id, STAGE_LOCKED[args.kind])
         if tokens and not session_id:
             raise Failure("WORK42_SESSION_ID isn't set; it is needed to link artifacts back to this session")
         with tempfile.TemporaryDirectory() as workdir:

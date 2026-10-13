@@ -33,6 +33,7 @@ let package = Package(
                 "jira/widgets/jira/Sources/Widget.swift",
                 "jira/widgets/jira-my-issues",
                 "figma/README.md",
+                "figma/THIRD_PARTY_NOTICES.md",
                 "figma/plugin.yaml",
                 "figma/skills",
                 "figma/tab-templates",
@@ -54,6 +55,9 @@ let package = Package(
                 "task42/widgets/testing-plan/SKILL.md",
                 "task42/widgets/testing-plan/Sources/Widget.swift",
                 "flow42",
+                // linear42 ships no compiled LinkSupport either: its Plugin.swift
+                // and widgets compile at install time.
+                "linear42",
                 // patrol42 ships no compiled LinkSupport (it reuses the github
                 // plugin's widget) — its Plugin.swift compiles at install time,
                 // so the whole bundle is excluded from this package build.

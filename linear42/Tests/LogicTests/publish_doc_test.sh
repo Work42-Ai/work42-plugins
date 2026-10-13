@@ -234,6 +234,19 @@ reset
 FAKE_SESSION_FAIL=1 python3 "$script" --issue WOR-6 --kind spec --file "$T/plain.md" >/dev/null 2>"$T/err"; rc=$?
 check "an unreadable stage refuses the spec" "[ $rc -eq 1 ] && [ \$(calls 'linear') -eq 0 ]"
 
+# 11b. the product shape is Shape or Design only ------------------------------------------------
+for stage in Discover Ready Planning; do
+  reset
+  FAKE_STAGE="$stage" python3 "$script" --issue WOR-6 --kind shape --file "$T/spec.md" >/dev/null 2>"$T/err"; rc=$?
+  check "shape is refused in $stage" "[ $rc -eq 1 ] && grep -q 'can only be published in Shape or Design' '$T/err'"
+  check "nothing ran for a refused shape in $stage" "[ \$(calls 'linear') -eq 0 ] && [ \$(calls 'artifact') -eq 0 ]"
+done
+for stage in Shape Design; do
+  reset
+  FAKE_STAGE="$stage" python3 "$script" --issue WOR-6 --kind shape --file "$T/spec.md" >/dev/null 2>"$T/err"; rc=$?
+  check "shape is published in $stage" "[ $rc -eq 0 ] && grep -q 'linear document create .*--title WOR-6 Product Shape' '$LOG'"
+done
+
 # 12. local images and videos -------------------------------------------------------------------
 rm -f "$T/media-cache.json"
 printf 'PNGDATA' > "$T/shot.png"; printf 'MOVDATA' > "$T/run.mov"; printf 'MP4DATA' > "$T/clip.mp4"; printf 'TXT' > "$T/notes.txt"

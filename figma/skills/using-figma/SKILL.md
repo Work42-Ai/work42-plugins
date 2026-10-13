@@ -84,6 +84,15 @@ applies. Do not try to configure or bridge it yourself — it is the user's acco
 Until a Figma connector is enabled, you can still see whatever is rendered
 visually in the widget's browser tab, just not query structured design data.
 
+## Building in Figma: the widget skill
+
+Load **`widget-figma`** for the bundled design guides and their exact installed
+paths. It is composed into any session with the active Figma widget, regardless
+of session type. Its instructions route to `figma-use` before every `use_figma`
+call, `figma-generate-design` for visible design work, and
+`figma-create-new-file` for a new file. These guides are supporting resources,
+not separately registered session or global skills.
+
 ## Typical flow
 
 1. User attaches a Figma file (paste-URL empty state, or the `+` in the tab bar).

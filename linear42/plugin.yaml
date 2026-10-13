@@ -7,7 +7,11 @@ description: >
   Task" create-intent. The spec and testing plan live as Linear Documents,
   subtasks as Linear sub-issues, QA reports as Linear documents; session
   storage mirrors just the gate signals. Reuses the github plugin's widget
-  for code review. Configured entirely from ~/.config/linear42/config.json.
+  for code review. Also provides the linear-product session type (Product
+  Shape: Discover -> Shape -> Design -> Ready) that shapes a feature, bug or
+  other issue from the product perspective and designs it in Figma, with a
+  "New Product Shape" create-intent and one skill per issue type. Configured
+  entirely from ~/.config/linear42/config.json.
 author: work42
 sdk_version: 12
-requires: [github]
+requires: [github, figma]

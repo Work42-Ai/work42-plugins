@@ -19,8 +19,19 @@ MCP — design-data access is the host agent's own Figma connector.
   one-time browser sign-in. The `using-figma` skill tells the agent to use its
   `mcp__figma__*` tools if present, and otherwise to ask the user to enable a
   Figma connector in their agent settings.
-- **`skills/using-figma`** — how the agent reads `figma/links` and reaches design
-  data through its own Figma connector.
+- **`widgets/figma/SKILL.md` (`widget-figma`)** — automatically composed into
+  every session with the active Figma widget, for any session type. It covers
+  connector setup, attached files, and routes to the full bundled design guides
+  at `~/.work42/plugins/figma/skills/`. No global skills or cross-plugin
+  `session_skills` references are needed.
+- **`skills/using-figma`** — additional plugin documentation for attached files and connectors; the
+  widget skill includes the instructions sessions need.
+- **`skills/figma-use`, `skills/figma-generate-design`, `skills/figma-create-new-file`** — Figma's own agent skills
+  (from `figma/mcp-server-guide`), bundled unmodified: how to write to a Figma file through the connector's `use_figma`
+  tool, build a page or flow from a description, and create a new file. See `THIRD_PARTY_NOTICES.md` for the source,
+  commit and the Figma Developer Terms they fall under. These folders are
+  supporting resources read through `widget-figma`, not independent skill
+  entries in the session catalog.
 - **`tab-templates/figma-work.json`** — a "Figma Work" tab opening `widget:figma`.
 
 ## Install

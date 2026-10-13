@@ -1,0 +1,2229 @@
+{
+  "slug": "linear42-product",
+  "name": "linear42 product",
+  "description": "Product shaping on Linear: Discover, Shape, Design (Figma), Ready. Product perspective only, no engineering. The shape is a Linear document, the design is linked Figma frames, and the user approves the handoff.",
+  "stages": [
+    {
+      "name": "Discover",
+      "ordinal": 1,
+      "is_initial": true,
+      "is_terminal": false,
+      "entry_prompt": "You are in Discover. Your goal is to understand the problem from the user's side: who is affected, what they are trying to do, and what success looks like. Load the linear42-product skill, then the one for this issue's type (linear42-product-feature, linear42-product-bug or linear42-product-other). Product only: no files, APIs or implementation.",
+      "entry_gate": null,
+      "icon": "magnifyingglass",
+      "color_light": "#0284C7",
+      "color_dark": "#66C8FF",
+      "model": "opus[1m]",
+      "provider": "claude"
+    },
+    {
+      "name": "Shape",
+      "ordinal": 2,
+      "is_initial": false,
+      "is_terminal": false,
+      "entry_prompt": "You are in Shape. Your goal is to turn the discovery into a product shape: the flows, the rules, and every edge case and failure state as the user experiences it, published as the Product Shape document on the Linear issue. Follow the type skill you loaded. Product only: no engineering.",
+      "entry_gate": "{\"namespace\":\"shape\",\"key\":\"discovery_done\",\"op\":\"exists\"}",
+      "icon": "square.stack.3d.up",
+      "color_light": "#6D28D9",
+      "color_dark": "#9D6BFF",
+      "model": "opus[1m]",
+      "provider": "claude"
+    },
+    {
+      "name": "Design",
+      "ordinal": 3,
+      "is_initial": false,
+      "is_terminal": false,
+      "entry_prompt": "You are in Design. Your goal is to build the Figma frames that show the shape: every flow step, empty, loading, error and edge state, linked from the issue. Load the linear42-product-figma skill.",
+      "entry_gate": "{\"namespace\":\"shape\",\"key\":\"doc\",\"op\":\"exists\"}",
+      "icon": "pencil.and.ruler",
+      "color_light": "#B45309",
+      "color_dark": "#FFC766",
+      "model": "opus[1m]",
+      "provider": "claude"
+    },
+    {
+      "name": "Ready",
+      "ordinal": 4,
+      "is_initial": false,
+      "is_terminal": true,
+      "entry_prompt": "You are in Ready. The shape and the Figma design are approved and linked on the Linear issue; nothing is left to do here. Engineering picks the issue up from Linear.",
+      "entry_gate": "{\"and\":[{\"namespace\":\"figma\",\"key\":\"links\",\"op\":\"exists\"},{\"namespace\":\"shape\",\"key\":\"approved_at\",\"op\":\"exists\"}]}",
+      "icon": "checkmark.circle.fill",
+      "color_light": "#15803D",
+      "color_dark": "#4CDB73",
+      "model": "opus[1m]",
+      "provider": "claude"
+    }
+  ],
+  "transitions": [
+    {
+      "from": "Discover",
+      "to": "Shape",
+      "description": "discovery is written up and you are ready to shape the feature"
+    },
+    {
+      "from": "Shape",
+      "to": "Design",
+      "description": "the Product Shape document is published and confirmed"
+    },
+    {
+      "from": "Design",
+      "to": "Ready",
+      "description": "the Figma frames cover every flow and edge case and the user approved them"
+    },
+    {
+      "from": "Design",
+      "to": "Shape",
+      "description": "the design exposed a gap in the shape"
+    },
+    {
+      "from": "Shape",
+      "to": "Discover",
+      "description": "the problem itself turned out to be misunderstood"
+    },
+    {
+      "from": "Ready",
+      "to": "Shape",
+      "description": "the user asked for changes after approval"
+    }
+  ],
+  "stage_rules": [
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue view",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue query",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue comment list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear document view",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear document list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear team list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear user list",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue create",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue comment add",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear document create",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear document update",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set linear/",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_by",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage delete linear/approval_stamped",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/discovery_done",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/doc",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/type",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set figma/",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 todos",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/",
+      "action": "block"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "Discover",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue view",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue query",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue comment list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear document view",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear document list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear team list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear user list",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue create",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue comment add",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear document create",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear document update",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set linear/",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_by",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage delete linear/approval_stamped",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/discovery_done",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/doc",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/type",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set figma/",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 todos",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/",
+      "action": "block"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "Shape",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue view",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue query",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue comment list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear document view",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear document list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear team list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear user list",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue create",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue comment add",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear document create",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear document update",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set linear/",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_by",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage delete linear/approval_stamped",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/discovery_done",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/doc",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/type",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set figma/",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 todos",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/",
+      "action": "block"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "Design",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "cat",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "ls",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "head",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "tail",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "grep",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "rg",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "find",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "pwd",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "echo",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "which",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "wc",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "sort",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "uniq",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "cut",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "awk",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "stat",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "tree",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "file",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "env",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "printenv",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "date",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "basename",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "dirname",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "realpath",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "column",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "jq",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "du",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "df",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "whoami",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "hostname",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "uname",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "sleep",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "cd",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git status",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git log",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git diff",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git show",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git branch",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git remote",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git rev-parse",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git fetch",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git blame",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git ls-files",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git describe",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git tag",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git shortlog",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git reflog",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "git stash list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage get",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 transition",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 transitions list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 workflow show",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 artifact list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 artifact status",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 artifact url",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/spec",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/testing",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 artifact set",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 artifact path",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 artifact remove",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue view",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue query",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue comment list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear document view",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear document list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear team list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear user list",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue create",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue comment add",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear document create",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear document update",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set linear/",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage delete plan/approved_by",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage delete linear/approval_stamped",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/discovery_done",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/doc",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/type",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set figma/",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "publish-doc.py",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "linear issue update",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 todos",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set plan/",
+      "action": "block"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage set qa/",
+      "action": "block"
+    },
+    {
+      "stage": "Ready",
+      "kind": "edit",
+      "pattern": "**",
+      "action": "block"
+    }
+  ]
+}
