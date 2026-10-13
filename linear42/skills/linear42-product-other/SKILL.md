@@ -24,6 +24,12 @@ Confirm the framing in chat, then `work42 storage set shape/discovery_done "\"$(
 
 ## Shape
 
+Start with Chat artifacts, not a finished document: render the relevant proposed
+UI, flows and edge states, let the user review them, and revise in place. Follow
+`linear42-product`'s artifact-first loop. Publish the agreed brief and explicitly
+confirm the current artifact direction before recording `shape/ideation_approved_at`
+and moving to Figma.
+
 - **If the work is a decision**: list 3–5 distinct options (including "do nothing"), and for each the user value, the risk to users, what we'd have to give up, and the edge cases that decide it. Recommend one, say why, and what would change your mind. Use a prioritization framework only if the user wants a ranking; otherwise a table is enough.
 - **If the work is to design something** (copy, onboarding, a policy, a setting): shape it as a feature would be: primary flow, rules, and the edge-case table from `linear42-product-feature`, skipping rows that truly don't apply and saying why.
 - **If the work is to learn something**: write the questions, who could answer them, and what answer would change what we build; no flows needed.
@@ -32,4 +38,4 @@ Always end the document with **Scope** (in / out) and **Open questions**. Publis
 
 ## Design and after
 
-If the outcome has an interface, copy or layout, load `linear42-product-figma`. If it is a decision or a learning, ask the user whether a Figma file adds anything; if not, attach the best existing reference (or a one-frame summary board) so the Ready gate (`figma/links`) is met on purpose rather than skipped.
+If the outcome has an interface, copy or layout, load `linear42-product-figma`. If it is a decision or learning with no interface, use artifacts to validate the outcome and discuss whether a Figma deliverable is appropriate. Do not manufacture a Figma board or attach an unrelated file merely to satisfy the Ready gate; keep the session open and explain the gate limitation.

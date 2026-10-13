@@ -5,7 +5,7 @@ description: Design-stage skill for a `linear-product` session — builds the Fi
 
 # Product Shape: Figma design
 
-Used in the **Design** stage of every Product Shape session, after `linear42-product` and the type skill have produced a confirmed Product Shape document (`shape/doc`).
+Used in the **Design** stage of every Product Shape session, after `linear42-product` and the type skill have produced a confirmed Product Shape document (`shape/doc`) and an explicitly approved Chat artifact direction (`shape/artifact` and `shape/ideation_approved_at`). Read that artifact and the agreed brief before making Figma changes. If approval is missing, stay in Shape and iterate on the artifact; an existing Figma file does not bypass this step.
 
 ## Prerequisites
 
@@ -38,4 +38,4 @@ _Posted from Work42_
 MD
 ```
 
-Show the user the Figma tab, summarise in chat which edge cases each frame covers and which rows are deliberately undrawn (with the reason), and ask for approval: `@yan [APPROVAL] …`. Remind them that approving means running `work42 storage set shape/approved_at "$(date -u +%FT%TZ)"`; you never write it. When it lands, the session offers Ready; run `work42 transition "Ready"`.
+Validate actual Figma screenshots against the agreed artifact and product scenarios. Render captured screenshots and a short scenario review in a Chat artifact; distinguish observed evidence from assumptions, and resolve unclear behavior before final approval. Show the user the Figma tab, summarise in chat which edge cases each frame covers and which rows are deliberately undrawn (with the reason), and ask for approval: `@yan [APPROVAL] …`. Remind them that approving means running `work42 storage set shape/approved_at "$(date -u +%FT%TZ)"`; you never write it. When it lands, the session offers Ready; run `work42 transition "Ready"`.

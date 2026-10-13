@@ -5,7 +5,39 @@ description: The linear42 Product Shape lifecycle — a session of type `linear-
 
 # linear42 — Product Shape lifecycle
 
-A **Product Shape session** (type `linear-product`) is bound to a Linear issue and ends with two artifacts on it: a **Product Shape** document and linked **Figma frames**. Engineering picks the issue up afterwards, in a normal `linear-task` session. Setup, config, the `linear` CLI and `publish-doc.py` are described in `linear42-general`; read its *Prerequisites* first.
+A **Product Shape session** (type `linear-product`) starts with a debate about what a Linear item should be, and ends with two artifacts on it: a **Product Shape** document and linked **Figma frames**. Engineering picks the issue up afterwards, in a normal `linear-task` session. Setup, config, the `linear` CLI and `publish-doc.py` are described in `linear42-general`; read its *Prerequisites* first.
+
+## The three workspaces
+
+- **Chat:** chat alongside Artifacts. Ideate here, compare alternatives, render UI proposals, review flows and edge states, and iterate with the user.
+- **Design:** the Figma widget. Start designing here only after the user explicitly agrees that the current artifact direction is ready.
+- **Issue Details:** the Linear issue widget. Keep the agreed problem, scope, product rules and design links on the issue.
+
+## Artifacts first, Figma after agreement
+
+Act as a product partner, not an intake questionnaire. Debate the user's idea,
+challenge assumptions with concrete alternatives, and explain your recommendation.
+Ask the next question that changes a product decision, rather than marching through
+all the method skills or a fixed checklist.
+
+Use Work42 artifacts for **all proposed UI rendering**: make the screen or flow
+visible, use realistic copy, and include the relevant loading, empty, error and
+permission states. Load `work42-artifact` and `work42-artifact-mockup` for UI
+previews (or `work42-artifact-explainer` for flows). Create the artifact with
+`work42 artifact set`, check `work42 artifact status`, then show its
+`[[artifact:<id>]]` token alone on a line. Do not substitute paragraphs for a
+screen the user needs to see. An artifact preview is an ideation prototype,
+not evidence that the final Figma design has been built or validated.
+
+Record the current preview as `shape/artifact` (JSON `{id,url}`) and revise that
+artifact as feedback arrives. Record `shape/ideation_approved_at` **in Shape only**
+after an explicit user reply agreeing to move that current direction into Figma.
+A document, an existing Figma link or the user's silence is not approval.
+
+If the agreed direction changes, delete `shape/ideation_approved_at` and
+`shape/approved_at` before revising. Return to Shape when needed, update the
+artifact and brief, and get agreement again before Figma writes. Keep the
+existing final approval separate from this permission to start Figma.
 
 ## Product only
 
@@ -18,7 +50,7 @@ Everything you write is from the point of view of the person using the product: 
 | Stage | Goal | You leave it when |
 |-------|------|-------------------|
 | Discover | The problem, who has it, the job they're doing, what success looks like, what we don't know | `shape/discovery_done` is set (you set it once the user has confirmed the problem statement in chat) |
-| Shape | Flows, rules, **every edge case and failure state as the user sees it**, scope and non-goals; published as the Product Shape document | `shape/doc` is set (after `publish-doc.py --kind shape`), and the user has confirmed the shape |
+| Shape | Debate and iterate on UI artifacts, flows, rules and edge states; publish the agreed product brief | `shape/doc` and `shape/artifact` exist and the user explicitly approves the artifact direction (`shape/ideation_approved_at`) |
 | Design | Figma frames for each flow step and each edge or failure state, linked from the issue | `figma/links` holds the file and the user approved the design |
 | Ready | Handoff: shape + design approved and linked on the issue | terminal |
 
@@ -27,8 +59,10 @@ Everything you write is from the point of view of the person using the product: 
 | `shape/type` | `"feature"`, `"bug"` or `"other"` | you, once the type is settled |
 | `shape/discovery_done` | ISO-8601 time discovery was confirmed | you |
 | `shape/doc` | `{slug,url}` of the `<KEY> Product Shape` document | you, after publishing |
-| `linear/issues/<KEY>/spec_doc` | same `{slug,url}`; this is what the **Spec Document** tab shows, so set both | you |
+| `linear/issues/<KEY>/spec_doc` | same `{slug,url}` for compatibility with the existing document integration | you |
 | `figma/links` | JSON array of `{url,name}`; the **Figma** tab shows them | you, as frames are created |
+| `shape/artifact` | `{id,url}` of the current ideation artifact | you |
+| `shape/ideation_approved_at` | Explicit approval of the current artifact direction before Figma | you, recording the user's reply in Shape |
 | `shape/approved_at` | The user approved shape + design | **the user only**, never you |
 
 Rules about gates:
@@ -41,7 +75,7 @@ Rules about gates:
 ## Picking the type
 
 1. Read the issue: `linear issue view <KEY>` and its labels. A `Bug` label means bug; `Feature` or `Improvement` means feature; anything else, or no label, is unclear.
-2. If there is no issue yet (blank session), ask the user what they want in one sentence, decide the type with them, then create the issue with `linear issue create --team "$(jq -r .default_team ~/.config/linear42/config.json)"` and bind it (`work42 storage set linear/issue_ref '"<KEY>"'`).
+2. If there is no issue yet (blank session), debate the problem and candidate directions with the user first. Keep the issue draft in artifacts until its purpose and scope are agreed, then create the issue with `linear issue create --team "$(jq -r .default_team ~/.config/linear42/config.json)"` and bind it (`work42 storage set linear/issue_ref '"<KEY>"'`).
 3. If the type is unclear, ask: `@yan [QUESTION] Is this a feature, a bug, or something else?` with those three options.
 4. Write it: `work42 storage set shape/type '"feature"'`, then load the matching skill: `linear42-product-feature`, `linear42-product-bug` or `linear42-product-other`. The Design stage always uses `linear42-product-figma`.
 
@@ -58,7 +92,7 @@ when to load each one; their license and source are in `THIRD_PARTY_NOTICES.md`.
 
 They are general product-management methods. **Use their method, not their scope:** where one asks for an engineer's view,
 technical considerations, estimates, a release plan or market sizing you weren't asked for, skip that part. Where one
-conflicts with *Product only* above, this skill wins. They write to chat and into the Product Shape document, never to files.
+conflicts with *Product only* above, this skill wins. They produce Chat artifacts and the Product Shape document. Keep prototypes in the session's artifact directory through the artifact CLI; never implement the feature in repository files.
 
 ## Questions
 

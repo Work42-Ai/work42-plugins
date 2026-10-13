@@ -1,14 +1,14 @@
 {
   "slug": "linear42-product",
   "name": "linear42 product",
-  "description": "Product shaping on Linear: Discover, Shape, Design (Figma), Ready. Product perspective only, no engineering. The shape is a Linear document, the design is linked Figma frames, and the user approves the handoff.",
+  "description": "Debate the Linear item and iterate on product UI artifacts in Chat. Move the approved direction into Figma, validate behavior and edge cases, then hand off an agreed product shape. Product only.",
   "stages": [
     {
       "name": "Discover",
       "ordinal": 1,
       "is_initial": true,
       "is_terminal": false,
-      "entry_prompt": "You are in Discover. Your goal is to understand the problem from the user's side: who is affected, what they are trying to do, and what success looks like. Load the linear42-product skill, then the one for this issue's type (linear42-product-feature, linear42-product-bug or linear42-product-other). Product only: no files, APIs or implementation.",
+      "entry_prompt": "You are in Discover. Load linear42-product and the relevant issue-type skill. Be a product partner: debate what the Linear item should be, challenge assumptions, compare alternatives and recommend a direction. Use Chat artifacts to make ideas and UI proposals concrete. Do not start Figma design or rush to create an issue before its purpose is agreed. Product perspective only.",
       "entry_gate": null,
       "icon": "magnifyingglass",
       "color_light": "#0284C7",
@@ -21,7 +21,7 @@
       "ordinal": 2,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "You are in Shape. Your goal is to turn the discovery into a product shape: the flows, the rules, and every edge case and failure state as the user experiences it, published as the Product Shape document on the Linear issue. Follow the type skill you loaded. Product only: no engineering.",
+      "entry_prompt": "You are in Shape. Ideate in Chat artifacts: render interactive UI proposals, user flows and relevant edge states, inspect them, show them inline and iterate with the user. Use real product copy. Publish the agreed product brief to Linear. Only after explicit user confirmation of the current artifact direction, record shape/ideation_approved_at. Never infer approval from silence or publishing a document. Clear prior approval when the direction changes. No Figma writes yet.",
       "entry_gate": "{\"namespace\":\"shape\",\"key\":\"discovery_done\",\"op\":\"exists\"}",
       "icon": "square.stack.3d.up",
       "color_light": "#6D28D9",
@@ -34,8 +34,8 @@
       "ordinal": 3,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "You are in Design. Your goal is to build the Figma frames that show the shape: every flow step, empty, loading, error and edge state, linked from the issue. Load the linear42-product-figma skill.",
-      "entry_gate": "{\"namespace\":\"shape\",\"key\":\"doc\",\"op\":\"exists\"}",
+      "entry_prompt": "You are in Design. The user has approved the artifact direction. Load linear42-product-figma and widget-figma. Build the approved direction in Figma, validate actual frames and edge states against the artifact and brief, and show captured design evidence in Chat artifacts. If a product decision changes, return to Shape and revise the artifact before continuing. Product only.",
+      "entry_gate": "{\"and\":[{\"namespace\":\"shape\",\"key\":\"doc\",\"op\":\"exists\"},{\"namespace\":\"shape\",\"key\":\"artifact\",\"op\":\"exists\"},{\"namespace\":\"shape\",\"key\":\"ideation_approved_at\",\"op\":\"exists\"}]}",
       "icon": "pencil.and.ruler",
       "color_light": "#B45309",
       "color_dark": "#FFC766",
@@ -65,7 +65,7 @@
     {
       "from": "Shape",
       "to": "Design",
-      "description": "the Product Shape document is published and confirmed"
+      "description": "the user explicitly approved the current artifact direction and the agreed product brief is published"
     },
     {
       "from": "Design",
@@ -2224,6 +2224,96 @@
       "kind": "edit",
       "pattern": "**",
       "action": "block"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/artifact",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Discover",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/artifact",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/artifact",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/artifact",
+      "action": "allow"
+    },
+    {
+      "stage": "Shape",
+      "kind": "execute",
+      "pattern": "work42 storage set shape/ideation_approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/artifact",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Design",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/artifact",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "action": "allow"
+    },
+    {
+      "stage": "Ready",
+      "kind": "execute",
+      "pattern": "work42 storage delete shape/approved_at",
+      "action": "allow"
     }
   ]
 }
