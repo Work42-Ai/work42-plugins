@@ -1,16 +1,20 @@
-// FirebaseConsoleWidget.swift — one Firebase product's Console page in an independent widget.
+// FirebaseConsoleWidget.swift — one Firebase product's Console pages in an independent widget.
 //
-// Every Firebase widget is this class with a different `FirebaseProduct`. Its view is a native toolbar
-// (current project + Set Project) above a BrowserSurface showing the product's live Firebase Console page.
+// Every Firebase widget is this class with a different `FirebaseProduct`. Its view is a BrowserSurface with
+// one tab per project in the shared list (~/.work42/firebase/config.json), each opened on this product's
+// Console page, and a small floating Liquid Glass "Projects" button at the bottom right that opens the
+// project selection window.
 //
-//   • The project comes from the shared file (FirebaseProjectStore), never from widget or session storage.
-//     Each widget library keeps its own store and follows the file, so nothing relies on a shared singleton.
-//   • The toolbar lives outside the web content, so Set Project stays reachable through Google redirects.
-//   • The browser navigates only when the selected project really changes; otherwise the user's own
-//     Console navigation is left alone.
+//   • The project list is the file, never widget or session storage. Each widget library keeps its own
+//     FirebaseProjectStore and follows the file, so nothing relies on a shared singleton.
+//   • Tabs get stable ids per project, so an unchanged list never reloads a page, and the widget keeps its
+//     own selected tab. The tab rules live in FirebaseTabs (pure, tested).
+//   • Closing a tab with × hides that project in this widget only; hidden tabs return when the shared
+//     list changes or Work42 restarts. The browser chrome's + opens the selection window.
 //   • dataStoreKey "browser" shares cookies with the Browser widget, so signing in once covers every
 //     Firebase widget. That is the Console's Google sign-in, not the Firebase CLI's login.
 
+import AppKit
 import Observation
 import SwiftUI
 import Work42PluginKit
@@ -25,15 +29,26 @@ final class FirebaseConsoleWidget: Work42Widget {
     var id: String { product.widgetId }
     var title: String { product.title }
     var icon: String { product.icon }
+    var iconImageData: Data? { product.iconPNG }
 
-    /// Console pages are opened by this widget only; it doesn't claim links.
+    /// Console links are claimed in WOR-206; until then the Browser opens them.
     var linkIntents: [WidgetLinkIntentSpec] { [] }
+
+    /// Projects whose tab this widget hid with ×.
+    private(set) var hidden: Set<String> = []
+    /// A link tab for a project that isn't in the shared list. Never written to the file.
+    private(set) var temporary: FirebaseTemporaryTab?
+    /// The open selection window's model, nil when it is closed.
+    var selectionModel: FirebaseProjectPickerModel?
 
     @ObservationIgnored private(set) var services: SessionServices?
     /// The surface's model, saved from `configure:`.
-    @ObservationIgnored var browserModel: BrowserWidgetModel?
-    /// The project whose page the browser was last pointed at; nil until a page has been loaded.
-    @ObservationIgnored private(set) var loadedProjectId: String?
+    @ObservationIgnored private var browserModel: BrowserWidgetModel?
+    /// Tab id per tab key, stable for the widget's lifetime so tabs keep their page and selection.
+    @ObservationIgnored private var tabIDs: [String: UUID] = [:]
+    /// The title last pushed to each tab, so a page's own title isn't overwritten by every sync.
+    @ObservationIgnored private var titles: [String: String] = [:]
+    @ObservationIgnored private var lastListedIds: [String] = []
 
     init(product: FirebaseProduct, store: FirebaseProjectStore = FirebaseProjectStore()) {
         self.product = product
@@ -49,46 +64,104 @@ final class FirebaseConsoleWidget: Work42Widget {
 
     func deactivate() {
         store.stop()
+        closeSelection()
         services = nil
         browserModel = nil
-        loadedProjectId = nil
+        tabIDs = [:]
+        titles = [:]
+        lastListedIds = []
+        hidden = []
+        temporary = nil
         BrowserSurfaceCache.shared.teardown(key: id)
     }
 
     func makeView(services: SessionServices) -> AnyView {
-        AnyView(FirebaseConsoleView(widget: self, services: services))
+        AnyView(FirebaseConsoleView(widget: self))
     }
 
-    // MARK: Navigation
+    // MARK: Tabs
 
-    /// Called from the surface's `configure:`. `projectId` is the project the surface was built with.
-    func surfaceMounted(_ model: BrowserWidgetModel, builtFor projectId: String) {
+    /// The tabs to show right now.
+    var descriptors: [FirebaseTabDescriptor] {
+        FirebaseTabs.descriptors(for: product, listed: store.projects, hidden: hidden, temporary: temporary)
+    }
+
+    /// Called when the shared list may have changed (store change, appearance).
+    func storeChanged() {
+        let ids = store.projects.map(\.projectId)
+        hidden = FirebaseTabs.hiddenAfterListChange(hidden: hidden, previousIds: lastListedIds, currentIds: ids)
+        lastListedIds = ids
+        syncTabs()
+    }
+
+    /// Called from the surface's `configure:` (first mount, or a remount with a cached model).
+    func surfaceMounted(_ model: BrowserWidgetModel) {
         browserModel = model
-        if loadedProjectId == nil { loadedProjectId = projectId }
-        navigateIfProjectChanged()
+        // A new surface seeds one tab for its first URL. Adopt it as the first tab so that page isn't loaded twice.
+        if model.tabs.count == 1, let seeded = model.tabs.first, let first = descriptors.first,
+           tabIDs[first.key] == nil, seeded.url == first.url {
+            tabIDs[first.key] = seeded.id
+        }
+        model.onNewTab = { [weak self] in self?.openSelection() }
+        model.onTabClosed = { [weak self] id in self?.tabClosed(id) }
+        syncTabs()
     }
 
-    /// Points the browser at this product's page for the current selection, but only if the project changed.
-    func navigateIfProjectChanged() {
-        guard let model = browserModel,
-              let target = product.navigationTarget(selected: store.state.projectId, loaded: loadedProjectId),
-              let projectId = store.state.projectId else { return }
-        loadedProjectId = projectId
-        // A fresh tab id makes the surface build a new web view for the new project's URL.
-        model.replaceTabs([BrowserTab(id: UUID(), url: target, title: product.title, icon: product.icon)])
+    /// Makes the browser's tabs match `descriptors`. Tabs are only replaced when the set of tab ids changes,
+    /// and existing tabs are kept as they are, so the page and address the user is on survive a sync.
+    private func syncTabs() {
+        guard let model = browserModel else { return }
+        let wanted = descriptors
+        guard !wanted.isEmpty else { return }   // the surface is replaced by a message; it re-syncs when mounted again
+        let ids = wanted.map { tabID(for: $0.key) }
+        if model.tabs.map(\.id) != ids {
+            let tabs = zip(wanted, ids).map { descriptor, id in
+                model.tabs.first { $0.id == id }
+                    ?? BrowserTab(id: id, url: descriptor.url, title: descriptor.title, icon: product.icon)
+            }
+            model.replaceTabs(tabs)
+        }
+        for (descriptor, id) in zip(wanted, ids) where titles[descriptor.key] != descriptor.title {
+            titles[descriptor.key] = descriptor.title
+            model.updateTab(id, title: descriptor.title)
+        }
     }
 
-    // MARK: Project picker
+    private func tabID(for key: String) -> UUID {
+        if let existing = tabIDs[key] { return existing }
+        let created = UUID()
+        tabIDs[key] = created
+        return created
+    }
 
-    func makePickerModel() -> FirebaseProjectPickerModel? {
-        guard let services else { return nil }
+    /// × on a tab. The browser has already removed it; remember to keep it hidden.
+    private func tabClosed(_ tabId: UUID) {
+        guard let key = tabIDs.first(where: { $0.value == tabId })?.key else { return }
+        if key.hasPrefix(FirebaseTabs.temporaryPrefix) {
+            temporary = nil
+            tabIDs[key] = nil
+            titles[key] = nil
+        } else {
+            hidden.insert(key)
+        }
+    }
+
+    // MARK: Project selection window
+
+    func openSelection() {
+        guard selectionModel == nil, let services else { return }
         let shell = services.shell
-        return FirebaseProjectPickerModel(
+        selectionModel = FirebaseProjectPickerModel(
             run: { command in
                 let result = try await shell.run(command: command)
                 return FirebaseShellResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
             },
             store: store)
+    }
+
+    func closeSelection() {
+        selectionModel?.cancel()   // a no-op once saved
+        selectionModel = nil
     }
 }
 
@@ -97,82 +170,76 @@ final class FirebaseConsoleWidget: Work42Widget {
 @MainActor
 private struct FirebaseConsoleView: View {
     let widget: FirebaseConsoleWidget
-    let services: SessionServices
-
-    @State private var pickerModel: FirebaseProjectPickerModel?
-
-    private var state: FirebaseProjectState { widget.store.state }
 
     var body: some View {
-        VStack(spacing: 0) {
-            toolbar
-            Divider()
-            content
-        }
-        .sheet(isPresented: Binding(get: { pickerModel != nil }, set: { if !$0 { pickerModel = nil } })) {
-            if let model = pickerModel {
-                FirebaseProjectPickerSheet(model: model, currentProjectId: state.projectId) { pickerModel = nil }
+        content
+            .overlay(alignment: .bottomTrailing) {
+                FirebaseProjectsPill { widget.openSelection() }
+                    .padding(12)
             }
-        }
-        .onChange(of: state.projectId) { _, _ in widget.navigateIfProjectChanged() }
-        .onAppear { widget.store.reload() }
-    }
-
-    private var toolbar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "flame").foregroundStyle(.orange)
-            switch state {
-            case .selected(let selection):
-                VStack(alignment: .leading, spacing: 0) {
-                    Text(selection.displayName).font(.callout).lineLimit(1)
-                    if selection.displayName != selection.projectId {
-                        Text(selection.projectId).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
-                    }
+            .sheet(isPresented: Binding(get: { widget.selectionModel != nil }, set: { if !$0 { widget.closeSelection() } })) {
+                if let model = widget.selectionModel {
+                    FirebaseProjectSelectionSheet(model: model) { widget.closeSelection() }
                 }
-            case .none:
-                Text("Select a Firebase project").font(.callout).foregroundStyle(.secondary)
-            case .invalid:
-                Text("Firebase project file needs repair").font(.callout).foregroundStyle(.red)
             }
-            Spacer()
-            Button("Set Project") { pickerModel = widget.makePickerModel() }
-                .disabled(pickerModel != nil)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+            .onChange(of: widget.store.state) { _, _ in widget.storeChanged() }
+            .onAppear {
+                widget.store.reload()
+                widget.storeChanged()
+            }
     }
 
     @ViewBuilder
     private var content: some View {
-        switch state {
-        case .selected(let selection):
-            if let url = widget.product.consoleURL(projectId: selection.projectId) {
-                BrowserSurface(
-                    spec: BrowserSurfaceSpec(url: url, selector: "", dataStoreKey: "browser",
-                                             title: widget.product.title, icon: widget.product.icon),
-                    cacheKey: widget.id,
-                    configure: { [weak widget] model in
-                        widget?.surfaceMounted(model, builtFor: selection.projectId)
-                    })
-            } else {
-                message("“\(selection.projectId)” isn't a usable project ID. Choose a project to continue.")
-            }
-        case .none:
-            message("Choose the Firebase project this widget should show. The choice is shared by every Firebase widget.")
-        case .invalid(let why):
+        if case .invalid(let why) = widget.store.state {
             message(why)
+        } else if let first = widget.descriptors.first {
+            BrowserSurface(
+                spec: BrowserSurfaceSpec(url: first.url, selector: "", dataStoreKey: "browser",
+                                         title: widget.product.title, icon: widget.product.icon),
+                cacheKey: widget.id,
+                configure: { [weak widget] model in widget?.surfaceMounted(model) })
+        } else {
+            message(FirebaseTabs.emptyMessage(listedCount: widget.store.projects.count))
         }
     }
 
     private func message(_ text: String) -> some View {
-        VStack(spacing: 8) {
-            Text(text)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .frame(maxWidth: 360)
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: 360)
+            .padding(24)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// The small floating button that opens the project selection: the Firebase flame and "Projects" on
+/// untinted Liquid Glass (`glassCapsuleSurface`, with a material fallback before macOS 26).
+private struct FirebaseProjectsPill: View {
+    let action: () -> Void
+
+    private static let mark = NSImage(data: FirebaseBrand.firebaseMarkPNG)
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                if let mark = Self.mark {
+                    Image(nsImage: mark)
+                        .resizable()
+                        .frame(width: 14, height: 14)
+                }
+                Text("Projects")
+                    .font(.system(size: 12, weight: .medium))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .glassCapsuleSurface()
+            .contentShape(Capsule())
         }
-        .padding(24)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .buttonStyle(.plain)
+        .help("Open Projects Selection")
     }
 }

@@ -554,7 +554,7 @@ func testWidgetLayout() {
     let widgetDirs = ((try? fm.contentsOfDirectory(atPath: root.appendingPathComponent("widgets").path)) ?? []).filter { $0.hasPrefix("firebase-") }.sorted()
     check(widgetDirs == FirebaseProduct.all.map(\.widgetId).sorted(), "one widget folder per catalog product, no extras: \(widgetDirs)")
     let shared = ((try? fm.contentsOfDirectory(atPath: root.appendingPathComponent("shared").path)) ?? []).filter { $0.hasSuffix(".swift") }.sorted()
-    check(shared == ["FirebaseBrand.swift", "FirebaseConsoleWidget.swift", "FirebaseProduct.swift", "FirebaseProjectConfig.swift", "FirebaseProjectPicker.swift"], "shared sources: \(shared)")
+    check(shared == ["FirebaseBrand.swift", "FirebaseConsoleWidget.swift", "FirebaseProduct.swift", "FirebaseProjectConfig.swift", "FirebaseProjectPicker.swift", "FirebaseTabs.swift"], "shared sources: \(shared)")
     for product in FirebaseProduct.all {
         let sources = root.appendingPathComponent("widgets/\(product.widgetId)/Sources")
         for name in shared {
@@ -875,6 +875,53 @@ func testIcons() {
     }
 }
 
+// MARK: - Tabs
+
+func testTabs() {
+    let listed = [entry("work42-dev", "Work42 Development"), entry("work42-prod", "Work42 Production"), entry("other-app", "Other App")]
+    let base = "https://console.firebase.google.com/project/"
+
+    // One tab per listed project, in list order, on each product's own page.
+    for product in FirebaseProduct.all {
+        let tabs = FirebaseTabs.descriptors(for: product, listed: listed, hidden: [], temporary: nil)
+        check(tabs.map(\.key) == ["work42-dev", "work42-prod", "other-app"], "\(product.id): one tab per project in list order: \(tabs.map(\.key))")
+        check(tabs.map(\.title) == ["Work42 Development", "Work42 Production", "Other App"], "\(product.id): tabs are titled with the display name")
+        check(tabs.map(\.url.absoluteString) == listed.map { base + $0.projectId + "/" + product.consolePath }, "\(product.id): tabs open on this product's page: \(tabs.map(\.url.absoluteString))")
+        check(tabs.allSatisfy { !$0.isTemporary }, "\(product.id): listed tabs aren't temporary")
+    }
+    check(FirebaseTabs.descriptors(for: .auth, listed: [], hidden: [], temporary: nil).isEmpty, "no projects → no tabs")
+
+    // Hidden projects drop out of this widget only; the rest keep their order.
+    let hiddenTabs = FirebaseTabs.descriptors(for: .firestore, listed: listed, hidden: ["work42-prod"], temporary: nil)
+    check(hiddenTabs.map(\.key) == ["work42-dev", "other-app"], "hidden project's tab is omitted: \(hiddenTabs.map(\.key))")
+    check(FirebaseTabs.descriptors(for: .firestore, listed: listed, hidden: Set(listed.map(\.projectId)), temporary: nil).isEmpty, "everything hidden → no tabs")
+    check(FirebaseTabs.descriptors(for: .firestore, listed: listed, hidden: ["not-listed"], temporary: nil).count == 3, "hiding an unknown project changes nothing")
+
+    // A temporary link tab comes last, is marked, and never appears when its project is listed.
+    let temp = FirebaseTemporaryTab(projectId: "stranger", url: URL(string: "https://console.firebase.google.com/project/stranger/authentication/providers")!)
+    let withTemp = FirebaseTabs.descriptors(for: .auth, listed: listed, hidden: [], temporary: temp)
+    check(withTemp.last == FirebaseTabDescriptor(key: "temp:stranger", title: "stranger (link)", url: temp.url, isTemporary: true) && withTemp.count == 4, "temporary tab is last and opens its exact URL: \(withTemp.last as Any)")
+    check(FirebaseTabs.descriptors(for: .auth, listed: [], hidden: [], temporary: temp).map(\.key) == ["temp:stranger"], "a temporary tab shows even with an empty list")
+    let nowListed = FirebaseTabs.descriptors(for: .auth, listed: listed + [entry("stranger")], hidden: [], temporary: temp)
+    check(nowListed.count == 4 && nowListed.allSatisfy { !$0.isTemporary }, "once its project is listed the temporary tab is dropped in favour of the real one")
+    check(FirebaseTabs.temporaryKey("x") == "temp:x" && "temp:x".hasPrefix(FirebaseTabs.temporaryPrefix), "temporary keys are recognisable")
+
+    // Odd IDs stay inside the Console URL; tabs with an unusable ID are skipped, not crashed on.
+    let odd = FirebaseTabs.descriptors(for: .auth, listed: [entry("a/b", "Slash")], hidden: [], temporary: nil)
+    check(odd.first?.url.host == "console.firebase.google.com" && odd.first?.url.absoluteString.contains("a%2Fb") == true, "a project ID with a slash is encoded: \(odd.first?.url.absoluteString ?? "nil")")
+
+    // Hidden tabs come back whenever the list of IDs changes; not otherwise.
+    check(FirebaseTabs.hiddenAfterListChange(hidden: ["a"], previousIds: ["a", "b"], currentIds: ["a", "b"]) == ["a"], "unchanged list keeps hidden tabs hidden")
+    check(FirebaseTabs.hiddenAfterListChange(hidden: ["a"], previousIds: ["a", "b"], currentIds: ["a", "b", "c"]).isEmpty, "adding a project resets hidden tabs")
+    check(FirebaseTabs.hiddenAfterListChange(hidden: ["a"], previousIds: ["a", "b"], currentIds: ["b"]).isEmpty, "removing a project resets hidden tabs")
+    check(FirebaseTabs.hiddenAfterListChange(hidden: ["a"], previousIds: ["a", "b"], currentIds: ["b", "a"]).isEmpty, "reordering resets hidden tabs")
+    check(FirebaseTabs.hiddenAfterListChange(hidden: [], previousIds: [], currentIds: []).isEmpty, "nothing to reset")
+
+    // Empty-widget messages.
+    check(FirebaseTabs.emptyMessage(listedCount: 0).hasPrefix("No Firebase projects yet.") && FirebaseTabs.emptyMessage(listedCount: 0).contains("Projects"), "empty list message points at the Projects button")
+    check(FirebaseTabs.emptyMessage(listedCount: 2).hasPrefix("All projects are hidden in this widget."), "all-hidden message")
+}
+
 @main
 struct Runner {
     @MainActor
@@ -889,6 +936,7 @@ struct Runner {
         await testPickerModel()
         testProductCatalog()
         testIcons()
+        testTabs()
         testWidgetLayout()
         testSyncScriptDetectsDrift()
         testSkills()
