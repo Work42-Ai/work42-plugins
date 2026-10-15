@@ -186,7 +186,7 @@ final class FirebaseProjectPickerModel {
         saveError = nil
         let run = self.run
         let task = Task { [weak self] in
-            let outcome: Result<[FirebaseProject], Error>
+            let outcome: Result<[FirebaseProject], any Error>
             do {
                 outcome = .success(try await FirebaseProjectLister.list(run: run))
             } catch {
@@ -198,7 +198,7 @@ final class FirebaseProjectPickerModel {
         await task.value
     }
 
-    private func finishListing(_ outcome: Result<[FirebaseProject], Error>, generation mine: Int) {
+    private func finishListing(_ outcome: Result<[FirebaseProject], any Error>, generation mine: Int) {
         // A cancelled or superseded request must not touch state.
         guard !isFinished, mine == generation else { return }
         inFlight = nil
