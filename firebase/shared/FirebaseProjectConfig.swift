@@ -1,0 +1,249 @@
+// FirebaseProjectConfig.swift — the shared list of Firebase projects.
+//
+// One file, ~/.work42/firebase/config.json, holds the projects every Firebase widget shows as tabs:
+//
+//   {"version":2,"projects":[{"projectId":"work42-dev","displayName":"Work42 Development"}, …]}
+//
+// A version 1 file ({"version":1,"projectId":…,"displayName":…}, written by plugin 0.1.0) is read as a
+// one-project list and only rewritten as version 2 by the next save; reading never writes.
+//
+// Widgets are compiled as separate libraries, so nothing here relies on in-memory state being shared:
+// the file is the only shared state. Writes replace it atomically; `FirebaseProjectStore` notices the
+// replacement by polling the file's fingerprint. No credentials are ever stored here.
+//
+// Foundation + Observation only, so the logic tests compile it without the Work42 SDK.
+
+import Foundation
+import Observation
+
+// MARK: - Entry
+
+/// One project in the shared list.
+struct FirebaseProjectEntry: Codable, Equatable, Identifiable, Sendable {
+    var projectId: String
+    var displayName: String
+    var id: String { projectId }
+}
+
+/// The version 2 file layout.
+private struct FirebaseProjectFile: Codable {
+    var version: Int
+    var projects: [FirebaseProjectEntry]
+}
+
+// MARK: - Errors
+
+enum FirebaseConfigError: Error, Equatable, LocalizedError {
+    /// The file exists but cannot be read (permissions, it is a directory, …).
+    case unreadable(String)
+    /// The file is not a valid project list, or a project ID is empty.
+    case corrupt(String)
+    /// The file was written by a newer schema version.
+    case unsupportedVersion(Int)
+    /// The list could not be saved; the previous file is untouched.
+    case writeFailed(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .unreadable(let why): "Can't read the Firebase project list: \(why)"
+        case .corrupt(let why): "The Firebase project list is invalid: \(why). Choose projects with the Projects button to repair it."
+        case .unsupportedVersion(let v): "The Firebase project list uses version \(v), which this plugin doesn't support. Update the Firebase plugin."
+        case .writeFailed(let why): "Couldn't save the Firebase projects: \(why)"
+        }
+    }
+}
+
+// MARK: - File access
+
+enum FirebaseProjectConfig {
+    static let currentVersion = 2
+
+    /// ~/.work42/firebase/config.json for the current user. Tests inject temporary URLs instead.
+    static var defaultURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".work42", isDirectory: true)
+            .appendingPathComponent("firebase", isDirectory: true)
+            .appendingPathComponent("config.json", isDirectory: false)
+    }
+
+    /// The saved projects: `[]` when no file exists yet, a one-entry list for a version 1 file. Throws for a
+    /// file that exists but can't be used, so an absent file and a damaged one are never confused. IDs are
+    /// trimmed, a blank display name falls back to the ID, and a repeated ID keeps its first entry.
+    /// Never modifies the file.
+    static func load(from url: URL = defaultURL) throws -> [FirebaseProjectEntry] {
+        let data: Data
+        do {
+            data = try Data(contentsOf: url)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return []
+        } catch {
+            throw FirebaseConfigError.unreadable(error.localizedDescription)
+        }
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let version = (object["version"] as? NSNumber).flatMap({ CFGetTypeID($0) == CFBooleanGetTypeID() ? nil : $0.intValue }) else {
+            throw FirebaseConfigError.corrupt("not a valid project list")
+        }
+        switch version {
+        case 1:
+            guard let projectId = object["projectId"] as? String else { throw FirebaseConfigError.corrupt("not a valid project list") }
+            return [try normalized(projectId: projectId, displayName: object["displayName"] as? String)]
+        case currentVersion:
+            guard let items = object["projects"] as? [Any] else { throw FirebaseConfigError.corrupt("not a valid project list") }
+            var entries: [FirebaseProjectEntry] = []
+            for item in items {
+                guard let project = item as? [String: Any], let projectId = project["projectId"] as? String else {
+                    throw FirebaseConfigError.corrupt("not a valid project list")
+                }
+                let entry = try normalized(projectId: projectId, displayName: project["displayName"] as? String)
+                if !entries.contains(where: { $0.projectId == entry.projectId }) { entries.append(entry) }
+            }
+            return entries
+        default:
+            throw FirebaseConfigError.unsupportedVersion(version)
+        }
+    }
+
+    private static func normalized(projectId: String, displayName: String?) throws -> FirebaseProjectEntry {
+        let id = projectId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !id.isEmpty else { throw FirebaseConfigError.corrupt("projectId is empty") }
+        let name = (displayName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return FirebaseProjectEntry(projectId: id, displayName: name.isEmpty ? id : name)
+    }
+
+    /// Writes the whole file (always version 2, an empty list is valid) to a temporary sibling, then renames
+    /// it over the target. Readers see the old file or the new one, never a partial write, and a failure
+    /// leaves the old file in place.
+    static func save(_ projects: [FirebaseProjectEntry], to url: URL = defaultURL) throws {
+        var entries: [FirebaseProjectEntry] = []
+        for project in projects {
+            let entry: FirebaseProjectEntry
+            do { entry = try normalized(projectId: project.projectId, displayName: project.displayName) }
+            catch { throw FirebaseConfigError.writeFailed("projectId is empty") }
+            if !entries.contains(where: { $0.projectId == entry.projectId }) { entries.append(entry) }
+        }
+
+        let directory = url.deletingLastPathComponent()
+        let temporary = directory.appendingPathComponent(".\(url.lastPathComponent).\(UUID().uuidString).tmp")
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(FirebaseProjectFile(version: currentVersion, projects: entries)).write(to: temporary)
+            guard rename(temporary.path, url.path) == 0 else {
+                throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: temporary)
+            throw FirebaseConfigError.writeFailed(error.localizedDescription)
+        }
+    }
+}
+
+// MARK: - Fingerprint
+
+/// Identifies a particular version of the config file. An atomic replacement always installs a new inode,
+/// so comparing fingerprints detects it even when size and modification time happen to match.
+struct FirebaseConfigFingerprint: Equatable, Sendable {
+    var inode: UInt64
+    var size: Int64
+    var modified: Int64   // nanoseconds
+
+    /// nil when the file doesn't exist.
+    static func read(_ url: URL) -> FirebaseConfigFingerprint? {
+        var info = stat()
+        guard stat(url.path, &info) == 0 else { return nil }
+        let nanos = Int64(info.st_mtimespec.tv_sec) * 1_000_000_000 + Int64(info.st_mtimespec.tv_nsec)
+        return FirebaseConfigFingerprint(inode: UInt64(info.st_ino), size: Int64(info.st_size), modified: nanos)
+    }
+}
+
+// MARK: - Store
+
+/// What the widgets render: no projects yet, the project list, or a file that needs repairing.
+enum FirebaseProjectState: Equatable, Sendable {
+    case empty
+    case listed([FirebaseProjectEntry])
+    case invalid(String)
+
+    var projects: [FirebaseProjectEntry] {
+        if case .listed(let projects) = self { return projects }
+        return []
+    }
+}
+
+/// The live view of the shared project list for one widget instance. It polls the file's fingerprint once
+/// per `interval` (default 1 s) while started, re-reads when it changes, and never talks to the Firebase
+/// CLI. `state` only changes when the value really changes, so unchanged reads don't disturb observers.
+/// Reading never writes: an invalid file stays as the user left it until they save a list.
+@MainActor
+@Observable
+final class FirebaseProjectStore {
+    private(set) var state: FirebaseProjectState = .empty
+
+    @ObservationIgnored let url: URL
+    @ObservationIgnored let interval: TimeInterval
+    @ObservationIgnored private var task: Task<Void, Never>?
+    @ObservationIgnored private var lastFingerprint: FirebaseConfigFingerprint?
+
+    init(url: URL = FirebaseProjectConfig.defaultURL, interval: TimeInterval = 1) {
+        self.url = url
+        self.interval = interval
+    }
+
+    var isRunning: Bool { task != nil }
+
+    /// The listed projects (empty unless the file holds a valid non-empty list).
+    var projects: [FirebaseProjectEntry] { state.projects }
+
+    /// Reads now, then keeps checking until `stop()`. Call from `activate`; calling it again is a re-read.
+    func start() {
+        reload()
+        guard task == nil else { return }
+        let interval = self.interval
+        task = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(interval * 1_000_000_000))
+                if Task.isCancelled { break }
+                self?.checkForChange()
+            }
+        }
+    }
+
+    /// Stops checking. Call from `deactivate`.
+    func stop() {
+        task?.cancel()
+        task = nil
+    }
+
+    /// Unconditionally re-reads the file (widget activation, window focus).
+    func reload() {
+        lastFingerprint = FirebaseConfigFingerprint.read(url)
+        apply(Self.readState(url))
+    }
+
+    /// Persists the project list and adopts it immediately. Throws `FirebaseConfigError.writeFailed`, in
+    /// which case the file and `state` are untouched.
+    func save(_ projects: [FirebaseProjectEntry]) throws {
+        try FirebaseProjectConfig.save(projects, to: url)
+        reload()
+    }
+
+    private func checkForChange() {
+        let fingerprint = FirebaseConfigFingerprint.read(url)
+        guard fingerprint != lastFingerprint else { return }
+        reload()
+    }
+
+    private func apply(_ new: FirebaseProjectState) {
+        if new != state { state = new }
+    }
+
+    private static func readState(_ url: URL) -> FirebaseProjectState {
+        do {
+            let projects = try FirebaseProjectConfig.load(from: url)
+            return projects.isEmpty ? .empty : .listed(projects)
+        } catch {
+            return .invalid(error.localizedDescription)
+        }
+    }
+}

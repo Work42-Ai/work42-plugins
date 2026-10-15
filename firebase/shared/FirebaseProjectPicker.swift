@@ -1,0 +1,401 @@
+// FirebaseProjectPicker.swift — the project selection window shared by every Firebase widget.
+//
+//   Projects → `firebase projects:list --json --non-interactive` (through the SDK shell service)
+//            → searchable checkbox list → Save → FirebaseProjectStore.save → ~/.work42/firebase/config.json
+//
+// The shell is injected as a closure (`FirebaseShellRunner`) so this file needs no Work42 SDK types:
+// a widget passes `{ try await services.shell.run(command: $0) }` mapped to `FirebaseShellResult`.
+// Nothing is written until the user saves; cancelling writes nothing.
+
+import Foundation
+import Observation
+import SwiftUI
+
+// MARK: - Shell seam
+
+struct FirebaseShellResult: Sendable, Equatable {
+    var stdout: String
+    var stderr: String
+    var exitCode: Int32
+}
+
+typealias FirebaseShellRunner = @Sendable (String) async throws -> FirebaseShellResult
+
+// MARK: - Projects
+
+struct FirebaseProject: Equatable, Identifiable, Sendable {
+    var projectId: String
+    var displayName: String
+    var id: String { projectId }
+}
+
+enum FirebaseProjectListError: Error, Equatable, LocalizedError {
+    /// The `firebase` executable isn't on the shell's PATH.
+    case cliMissing
+    /// The CLI isn't signed in, or its credentials expired. Browser sign-in doesn't count.
+    case notAuthenticated(String)
+    /// The CLI ran and failed for another reason (message is what it printed).
+    case cliFailed(String)
+    /// The CLI succeeded but its output isn't the expected projects envelope.
+    case malformedOutput(String)
+    /// The shell service itself failed (timeout, no worktree, …).
+    case shellFailed(String)
+
+    /// What `firebase projects:list` prints when it fails without saying why (an expired login does this).
+    static let genericListFailure = "Failed to list Firebase projects."
+
+    var errorDescription: String? {
+        switch self {
+        case .cliMissing:
+            "Work42 couldn't find the Firebase CLI on the PATH its shell uses. If it is installed (for example through nvm), follow the firebase-setup skill to make it visible; otherwise install it first. Then retry."
+        case .notAuthenticated:
+            "The Firebase CLI isn't signed in. Run `firebase login` in a terminal (Console sign-in in the widget doesn't count), then retry."
+        case .cliFailed(let message):
+            // The CLI says only this when its stored login has expired (it still lists the account), so say what usually fixes it.
+            message.hasPrefix(Self.genericListFailure)
+                ? "The Firebase CLI couldn't list projects: \(message) This is often an expired CLI login: run `firebase login --reauth` in a terminal, then retry."
+                : "The Firebase CLI couldn't list projects: \(message)"
+        case .malformedOutput(let why):
+            "Unexpected output from `firebase projects:list`: \(why)"
+        case .shellFailed(let message):
+            "Couldn't run the Firebase CLI: \(message)"
+        }
+    }
+}
+
+/// Parses the `--json` envelope: `{"status":"success","result":[{"projectId":…,"displayName":…}, …]}`.
+enum FirebaseProjectParser {
+    static func parseProjects(_ data: Data) throws -> [FirebaseProject] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) else {
+            throw FirebaseProjectListError.malformedOutput("not JSON")
+        }
+        guard let envelope = root as? [String: Any] else {
+            throw FirebaseProjectListError.malformedOutput("expected a JSON object")
+        }
+        if let status = envelope["status"] as? String, status != "success" {
+            let message = (envelope["error"] as? String) ?? "status \(status)"
+            throw FirebaseProjectListError.cliFailed(message)
+        }
+        guard let entries = envelope["result"] as? [Any] else {
+            throw FirebaseProjectListError.malformedOutput("missing result array")
+        }
+        var seen = Set<String>()
+        var projects: [FirebaseProject] = []
+        for entry in entries {
+            guard let object = entry as? [String: Any],
+                  let rawId = object["projectId"] as? String,
+                  case let projectId = rawId.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !projectId.isEmpty else {
+                throw FirebaseProjectListError.malformedOutput("a project has no projectId")
+            }
+            guard seen.insert(projectId).inserted else { continue }
+            let name = (object["displayName"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            projects.append(FirebaseProject(projectId: projectId, displayName: name.isEmpty ? projectId : name))
+        }
+        return projects
+    }
+}
+
+enum FirebaseProjectLister {
+    /// The Work42 app is launched from the Dock, so its shell has a minimal PATH and never reads ~/.zshrc, where nvm
+    /// puts Node tools on the PATH. If `firebase` isn't found, load nvm (when present) and look again; a CLI that
+    /// really isn't installed still fails with "command not found" (exit 127).
+    static let command = #"command -v firebase >/dev/null 2>&1 || { [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] && . "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1; }; firebase projects:list --json --non-interactive"#
+
+    /// Runs the CLI and classifies the outcome. A non-zero exit always wins over whatever is on stdout.
+    static func list(run: FirebaseShellRunner) async throws -> [FirebaseProject] {
+        let result: FirebaseShellResult
+        do {
+            result = try await run(command)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw FirebaseProjectListError.shellFailed(error.localizedDescription)
+        }
+        guard result.exitCode == 0 else { throw classifyFailure(result) }
+        return try FirebaseProjectParser.parseProjects(Data(result.stdout.utf8))
+    }
+
+    private static func classifyFailure(_ result: FirebaseShellResult) -> FirebaseProjectListError {
+        let message = failureMessage(result)
+        let lowered = (result.stderr + "\n" + result.stdout).lowercased()
+        if result.exitCode == 127 || lowered.contains("command not found") || lowered.contains("no such file or directory: firebase") {
+            return .cliMissing
+        }
+        if lowered.contains("firebase login") || lowered.contains("not authenticated") || lowered.contains("credentials are no longer valid")
+            || lowered.contains("failed to authenticate") {
+            return .notAuthenticated(message)
+        }
+        return .cliFailed(message)
+    }
+
+    /// Prefer the JSON error the CLI prints on stdout, then stderr, then the exit code.
+    private static func failureMessage(_ result: FirebaseShellResult) -> String {
+        if let object = try? JSONSerialization.jsonObject(with: Data(result.stdout.utf8)) as? [String: Any],
+           let error = object["error"] as? String, !error.isEmpty {
+            return error
+        }
+        let stderr = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stderr.isEmpty { return stderr }
+        return "exit code \(result.exitCode)"
+    }
+}
+
+// MARK: - Model
+
+/// Backs one presentation of the selection window. Make a new model per presentation: once `cancel()` or a
+/// successful `save()` has happened it is finished and ignores late results. It starts from the projects
+/// saved at that moment (all checked), lists the CLI's projects, and saves the checked ones.
+@MainActor
+@Observable
+final class FirebaseProjectPickerModel {
+    enum Phase: Equatable {
+        case idle
+        case loading
+        case loaded
+        case failed(String)
+    }
+
+    /// One line of the window.
+    struct Row: Equatable, Identifiable {
+        var project: FirebaseProject
+        var isChecked: Bool
+        /// False for a saved project the CLI did not return; shown only once a listing has succeeded.
+        var isListedByCLI: Bool
+        var id: String { project.projectId }
+    }
+
+    private(set) var phase: Phase = .idle
+    var query = ""
+    /// Set when saving failed; the saved list is still in place and the window stays open.
+    private(set) var saveError: String?
+    private(set) var isFinished = false
+    /// True once a listing has succeeded, so "not listed by the CLI" is meaningful.
+    private(set) var hasListed = false
+
+    @ObservationIgnored private let run: FirebaseShellRunner
+    @ObservationIgnored private let store: FirebaseProjectStore
+    @ObservationIgnored private let saved: [FirebaseProjectEntry]
+    @ObservationIgnored private var cliProjects: [FirebaseProject] = []
+    @ObservationIgnored private var generation = 0
+    @ObservationIgnored private var inFlight: Task<Void, Never>?
+    private var checked: Set<String>
+
+    init(run: @escaping FirebaseShellRunner, store: FirebaseProjectStore) {
+        self.run = run
+        self.store = store
+        self.saved = store.projects
+        self.checked = Set(store.projects.map(\.projectId))
+    }
+
+    /// The CLI's projects in CLI order, then saved projects the CLI did not return (in saved order).
+    /// Before the first successful listing only the saved projects are shown.
+    var rows: [Row] {
+        let listedIds = Set(cliProjects.map(\.projectId))
+        let fromCLI = cliProjects.map { Row(project: $0, isChecked: checked.contains($0.projectId), isListedByCLI: true) }
+        let savedOnly = saved.filter { !listedIds.contains($0.projectId) }.map {
+            Row(project: FirebaseProject(projectId: $0.projectId, displayName: $0.displayName),
+                isChecked: checked.contains($0.projectId), isListedByCLI: false)
+        }
+        return fromCLI + savedOnly
+    }
+
+    /// Rows whose name or ID contains the query (case-insensitive).
+    var filteredRows: [Row] {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return rows }
+        return rows.filter {
+            $0.project.displayName.lowercased().contains(needle) || $0.project.projectId.lowercased().contains(needle)
+        }
+    }
+
+    /// Checks or unchecks a project that has a row.
+    func toggle(_ projectId: String) {
+        guard !isFinished, rows.contains(where: { $0.id == projectId }) else { return }
+        if checked.contains(projectId) { checked.remove(projectId) } else { checked.insert(projectId) }
+    }
+
+    /// Lists projects. A second call while one is running does nothing, so there is at most one CLI
+    /// process per window. The user's checks survive a refresh. Resolves when the request finished (or was
+    /// ignored/cancelled).
+    func refresh() async {
+        guard !isFinished, phase != .loading else { return }
+        generation += 1
+        let mine = generation
+        phase = .loading
+        saveError = nil
+        let run = self.run
+        let task = Task { [weak self] in
+            let outcome: Result<[FirebaseProject], any Error>
+            do {
+                outcome = .success(try await FirebaseProjectLister.list(run: run))
+            } catch {
+                outcome = .failure(error)
+            }
+            self?.finishListing(outcome, generation: mine)
+        }
+        inFlight = task
+        await task.value
+    }
+
+    private func finishListing(_ outcome: Result<[FirebaseProject], any Error>, generation mine: Int) {
+        // A cancelled or superseded request must not touch state.
+        guard !isFinished, mine == generation else { return }
+        inFlight = nil
+        switch outcome {
+        case .success(let projects):
+            cliProjects = projects
+            hasListed = true
+            phase = .loaded
+        case .failure(let error):
+            phase = .failed(error.localizedDescription)
+        }
+    }
+
+    /// Saves the checked projects: saved ones that are still checked keep their order (and take the CLI's
+    /// current display name when it lists them), then newly checked ones are appended in CLI order. An empty
+    /// result is valid. Returns true when saved; on false `saveError` explains why, the saved list is
+    /// unchanged and the window stays open.
+    @discardableResult
+    func save() -> Bool {
+        guard !isFinished else { return false }
+        let cliById = Dictionary(cliProjects.map { ($0.projectId, $0) }, uniquingKeysWith: { first, _ in first })
+        let savedIds = Set(saved.map(\.projectId))
+        var result: [FirebaseProjectEntry] = saved.filter { checked.contains($0.projectId) }.map {
+            FirebaseProjectEntry(projectId: $0.projectId, displayName: cliById[$0.projectId]?.displayName ?? $0.displayName)
+        }
+        result += cliProjects.filter { checked.contains($0.projectId) && !savedIds.contains($0.projectId) }.map {
+            FirebaseProjectEntry(projectId: $0.projectId, displayName: $0.displayName)
+        }
+        do {
+            try store.save(result)
+        } catch {
+            saveError = error.localizedDescription
+            return false
+        }
+        finish()
+        return true
+    }
+
+    /// Cancels without writing anything. Any in-flight listing is abandoned.
+    func cancel() {
+        guard !isFinished else { return }
+        finish()
+    }
+
+    private func finish() {
+        isFinished = true
+        generation += 1
+        inFlight?.cancel()
+        inFlight = nil
+    }
+}
+
+// MARK: - Sheet
+
+/// The project selection window. `onDismiss` fires after a successful save or a cancel; the widget drops
+/// the sheet there. Present it with a fresh `FirebaseProjectPickerModel` each time.
+struct FirebaseProjectSelectionSheet: View {
+    let model: FirebaseProjectPickerModel
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Firebase Projects")
+                .font(.headline)
+            Text("Projects the Firebase CLI can access. Checked projects get a tab in every Firebase widget.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            HStack {
+                TextField("Search by name or project ID", text: Binding(get: { model.query }, set: { model.query = $0 }))
+                    .textFieldStyle(.roundedBorder)
+                Button {
+                    Task { await model.refresh() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .help("Refresh")
+                .disabled(model.phase == .loading)
+            }
+
+            content
+                .frame(maxWidth: .infinity, minHeight: 180, maxHeight: .infinity)
+
+            if let saveError = model.saveError {
+                Text(saveError).font(.caption).foregroundStyle(.red)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") {
+                    model.cancel()
+                    onDismiss()
+                }
+                .keyboardShortcut(.cancelAction)
+                Button("Save") {
+                    if model.save() { onDismiss() }
+                }
+                .keyboardShortcut(.defaultAction)
+                .disabled(model.phase == .loading)
+            }
+        }
+        .padding(16)
+        .frame(minWidth: 380, minHeight: 360)
+        .task { await model.refresh() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        VStack(spacing: 8) {
+            switch model.phase {
+            case .loading:
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading projects…").font(.caption).foregroundStyle(.secondary)
+                }
+            case .failed(let message):
+                Text(message)
+                    .font(.callout)
+                    .multilineTextAlignment(.center)
+                Button("Retry") { Task { await model.refresh() } }
+            case .loaded where model.rows.isEmpty:
+                Text("The Firebase CLI didn't list any projects for this account.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            case .idle, .loaded:
+                EmptyView()
+            }
+
+            if !model.rows.isEmpty {
+                if model.filteredRows.isEmpty {
+                    Text("No projects match “\(model.query)”.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .frame(maxHeight: .infinity)
+                } else {
+                    List(model.filteredRows) { row in
+                        Toggle(isOn: Binding(get: { row.isChecked }, set: { _ in model.toggle(row.id) })) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(row.project.displayName)
+                                HStack(spacing: 6) {
+                                    Text(row.project.projectId)
+                                    if !row.isListedByCLI && model.hasListed {
+                                        Text("not listed by the CLI").foregroundStyle(.orange)
+                                    }
+                                }
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            }
+                        }
+                        .toggleStyle(.checkbox)
+                    }
+                }
+            } else if model.phase == .loading {
+                Spacer()
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
