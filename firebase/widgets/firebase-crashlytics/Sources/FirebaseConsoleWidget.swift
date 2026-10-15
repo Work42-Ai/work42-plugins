@@ -11,6 +11,8 @@
 //     FirebaseProjectStore and follows the file, so nothing relies on a shared singleton.
 //   • Tabs get stable ids per project, so an unchanged list never reloads a page, and the widget keeps its
 //     own selected tab. The tab rules live in FirebaseTabs (pure, tested).
+//   • Console links for this product open here: the host reveals the widget and calls `openLink`. A listed
+//     project's tab shows the exact URL; an unlisted project gets a temporary tab that is never saved.
 //   • Closing a tab with × hides that project in this widget only; hidden tabs return when the shared
 //     list changes or Work42 restarts. The browser chrome's + opens the selection window.
 //   • dataStoreKey "browser" shares cookies with the Browser widget, so signing in once covers every
@@ -33,8 +35,17 @@ final class FirebaseConsoleWidget: Work42Widget {
     var icon: String { product.icon }
     var iconImageData: Data? { product.iconPNG }
 
-    /// Console links are claimed in WOR-206; until then the Browser opens them.
-    var linkIntents: [WidgetLinkIntentSpec] { [] }
+    /// This product's Console pages, for any project. Other Firebase products stay with the Browser.
+    var linkIntents: [WidgetLinkIntentSpec] {
+        [WidgetLinkIntentSpec(matchers: [.regex(product.linkPattern)]) { [weak self] url in
+            self?.openLink(url)
+        }]
+    }
+
+    /// A link inside this widget's page for the same project and product navigates in place.
+    func isSamePage(_ url: URL, as pageURL: URL) -> Bool {
+        FirebaseProduct.isSamePage(url, pageURL)
+    }
 
     /// Projects whose tab this widget hid with ×.
     private(set) var hidden: Set<String> = []
@@ -51,6 +62,10 @@ final class FirebaseConsoleWidget: Work42Widget {
     /// The title last pushed to each tab, so a page's own title isn't overwritten by every sync.
     @ObservationIgnored private var titles: [String: String] = [:]
     @ObservationIgnored private var lastListedIds: [String] = []
+    /// A link to show as soon as the surface exists (the host can call `openLink` before the view mounts).
+    @ObservationIgnored private var pendingLink: FirebaseLinkAction?
+    /// Exact URLs for tabs created from a link, until the tab exists.
+    @ObservationIgnored private var linkURLs: [String: URL] = [:]
 
     init(product: FirebaseProduct, store: FirebaseProjectStore = FirebaseProjectStore()) {
         self.product = product
@@ -74,6 +89,8 @@ final class FirebaseConsoleWidget: Work42Widget {
         lastListedIds = []
         hidden = []
         temporary = nil
+        pendingLink = nil
+        linkURLs = [:]
         BrowserSurfaceCache.shared.teardown(key: id)
     }
 
@@ -85,7 +102,7 @@ final class FirebaseConsoleWidget: Work42Widget {
 
     /// The tabs to show right now.
     var descriptors: [FirebaseTabDescriptor] {
-        FirebaseTabs.descriptors(for: product, listed: store.projects, hidden: hidden, temporary: temporary)
+        FirebaseTabs.descriptors(for: product, listed: store.projects, hidden: hidden, temporary: temporary, overrides: linkURLs)
     }
 
     /// Called when the shared list may have changed (store change, appearance).
@@ -107,6 +124,7 @@ final class FirebaseConsoleWidget: Work42Widget {
         model.onNewTab = { [weak self] in self?.openSelection() }
         model.onTabClosed = { [weak self] id in self?.tabClosed(id) }
         syncTabs()
+        applyPendingLink()
     }
 
     /// Makes the browser's tabs match `descriptors`. Tabs are only replaced when the set of tab ids changes,
@@ -145,6 +163,52 @@ final class FirebaseConsoleWidget: Work42Widget {
             titles[key] = nil
         } else {
             hidden.insert(key)
+        }
+    }
+
+    // MARK: Links
+
+    /// Called by the host when a Console link for this product was clicked.
+    func openLink(_ url: URL) {
+        let action = FirebaseTabs.linkAction(for: url, product: product, listed: store.projects)
+        guard action != .ignore else { return }
+        pendingLink = action
+        applyPendingLink()
+    }
+
+    /// Shows the pending link now, or leaves it pending until the surface mounts.
+    private func applyPendingLink() {
+        guard let action = pendingLink else { return }
+        switch action {
+        case .ignore:
+            pendingLink = nil
+        case .selectListed(let projectId, let url):
+            hidden.remove(projectId)
+            guard let model = browserModel else { return }
+            syncTabs()
+            // The SDK can't load a URL into an existing tab, so a tab that isn't already on the link gets
+            // replaced by a new one carrying it.
+            if model.tabs.first(where: { $0.id == tabID(for: projectId) })?.url != url {
+                tabIDs[projectId] = UUID()
+                titles[projectId] = nil
+                linkURLs[projectId] = url
+                syncTabs()
+            }
+            linkURLs[projectId] = nil
+            model.selectTab(tabID(for: projectId))
+            pendingLink = nil
+        case .openTemporary(let tab):
+            let key = FirebaseTabs.temporaryKey(tab.projectId)
+            let changed = temporary != tab
+            temporary = tab
+            guard let model = browserModel else { return }
+            if changed, tabIDs[key] != nil {
+                tabIDs[key] = UUID()
+                titles[key] = nil
+            }
+            syncTabs()
+            model.selectTab(tabID(for: key))
+            pendingLink = nil
         }
     }
 

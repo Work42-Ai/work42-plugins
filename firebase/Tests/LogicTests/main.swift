@@ -922,6 +922,95 @@ func testTabs() {
     check(FirebaseTabs.emptyMessage(listedCount: 2).hasPrefix("All projects are hidden in this widget."), "all-hidden message")
 }
 
+// MARK: - Console links
+
+func testLinks() {
+    func matches(_ product: FirebaseProduct, _ text: String) -> Bool {
+        let regex = try! NSRegularExpression(pattern: product.linkPattern)
+        return regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+    let host = "https://console.firebase.google.com"
+
+    // Each product claims exactly its own pages, in every URL shape the Console uses.
+    let samples: [(FirebaseProduct, [String])] = [
+        (.auth, ["\(host)/project/my-app/authentication", "\(host)/project/my-app/authentication/users", "\(host)/project/my-app/authentication/providers?hl=en",
+                 "\(host)/u/0/project/my-app/authentication/users", "\(host)/u/12/project/my-app/authentication#tab", "\(host)/project/my-app/authentication?x=1"]),
+        (.analytics, ["\(host)/project/my-app/analytics", "\(host)/project/my-app/analytics/overview", "\(host)/u/1/project/my-app/analytics/app/android:com.x/overview"]),
+        (.firestore, ["\(host)/project/my-app/firestore", "\(host)/project/my-app/firestore/databases/-default-/data", "\(host)/u/0/project/my-app/firestore/databases/-default-/indexes"]),
+        (.crashlytics, ["\(host)/project/my-app/crashlytics", "\(host)/project/my-app/crashlytics/app/android:com.x/issues", "\(host)/u/0/project/my-app/crashlytics?x=1"]),
+    ]
+    for (owner, urls) in samples {
+        for text in urls {
+            for product in FirebaseProduct.all {
+                check(matches(product, text) == (product == owner), "\(product.id) \(product == owner ? "claims" : "ignores") \(text)")
+            }
+        }
+    }
+    for product in FirebaseProduct.all {
+        for text in ["\(host)/project/my-app/\(product.linkSegment)x", "\(host)/project/my-app/\(product.linkSegment)s/users",
+                     "\(host)/project/my-app/storage", "\(host)/project/my-app/hosting", "\(host)/project/my-app/overview", "\(host)/project/my-app", "\(host)/",
+                     "http://console.firebase.google.com/project/my-app/\(product.linkSegment)",
+                     "https://console.firebase.google.com.evil.com/project/my-app/\(product.linkSegment)",
+                     "https://evil.com/console.firebase.google.com/project/my-app/\(product.linkSegment)",
+                     "https://firebase.google.com/project/my-app/\(product.linkSegment)", "https://console.firebase.google.com/project//\(product.linkSegment)",
+                     "https://console.firebase.google.com/u/x/project/my-app/\(product.linkSegment)"] {
+            check(!matches(product, text), "\(product.id) ignores \(text)")
+        }
+    }
+
+    // Parsing: project ID (percent-decoded) and the product segment; anything else is nil.
+    func parsed(_ text: String) -> String {
+        guard let url = URL(string: text), let r = FirebaseProduct.parse(url) else { return "nil" }
+        return "\(r.projectId)|\(r.segment)"
+    }
+    check(parsed("\(host)/project/my-app/authentication/users") == "my-app|authentication", "parse: plain link")
+    check(parsed("\(host)/u/0/project/my-app/firestore/databases/-default-/data") == "my-app|firestore", "parse: account index")
+    check(parsed("\(host)/project/dom.com%3Aproj/crashlytics?x=1#y") == "dom.com:proj|crashlytics", "parse: percent-encoded project ID is decoded")
+    check(parsed("\(host)/project/my-app") == "nil" && parsed("\(host)/project/my-app/") == "nil", "parse: no product segment")
+    check(parsed("https://example.com/project/my-app/authentication") == "nil" && parsed("http://console.firebase.google.com/project/my-app/authentication") == "nil", "parse: other host or scheme")
+    check(parsed("\(host)/project//authentication") == "nil", "parse: empty project ID")
+    check(parsed("HTTPS://CONSOLE.FIREBASE.GOOGLE.COM/project/my-app/authentication") == "my-app|authentication", "parse: scheme and host are case-insensitive")
+    // Every URL a product page is built from parses back to the same project and a segment the product owns.
+    for product in FirebaseProduct.all {
+        for id in ["my-app", "dom.com:proj", "a/b", "ünï"] {
+            let url = product.consoleURL(projectId: id)!
+            let back = FirebaseProduct.parse(url)
+            check(back?.projectId == id && back?.segment == product.linkSegment && matches(product, url.absoluteString), "\(product.id): consoleURL round-trips through parse and its own pattern for \(id)")
+        }
+    }
+
+    // Same page: same project and product; subpages and queries count, other projects and products don't.
+    func same(_ a: String, _ b: String) -> Bool { FirebaseProduct.isSamePage(URL(string: a)!, URL(string: b)!) }
+    check(same("\(host)/project/my-app/authentication/providers", "\(host)/project/my-app/authentication/users"), "same page: other subpage of the same product")
+    check(same("\(host)/u/0/project/my-app/authentication", "\(host)/project/my-app/authentication/users?x=1"), "same page: account index and query don't matter")
+    check(!same("\(host)/project/other/authentication", "\(host)/project/my-app/authentication"), "different project is not the same page")
+    check(!same("\(host)/project/my-app/firestore", "\(host)/project/my-app/authentication"), "different product is not the same page")
+    check(!same("https://example.com/", "\(host)/project/my-app/authentication") && !same("\(host)/project/my-app/authentication", "https://example.com/"), "non-Console URLs are never the same page")
+
+    // What a widget does with a clicked link.
+    let listed = [entry("my-app", "My App"), entry("dom.com:proj", "Dotted")]
+    func action(_ product: FirebaseProduct, _ text: String, listed: [FirebaseProjectEntry] = listed) -> FirebaseLinkAction {
+        FirebaseTabs.linkAction(for: URL(string: text)!, product: product, listed: listed)
+    }
+    let deep = URL(string: "\(host)/project/my-app/authentication/providers")!
+    check(action(.auth, deep.absoluteString) == .selectListed(projectId: "my-app", url: deep), "listed project → select its tab with the exact URL")
+    let dotted = URL(string: "\(host)/project/dom.com%3Aproj/crashlytics")!
+    check(action(.crashlytics, dotted.absoluteString) == .selectListed(projectId: "dom.com:proj", url: dotted), "encoded listed project ID matches the list")
+    let stranger = URL(string: "\(host)/project/stranger/firestore/databases/-default-/data")!
+    check(action(.firestore, stranger.absoluteString) == .openTemporary(FirebaseTemporaryTab(projectId: "stranger", url: stranger)), "unlisted project → temporary tab with the exact URL")
+    check(action(.firestore, stranger.absoluteString, listed: []) == .openTemporary(FirebaseTemporaryTab(projectId: "stranger", url: stranger)), "an empty list gives a temporary tab too")
+    check(action(.analytics, deep.absoluteString) == .ignore, "another product's link is ignored")
+    check(action(.auth, "\(host)/project/my-app/storage") == .ignore && action(.auth, "https://example.com/") == .ignore, "other pages and hosts are ignored")
+
+    // A freshly opened link overrides only its own tab's URL.
+    let withOverride = FirebaseTabs.descriptors(for: .auth, listed: listed, hidden: [], temporary: nil, overrides: ["my-app": deep])
+    check(withOverride.map(\.url) == [deep, FirebaseProduct.auth.consoleURL(projectId: "dom.com:proj")!], "override replaces one tab's URL only")
+    check(FirebaseTabs.descriptors(for: .auth, listed: listed, hidden: ["my-app"], temporary: nil, overrides: ["my-app": deep]).map(\.key) == ["dom.com:proj"], "a hidden project stays hidden despite an override")
+    let tempA = FirebaseTemporaryTab(projectId: "stranger", url: stranger)
+    let tempB = FirebaseTemporaryTab(projectId: "other-stranger", url: URL(string: "\(host)/project/other-stranger/firestore")!)
+    check(FirebaseTabs.descriptors(for: .firestore, listed: listed, hidden: [], temporary: tempB).last?.key == "temp:other-stranger" && tempA != tempB, "a new temporary tab replaces the previous one")
+}
+
 @main
 struct Runner {
     @MainActor
@@ -937,6 +1026,7 @@ struct Runner {
         testProductCatalog()
         testIcons()
         testTabs()
+        testLinks()
         testWidgetLayout()
         testSyncScriptDetectsDrift()
         testSkills()

@@ -22,17 +22,38 @@ struct FirebaseTemporaryTab: Equatable, Sendable {
     var url: URL
 }
 
+/// What opening a Console link means for one widget.
+enum FirebaseLinkAction: Equatable, Sendable {
+    /// The project is listed: unhide and select its tab, showing this exact URL.
+    case selectListed(projectId: String, url: URL)
+    /// The project isn't listed: show a temporary tab (never saved).
+    case openTemporary(FirebaseTemporaryTab)
+    /// Not a Console link for this widget's product.
+    case ignore
+}
+
 enum FirebaseTabs {
     static let temporaryPrefix = "temp:"
+
+    /// Decides what a widget for `product` does with a clicked Console `url`.
+    static func linkAction(for url: URL, product: FirebaseProduct, listed: [FirebaseProjectEntry]) -> FirebaseLinkAction {
+        guard let target = FirebaseProduct.parse(url), target.segment == product.linkSegment else { return .ignore }
+        if listed.contains(where: { $0.projectId == target.projectId }) {
+            return .selectListed(projectId: target.projectId, url: url)
+        }
+        return .openTemporary(FirebaseTemporaryTab(projectId: target.projectId, url: url))
+    }
 
     static func temporaryKey(_ projectId: String) -> String { temporaryPrefix + projectId }
 
     /// Listed projects not hidden in this widget, in list order, then the temporary tab (omitted when its
     /// project has since been listed). Each listed project opens on `product`'s Console page.
+    /// `overrides` replaces a listed project's page with an exact URL (a link that was just opened).
     static func descriptors(for product: FirebaseProduct, listed: [FirebaseProjectEntry], hidden: Set<String>,
-                            temporary: FirebaseTemporaryTab?) -> [FirebaseTabDescriptor] {
+                            temporary: FirebaseTemporaryTab?, overrides: [String: URL] = [:]) -> [FirebaseTabDescriptor] {
         var tabs: [FirebaseTabDescriptor] = listed.compactMap { entry in
-            guard !hidden.contains(entry.projectId), let url = product.consoleURL(projectId: entry.projectId) else { return nil }
+            guard !hidden.contains(entry.projectId),
+                  let url = overrides[entry.projectId] ?? product.consoleURL(projectId: entry.projectId) else { return nil }
             return FirebaseTabDescriptor(key: entry.projectId, title: entry.displayName, url: url, isTemporary: false)
         }
         if let temporary, !listed.contains(where: { $0.projectId == temporary.projectId }) {

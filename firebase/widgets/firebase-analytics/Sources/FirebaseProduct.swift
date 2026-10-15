@@ -64,6 +64,38 @@ struct FirebaseProduct: Equatable, Sendable {
         return consoleURL(projectId: selected)
     }
 
+    // MARK: Console links
+
+    /// The first path segment of this product's Console pages (`authentication`, `analytics`, `firestore`,
+    /// `crashlytics`): what a Console link must have after the project ID to belong to this widget.
+    var linkSegment: String {
+        consolePath.split(separator: "/").first.map(String.init) ?? consolePath
+    }
+
+    /// Matches the canonical Console URLs of this product, for the host's Open Link routing:
+    /// `https://console.firebase.google.com/[u/<n>/]project/<projectId>/<segment>[/…|?…|#…]`.
+    var linkPattern: String {
+        #"^https://console\.firebase\.google\.com/(u/[0-9]+/)?project/[^/?#]+/"# + linkSegment + #"(/|\?|#|$)"#
+    }
+
+    /// The project ID and product segment of a Firebase Console project URL, or nil for any other URL.
+    static func parse(_ url: URL) -> (projectId: String, segment: String)? {
+        guard url.scheme?.lowercased() == "https", url.host?.lowercased() == consoleHost,
+              let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedPath else { return nil }
+        var parts = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        if parts.count >= 2, parts[0] == "u", Int(parts[1]) != nil { parts.removeFirst(2) }
+        guard parts.count >= 3, parts[0] == "project",
+              let projectId = parts[1].removingPercentEncoding, !projectId.isEmpty else { return nil }
+        return (projectId, parts[2])
+    }
+
+    /// True when both URLs are Console pages of the same project and product, so a link clicked inside the
+    /// page can navigate in place instead of opening another tab.
+    static func isSamePage(_ url: URL, _ pageURL: URL) -> Bool {
+        guard let a = parse(url), let b = parse(pageURL) else { return false }
+        return a.projectId == b.projectId && a.segment == b.segment
+    }
+
     /// RFC 3986 unreserved characters only.
     private static let pathComponentAllowed = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
