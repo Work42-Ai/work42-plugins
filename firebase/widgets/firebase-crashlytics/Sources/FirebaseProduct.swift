@@ -18,19 +18,25 @@ struct FirebaseProduct: Equatable, Sendable {
     let icon: String
     /// Path under `/project/<projectId>/` of this product's Console page.
     let consolePath: String
+    /// The product's official Firebase icon, a 64x64 PNG with alpha (see `FirebaseBrand`).
+    let iconPNG: Data
 
     static let auth = FirebaseProduct(
         id: "auth", widgetId: "firebase-auth", title: "Firebase Authentication",
-        icon: "person.badge.key", consolePath: "authentication/users")
+        icon: "person.badge.key", consolePath: "authentication/users",
+        iconPNG: FirebaseBrand.authIconPNG)
     static let analytics = FirebaseProduct(
         id: "analytics", widgetId: "firebase-analytics", title: "Firebase Analytics",
-        icon: "chart.bar", consolePath: "analytics/overview")
+        icon: "chart.bar", consolePath: "analytics/overview",
+        iconPNG: FirebaseBrand.analyticsIconPNG)
     static let firestore = FirebaseProduct(
         id: "firestore", widgetId: "firebase-firestore", title: "Firebase Firestore",
-        icon: "cylinder.split.1x2", consolePath: "firestore")
+        icon: "cylinder.split.1x2", consolePath: "firestore",
+        iconPNG: FirebaseBrand.firestoreIconPNG)
     static let crashlytics = FirebaseProduct(
         id: "crashlytics", widgetId: "firebase-crashlytics", title: "Firebase Crashlytics",
-        icon: "exclamationmark.triangle", consolePath: "crashlytics")
+        icon: "exclamationmark.triangle", consolePath: "crashlytics",
+        iconPNG: FirebaseBrand.crashlyticsIconPNG)
 
     static let all: [FirebaseProduct] = [.auth, .analytics, .firestore, .crashlytics]
 

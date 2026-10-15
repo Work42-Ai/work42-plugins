@@ -1,7 +1,9 @@
 // Logic tests for FirebaseProjectConfig / FirebaseProjectStore / parser / lister / picker model.
 // Plain executable (no XCTest), same shape as linear42's Tests/LogicTests. Exits non-zero on any failure.
 
+import CoreGraphics
 import Foundation
+import ImageIO
 
 nonisolated(unsafe) var failures = 0
 nonisolated(unsafe) var checks = 0
@@ -552,7 +554,7 @@ func testWidgetLayout() {
     let widgetDirs = ((try? fm.contentsOfDirectory(atPath: root.appendingPathComponent("widgets").path)) ?? []).filter { $0.hasPrefix("firebase-") }.sorted()
     check(widgetDirs == FirebaseProduct.all.map(\.widgetId).sorted(), "one widget folder per catalog product, no extras: \(widgetDirs)")
     let shared = ((try? fm.contentsOfDirectory(atPath: root.appendingPathComponent("shared").path)) ?? []).filter { $0.hasSuffix(".swift") }.sorted()
-    check(shared == ["FirebaseConsoleWidget.swift", "FirebaseProduct.swift", "FirebaseProjectConfig.swift", "FirebaseProjectPicker.swift"], "shared sources: \(shared)")
+    check(shared == ["FirebaseBrand.swift", "FirebaseConsoleWidget.swift", "FirebaseProduct.swift", "FirebaseProjectConfig.swift", "FirebaseProjectPicker.swift"], "shared sources: \(shared)")
     for product in FirebaseProduct.all {
         let sources = root.appendingPathComponent("widgets/\(product.widgetId)/Sources")
         for name in shared {
@@ -824,6 +826,55 @@ func testCLIResolution() async {
     check(!other.contains("--reauth") && other.contains("Permission denied on project x"), "other CLI failures don't get the login hint: \(other)")
 }
 
+// MARK: - Brand icons
+
+func testIcons() {
+    let icons: [(name: String, data: Data)] = [
+        ("auth", FirebaseBrand.authIconPNG), ("analytics", FirebaseBrand.analyticsIconPNG),
+        ("firestore", FirebaseBrand.firestoreIconPNG), ("crashlytics", FirebaseBrand.crashlyticsIconPNG),
+        ("firebase logomark", FirebaseBrand.firebaseMarkPNG),
+    ]
+    func be32(_ b: [UInt8], _ at: Int) -> Int { Int(b[at]) << 24 | Int(b[at + 1]) << 16 | Int(b[at + 2]) << 8 | Int(b[at + 3]) }
+    for (name, data) in icons {
+        let bytes = [UInt8](data)
+        check(bytes.count > 200 && Array(bytes[0..<8]) == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A], "\(name): has the PNG signature (\(bytes.count) bytes)")
+        guard bytes.count > 33 else { continue }
+        check(String(decoding: bytes[12..<16], as: UTF8.self) == "IHDR", "\(name): starts with an IHDR chunk")
+        check(be32(bytes, 16) == 64 && be32(bytes, 20) == 64, "\(name): is 64x64 (\(be32(bytes, 16))x\(be32(bytes, 20)))")
+        check(bytes[24] == 8 && bytes[25] == 6, "\(name): 8-bit RGBA (colour type 6), got depth \(bytes[24]) type \(bytes[25])")
+
+        // Real pixels: the circle's corners are transparent, its centre opaque (a white tile would fail this).
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil), let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            check(false, "\(name): decodes as an image"); continue
+        }
+        var pixels = [UInt8](repeating: 0, count: 64 * 64 * 4)
+        let context = CGContext(data: &pixels, width: 64, height: 64, bitsPerComponent: 8, bytesPerRow: 256,
+                                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        context.draw(image, in: CGRect(x: 0, y: 0, width: 64, height: 64))
+        func alpha(_ x: Int, _ y: Int) -> UInt8 { pixels[(y * 64 + x) * 4 + 3] }
+        check([alpha(0, 0), alpha(63, 0), alpha(0, 63), alpha(63, 63)] == [0, 0, 0, 0], "\(name): corners are transparent")
+        let transparent = stride(from: 3, to: pixels.count, by: 4).filter { pixels[$0] == 0 }.count
+        check(transparent > 200 && transparent < 64 * 64 - 800, "\(name): some transparency, not an empty image (\(transparent) transparent pixels)")
+        if name != "firebase logomark" { check(alpha(32, 32) == 255, "\(name): centre is opaque") }
+    }
+    check(Set(icons.map(\.data)).count == 5, "the five images are all different")
+
+    // Products carry their own icon.
+    check(FirebaseProduct.auth.iconPNG == FirebaseBrand.authIconPNG && FirebaseProduct.analytics.iconPNG == FirebaseBrand.analyticsIconPNG
+          && FirebaseProduct.firestore.iconPNG == FirebaseBrand.firestoreIconPNG && FirebaseProduct.crashlytics.iconPNG == FirebaseBrand.crashlyticsIconPNG,
+          "each product exposes its own icon")
+    check(Set(FirebaseProduct.all.map(\.iconPNG)).count == 4, "no two products share an icon")
+
+    // The embedded files document where they came from.
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let header = (try? String(contentsOf: root.appendingPathComponent("shared/FirebaseBrand.swift"), encoding: .utf8)) ?? ""
+    for url in ["static/images/products/icons/build_auth.svg", "static/images/products/icons/run_analytics.svg",
+                "static/images/products/icons/build_firestore.svg", "static/images/products/icons/run_crashlytics.svg",
+                "static/downloads/brand-guidelines/SVG/logo-logomark.svg", "brand-guidelines"] {
+        check(header.contains("firebase.google.com/" + url), "FirebaseBrand.swift cites \(url)")
+    }
+}
+
 @main
 struct Runner {
     @MainActor
@@ -837,6 +888,7 @@ struct Runner {
         await testCLIResolution()
         await testPickerModel()
         testProductCatalog()
+        testIcons()
         testWidgetLayout()
         testSyncScriptDetectsDrift()
         testSkills()
