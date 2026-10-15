@@ -102,5 +102,8 @@ generated copies.
 - Console routes are the products' entry pages; Google sign-in, billing, product setup and app selection are
   whatever the Console shows.
 - The widgets run the CLI through the session's shell, so Set Project needs a session with a working directory.
+- The app's shell has a minimal `PATH`. Set Project loads nvm if `firebase` isn't found; other version managers
+  need `firebase` linked into `~/.work42/bin` (see the `firebase-setup` skill). An expired CLI login shows the
+  CLI's generic "Failed to list Firebase projects" with a hint to run `firebase login --reauth`.
 - The CLI covers only part of each product; the skills say which part. The Console content itself is not
   readable by the agent.

@@ -41,14 +41,20 @@ enum FirebaseProjectListError: Error, Equatable, LocalizedError {
     /// The shell service itself failed (timeout, no worktree, …).
     case shellFailed(String)
 
+    /// What `firebase projects:list` prints when it fails without saying why (an expired login does this).
+    static let genericListFailure = "Failed to list Firebase projects."
+
     var errorDescription: String? {
         switch self {
         case .cliMissing:
-            "The Firebase CLI isn't installed. Follow the firebase-setup skill, then retry."
+            "Work42 couldn't find the Firebase CLI on the PATH its shell uses. If it is installed (for example through nvm), follow the firebase-setup skill to make it visible; otherwise install it first. Then retry."
         case .notAuthenticated:
             "The Firebase CLI isn't signed in. Run `firebase login` in a terminal (Console sign-in in the widget doesn't count), then retry."
         case .cliFailed(let message):
-            "The Firebase CLI couldn't list projects: \(message)"
+            // The CLI says only this when its stored login has expired (it still lists the account), so say what usually fixes it.
+            message.hasPrefix(Self.genericListFailure)
+                ? "The Firebase CLI couldn't list projects: \(message) This is often an expired CLI login: run `firebase login --reauth` in a terminal, then retry."
+                : "The Firebase CLI couldn't list projects: \(message)"
         case .malformedOutput(let why):
             "Unexpected output from `firebase projects:list`: \(why)"
         case .shellFailed(let message):
@@ -91,7 +97,10 @@ enum FirebaseProjectParser {
 }
 
 enum FirebaseProjectLister {
-    static let command = "firebase projects:list --json --non-interactive"
+    /// The Work42 app is launched from the Dock, so its shell has a minimal PATH and never reads ~/.zshrc, where nvm
+    /// puts Node tools on the PATH. If `firebase` isn't found, load nvm (when present) and look again; a CLI that
+    /// really isn't installed still fails with "command not found" (exit 127).
+    static let command = #"command -v firebase >/dev/null 2>&1 || { [ -s "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] && . "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1; }; firebase projects:list --json --non-interactive"#
 
     /// Runs the CLI and classifies the outcome. A non-zero exit always wins over whatever is on stdout.
     static func list(run: FirebaseShellRunner) async throws -> [FirebaseProject] {

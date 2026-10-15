@@ -302,7 +302,8 @@ func testLister() async {
     let shell = FakeShell(ok(envelope([("p", "P")])))
     let listed = try? await FirebaseProjectLister.list(run: shell.runner)
     check(listed == [FirebaseProject(projectId: "p", displayName: "P")], "lists via the shell")
-    check(shell.calls == ["firebase projects:list --json --non-interactive"], "exact CLI command: \(shell.calls)")
+    check(shell.calls == [FirebaseProjectLister.command], "the lister runs exactly its command: \(shell.calls)")
+    check(FirebaseProjectLister.command.hasSuffix("firebase projects:list --json --non-interactive"), "and it ends with the documented CLI call")
 
     // A non-zero exit beats parseable stdout.
     await checkA(await listError(FirebaseShellResult(stdout: envelope([("p", "P")]), stderr: "boom", exitCode: 1)) == .cliFailed("boom"), "non-zero exit wins over valid stdout")
@@ -645,6 +646,92 @@ func testManifest() {
     check(readme.contains("~/.work42/firebase/config.json") && readme.contains("firebase login") && readme.contains("firebase-setup"), "README covers the config file and the two sign-ins")
 }
 
+// MARK: - Finding the CLI from the app's minimal shell
+
+/// Runs `command` in a real /bin/sh with exactly `env`, like the Dock-launched app's shell: no ~/.zshrc, tiny PATH.
+func realShell(env: [String: String]) -> FirebaseShellRunner {
+    { command in
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/sh")
+        p.arguments = ["-c", command]
+        p.environment = env
+        let out = Pipe(), err = Pipe()
+        p.standardOutput = out; p.standardError = err
+        try p.run()
+        let stdout = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let stderr = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        p.waitUntilExit()
+        return FirebaseShellResult(stdout: stdout, stderr: stderr, exitCode: p.terminationStatus)
+    }
+}
+
+func testCLIResolution() async {
+    let home = makeTempDirectory()
+    defer { try? FileManager.default.removeItem(at: home) }
+    let fm = FileManager.default
+    let marker = home.appendingPathComponent("nvm-was-sourced")
+    let stubJSON = "{\"status\":\"success\",\"result\":[{\"projectId\":\"from-stub\",\"displayName\":\"From Stub\"}]}"
+
+    func makeNvm(at dir: URL, script: String) {
+        try! fm.createDirectory(at: dir.appendingPathComponent("bin"), withIntermediateDirectories: true)
+        let stub = dir.appendingPathComponent("bin/firebase")
+        try! "#!/bin/sh\necho '\(stubJSON)'\n".write(to: stub, atomically: true, encoding: .utf8)
+        try! fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: stub.path)
+        try! script.write(to: dir.appendingPathComponent("nvm.sh"), atomically: true, encoding: .utf8)
+    }
+    let basePath = "/usr/bin:/bin"
+    let nvmScript = "echo 'nvm banner noise'\ntouch '\(marker.path)'\nPATH=\"$NVM_DIR/bin:$PATH\"; export PATH\n"
+
+    // 1. Installed through nvm, invisible to the app's PATH: found by the prelude (and the nvm noise is ignored).
+    let nvm1 = home.appendingPathComponent("nvm1")
+    makeNvm(at: nvm1, script: nvmScript)
+    let found = try? await FirebaseProjectLister.list(run: realShell(env: ["HOME": home.path, "NVM_DIR": nvm1.path, "PATH": basePath]))
+    check(found == [FirebaseProject(projectId: "from-stub", displayName: "From Stub")], "CLI under nvm is found from a minimal PATH: \(String(describing: found))")
+    check(fm.fileExists(atPath: marker.path), "the prelude really sourced nvm.sh")
+
+    // 2. Already on PATH: nvm is not touched.
+    try? fm.removeItem(at: marker)
+    let direct = try? await FirebaseProjectLister.list(run: realShell(env: ["HOME": home.path, "NVM_DIR": nvm1.path, "PATH": "\(nvm1.path)/bin:\(basePath)"]))
+    check(direct?.first?.projectId == "from-stub", "CLI already on PATH works")
+    check(!fm.fileExists(atPath: marker.path), "nvm.sh is not sourced when firebase is already on PATH")
+
+    // 3. NVM_DIR unset: falls back to $HOME/.nvm.
+    try? fm.removeItem(at: marker)
+    let homeNvm = home.appendingPathComponent(".nvm")
+    makeNvm(at: homeNvm, script: "touch '\(marker.path)'\nPATH=\"$HOME/.nvm/bin:$PATH\"; export PATH\n")
+    let viaHome = try? await FirebaseProjectLister.list(run: realShell(env: ["HOME": home.path, "PATH": basePath]))
+    check(viaHome?.first?.projectId == "from-stub" && fm.fileExists(atPath: marker.path), "NVM_DIR defaults to $HOME/.nvm")
+
+    // 4. Really not installed: no nvm at all, an empty nvm dir, and an nvm.sh that fails and finds nothing → cliMissing.
+    let emptyHome = makeTempDirectory(); defer { try? fm.removeItem(at: emptyHome) }
+    let failing = emptyHome.appendingPathComponent("failing-nvm")
+    try! fm.createDirectory(at: failing, withIntermediateDirectories: true)
+    try! "echo oops >&2\nfalse\n".write(to: failing.appendingPathComponent("nvm.sh"), atomically: true, encoding: .utf8)
+    for (label, env) in [("no nvm installed", ["HOME": emptyHome.path, "PATH": basePath]),
+                         ("empty NVM_DIR", ["HOME": emptyHome.path, "NVM_DIR": emptyHome.path, "PATH": basePath]),
+                         ("nvm.sh that fails", ["HOME": emptyHome.path, "NVM_DIR": failing.path, "PATH": basePath])] {
+        do { _ = try await FirebaseProjectLister.list(run: realShell(env: env)); check(false, "\(label): should not find a CLI") }
+        catch { check((error as? FirebaseProjectListError) == .cliMissing, "\(label) → cliMissing, got \(error)") }
+    }
+
+    // 5. Messages.
+    let missing = FirebaseProjectListError.cliMissing.localizedDescription
+    check(missing.contains("PATH") && missing.contains("nvm") && missing.contains("firebase-setup"), "missing-CLI message explains PATH/nvm and points to setup: \(missing)")
+    check(!missing.contains("isn't installed"), "and doesn't claim the CLI isn't installed")
+
+    // What the real CLI printed with an expired login (exit 2, generic JSON error, nothing about login).
+    let expired = FirebaseShellResult(stdout: "{\n  \"status\": \"error\",\n  \"error\": \"Failed to list Firebase projects. See firebase-debug.log for more info.\"\n}\n",
+                                      stderr: "- Preparing the list of your Firebase projects\n\u{2716} Preparing the list of your Firebase projects\n", exitCode: 2)
+    do { _ = try await FirebaseProjectLister.list(run: FakeShell(expired).runner); check(false, "expired login should fail") }
+    catch {
+        let text = error.localizedDescription
+        check((error as? FirebaseProjectListError) == .cliFailed("Failed to list Firebase projects. See firebase-debug.log for more info."), "expired login is a cliFailed with the CLI's own message")
+        check(text.contains("firebase login --reauth") && text.contains("firebase-debug.log"), "expired login message gives the fix and keeps the CLI's text: \(text)")
+    }
+    let other = FirebaseProjectListError.cliFailed("Permission denied on project x").localizedDescription
+    check(!other.contains("--reauth") && other.contains("Permission denied on project x"), "other CLI failures don't get the login hint: \(other)")
+}
+
 @main
 struct Runner {
     @MainActor
@@ -655,6 +742,7 @@ struct Runner {
         await testStore()
         testParser()
         await testLister()
+        await testCLIResolution()
         await testPickerModel()
         testProductCatalog()
         testWidgetLayout()
