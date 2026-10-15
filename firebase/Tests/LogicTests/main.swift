@@ -505,6 +505,114 @@ func testSyncScriptDetectsDrift() {
     check(runSync(["--check"]) == 1, "--check fails on an orphaned generated copy")
 }
 
+// MARK: - Skills
+
+/// First capture group of every match of `pattern` in `text`.
+func captures(_ pattern: String, in text: String) -> [String] {
+    let regex = try! NSRegularExpression(pattern: pattern)
+    let range = NSRange(text.startIndex..., in: text)
+    return regex.matches(in: text, range: range).compactMap { Range($0.range(at: 1), in: text).map { String(text[$0]) } }
+}
+
+func testSkills() {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let fm = FileManager.default
+    func read(_ relative: String) -> String? { try? String(contentsOf: root.appendingPathComponent(relative), encoding: .utf8) }
+    func frontmatter(_ text: String) -> [String: String]? {
+        let lines = text.components(separatedBy: "\n")
+        guard lines.first == "---", let end = lines.dropFirst().firstIndex(of: "---") else { return nil }
+        var out: [String: String] = [:]
+        for line in lines[1..<end] {
+            guard let colon = line.firstIndex(of: ":") else { return nil }
+            out[String(line[..<colon])] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+        }
+        return out
+    }
+    /// The text of the section that starts at `## Prerequisites` up to the next `## ` heading.
+    func prerequisites(_ text: String) -> (position: Int, body: String)? {
+        let lines = text.components(separatedBy: "\n")
+        let headings = lines.enumerated().filter { $0.element.hasPrefix("## ") }
+        guard let index = headings.firstIndex(where: { $0.element == "## Prerequisites" }) else { return nil }
+        let start = headings[index].offset
+        let end = index + 1 < headings.count ? headings[index + 1].offset : lines.count
+        return (index, lines[start..<end].joined(separator: "\n"))
+    }
+
+    let skillDirs = ((try? fm.contentsOfDirectory(atPath: root.appendingPathComponent("skills").path)) ?? []).sorted()
+    let expected = (["firebase-setup", "using-firebase"] + FirebaseProduct.all.map { "firebase-\($0.id)" }).sorted()
+    check(skillDirs == expected, "skills are setup, index and the four released products only: \(skillDirs)")
+
+    var documents: [(path: String, text: String)] = []
+    for dir in expected { if let t = read("skills/\(dir)/SKILL.md") { documents.append(("skills/\(dir)", t)) } else { check(false, "skills/\(dir)/SKILL.md exists") } }
+    for product in FirebaseProduct.all { if let t = read("widgets/\(product.widgetId)/SKILL.md") { documents.append(("widgets/\(product.widgetId)", t)) } else { check(false, "widget skill for \(product.widgetId) exists") } }
+
+    var commands = Set<String>()
+    for (path, text) in documents {
+        let isWidget = path.hasPrefix("widgets/")
+        let name = String(path.split(separator: "/").last!)
+        let fm = frontmatter(text)
+        check(fm?["name"] == (isWidget ? "widget-\(name)" : name), "\(path): frontmatter name matches (\(fm?["name"] ?? "none"))")
+        check((fm?["description"] ?? "").count > 40, "\(path): has a real description")
+        check(text.contains("~/.work42/firebase/config.json") || text.contains("$HOME/.work42/firebase/config.json"), "\(path): names the shared config file")
+
+        // Skills that depend on the CLI start with Prerequisites that end in the setup fallback.
+        if name != "firebase-setup" && name != "using-firebase" {
+            let heading = text.components(separatedBy: "\n").first { $0.hasPrefix("## ") }
+            check(heading == "## Prerequisites", "\(path): Prerequisites is the first section (\(heading ?? "none"))")
+            let prereq = prerequisites(text)
+            check(prereq?.body.contains("firebase-setup") == true && prereq?.body.contains("command -v firebase") == true, "\(path): Prerequisites check the CLI and fall back to firebase-setup")
+        }
+        if !isWidget && name != "firebase-setup" && name != "using-firebase" {
+            check(text.contains("--project \"$project\""), "\(path): passes the selected project explicitly")
+            check(text.contains("firebase <command> --help") || text.contains("--help"), "\(path): tells the agent to check installed help")
+            check(text.contains("## References") && text.contains("](https://"), "\(path): links official docs")
+        }
+        if isWidget { check(text.contains("firebase-\(name.dropFirst("firebase-".count))` skill"), "\(path): points at its product skill") }
+
+        // `firebase use` and .firebaserc may only be mentioned as things never to do.
+        for line in text.components(separatedBy: "\n") where line.contains("firebase use") || line.contains(".firebaserc") {
+            let lowered = line.lowercased()
+            check(lowered.contains("never") || lowered.contains("not ") || lowered.contains("repo's own"), "\(path): '\(line.prefix(70))…' only forbids it")
+        }
+        // Links are https; no credentials-handling advice.
+        for link in captures(#"\]\((http[^)]*)\)"#, in: text) { check(link.hasPrefix("https://"), "\(path): link is https: \(link)") }
+        check(!text.contains("FIREBASE_TOKEN") || text.lowercased().contains("never"), "\(path): doesn't recommend token auth")
+        // Commands named in a prohibition ("Do not try `firebase analytics:...`") are not claims of support.
+        for line in text.components(separatedBy: "\n") where !line.contains("Do not") {
+            for command in captures(#"`firebase ([a-z][a-z:]*)"#, in: line) { commands.insert(command) }
+        }
+    }
+
+    // Each widget skill's Console path agrees with the catalog.
+    for product in FirebaseProduct.all {
+        check(read("widgets/\(product.widgetId)/SKILL.md")?.contains("/project/<projectId>/\(product.consolePath)") == true, "\(product.widgetId) skill documents the catalog route \(product.consolePath)")
+    }
+    // The product skills may not claim analytics CLI commands (there are none) or a Crashlytics issue reader.
+    for line in (read("skills/firebase-analytics/SKILL.md") ?? "").components(separatedBy: "\n") where line.contains("firebase analytics:") {
+        check(line.contains("Do not"), "analytics skill mentions an analytics CLI command only to forbid it: \(line.prefix(60))")
+    }
+    check((read("skills/firebase-analytics/SKILL.md") ?? "").contains("no Analytics commands"), "analytics skill states the CLI gap")
+
+    // Every command the skills mention exists in the installed CLI (skipped when firebase isn't installed).
+    let which = Process(); which.executableURL = URL(fileURLWithPath: "/bin/sh"); which.arguments = ["-lc", "command -v firebase"]
+    which.standardOutput = FileHandle.nullDevice; which.standardError = FileHandle.nullDevice
+    try? which.run(); which.waitUntilExit()
+    if which.terminationStatus == 0 {
+        for command in commands.sorted() {
+            // An unknown command still exits 0 with the general help, so require the command's own usage line.
+            let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh"); p.arguments = ["-lc", "firebase \(command) --help"]
+            let pipe = Pipe(); p.standardOutput = pipe; p.standardError = FileHandle.nullDevice
+            try? p.run()
+            let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            p.waitUntilExit()
+            check(p.terminationStatus == 0 && output.hasPrefix("Usage: firebase \(command)"), "skills mention `firebase \(command)` and the installed CLI knows it")
+        }
+        print("verified \(commands.count) CLI commands against the installed firebase")
+    } else {
+        print("skipped CLI command verification: firebase is not installed")
+    }
+}
+
 @main
 struct Runner {
     @MainActor
@@ -519,6 +627,7 @@ struct Runner {
         testProductCatalog()
         testWidgetLayout()
         testSyncScriptDetectsDrift()
+        testSkills()
         print("\(checks) checks, \(failures) failures")
         exit(failures == 0 ? 0 : 1)
     }
