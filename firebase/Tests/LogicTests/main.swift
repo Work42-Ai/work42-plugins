@@ -648,6 +648,10 @@ func testSkills() {
         let fm = frontmatter(text)
         check(fm?["name"] == (isWidget ? "widget-\(name)" : name), "\(path): frontmatter name matches (\(fm?["name"] ?? "none"))")
         check((fm?["description"] ?? "").count > 40, "\(path): has a real description")
+        check(!text.contains("Set Project"), "\(path): no leftover single-project wording")
+        if name != "firebase-setup" {
+            check(text.contains("Exactly one: use it. Several: use the one the user named, otherwise ask which."), "\(path): states the one/several/none project rule")
+        }
         check(text.contains("~/.work42/firebase/config.json") || text.contains("$HOME/.work42/firebase/config.json"), "\(path): names the shared config file")
 
         // Skills that depend on the CLI start with Prerequisites that end in the setup fallback.
@@ -721,7 +725,7 @@ func testManifest() {
         fields[String(line[..<colon])] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
     }
     check(fields["manifest_version"] == "2", "manifest v2")
-    check(fields["name"] == "firebase" && fields["version"] == "0.1.0", "name and version")
+    check(fields["name"] == "firebase" && fields["version"] == "0.2.0", "name and version 0.2.0 (\(fields["version"] ?? "none"))")
     check(fields["sdk_version"] == "2.3.1" && fields["sdk_abi"] == "12", "SDK 2.3.1 / ABI 12")
     check(fields["requires"] == "[]", "requires nothing")
     check(fields["global_skills"] == "using-firebase", "only the index skill is global")
@@ -1011,6 +1015,55 @@ func testLinks() {
     check(FirebaseTabs.descriptors(for: .firestore, listed: listed, hidden: [], temporary: tempB).last?.key == "temp:other-stranger" && tempA != tempB, "a new temporary tab replaces the previous one")
 }
 
+// MARK: - The read snippet in the skills
+
+func testSkillSnippets() {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    var files = ["skills/firebase-setup", "skills/using-firebase"] + FirebaseProduct.all.flatMap { ["skills/firebase-\($0.id)", "widgets/\($0.widgetId)"] }
+    files = files.map { $0 + "/SKILL.md" }
+    func block(_ text: String) -> String? {
+        captures(#"```sh\n(cfg=.*?)\n```"#.replacingOccurrences(of: ".*?", with: "[\\s\\S]*?"), in: text).first
+    }
+    let reference = block((try? String(contentsOf: root.appendingPathComponent("skills/using-firebase/SKILL.md"), encoding: .utf8)) ?? "")
+    check(reference?.contains("python3 -") == true, "the index skill carries the read snippet")
+    for file in files {
+        let text = (try? String(contentsOf: root.appendingPathComponent(file), encoding: .utf8)) ?? ""
+        check(block(text) == reference, "\(file): carries the same read snippet as the index skill")
+    }
+    guard let snippet = reference else { return }
+
+    func run(_ content: String?) -> (stdout: String, stderr: String) {
+        let home = makeTempDirectory(); defer { try? FileManager.default.removeItem(at: home) }
+        if let content {
+            try! FileManager.default.createDirectory(at: home.appendingPathComponent(".work42/firebase"), withIntermediateDirectories: true)
+            try! content.write(to: home.appendingPathComponent(".work42/firebase/config.json"), atomically: true, encoding: .utf8)
+        }
+        let p = Process(); p.executableURL = URL(fileURLWithPath: "/bin/sh"); p.arguments = ["-c", snippet]
+        p.environment = ["HOME": home.path, "PATH": "/usr/bin:/bin"]
+        let out = Pipe(), err = Pipe(); p.standardOutput = out; p.standardError = err
+        try? p.run()
+        let o = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        let e = String(decoding: err.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        p.waitUntilExit()
+        return (o.trimmingCharacters(in: .whitespacesAndNewlines), e)
+    }
+    let none = "No Firebase projects listed"
+    check(run("{\"version\":2,\"projects\":[{\"projectId\":\"work42-dev\",\"displayName\":\"Work42 Development\"},{\"projectId\":\" prod \",\"displayName\":\"Prod\"}]}").stdout
+          == "work42-dev - Work42 Development\nprod - Prod", "snippet lists a version 2 file, one project per line, IDs trimmed")
+    check(run("{\"version\":1,\"projectId\":\"old-proj\",\"displayName\":\"Old Project\"}").stdout == "old-proj - Old Project", "snippet reads a version 1 file as one project")
+    check(run("{\"version\":2,\"projects\":[{\"projectId\":\"a\"}]}").stdout == "a -", "snippet copes with a missing display name")
+    for (label, content) in [("an empty list", "{\"version\":2,\"projects\":[]}"), ("an unsupported version", "{\"version\":3}"),
+                             ("garbage", "oops"), ("a missing file", nil)] as [(String, String?)] {
+        check(run(content).stdout == none, "snippet falls back to \"\(none)\" for \(label)")
+    }
+    check(run("{\"version\":3}").stderr.contains("unsupported config version 3"), "and says why for an unsupported version")
+    // The snippet agrees with the app's own reader on what a valid list is.
+    let dir = makeTempDirectory(); defer { try? FileManager.default.removeItem(at: dir) }
+    let url = dir.appendingPathComponent("config.json")
+    try! FirebaseProjectConfig.save([entry("p1", "One"), entry("p2", "Two")], to: url)
+    check(run(try! String(contentsOf: url, encoding: .utf8)).stdout == "p1 - One\np2 - Two", "snippet reads what the plugin itself writes")
+}
+
 @main
 struct Runner {
     @MainActor
@@ -1031,6 +1084,7 @@ struct Runner {
         testSyncScriptDetectsDrift()
         testSkills()
         testManifest()
+        testSkillSnippets()
         print("\(checks) checks, \(failures) failures")
         exit(failures == 0 ? 0 : 1)
     }
