@@ -25,8 +25,12 @@ func makeTempDirectory() -> URL {
     return dir
 }
 
-func sel(_ id: String, _ name: String? = nil) -> FirebaseProjectSelection {
-    FirebaseProjectSelection(projectId: id, displayName: name ?? id)
+func entry(_ id: String, _ name: String? = nil) -> FirebaseProjectEntry {
+    FirebaseProjectEntry(projectId: id, displayName: name ?? id)
+}
+
+func project(_ id: String, _ name: String? = nil) -> FirebaseProject {
+    FirebaseProject(projectId: id, displayName: name ?? id)
 }
 
 func configError(_ body: () throws -> Any?) -> FirebaseConfigError? {
@@ -71,34 +75,62 @@ func testConfigFile() {
     let dir = makeTempDirectory()
     defer { try? FileManager.default.removeItem(at: dir) }
     let url = dir.appendingPathComponent("firebase/config.json")
+    func write(_ text: String) { try! text.write(to: url, atomically: false, encoding: .utf8) }
 
-    check((try? FirebaseProjectConfig.load(from: url)) == .some(nil), "absent file loads as nil, not an error")
+    check((try? FirebaseProjectConfig.load(from: url)) == [], "absent file loads as an empty list, not an error")
 
-    try! FirebaseProjectConfig.save(sel("work42-dev", "Work42 Development"), to: url)
+    try! FirebaseProjectConfig.save([entry("work42-dev", "Work42 Development"), entry("work42-prod", "Work42 Production")], to: url)
     check(FileManager.default.fileExists(atPath: url.path), "save creates intermediate directories")
-    check((try? FirebaseProjectConfig.load(from: url)) == sel("work42-dev", "Work42 Development"), "round trip")
+    check((try? FirebaseProjectConfig.load(from: url)) == [entry("work42-dev", "Work42 Development"), entry("work42-prod", "Work42 Production")], "round trip keeps order")
     let json = try! JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
-    check(Set(json.keys) == ["version", "projectId", "displayName"], "file holds exactly version/projectId/displayName: \(json.keys)")
-    check(json["version"] as? Int == 1, "version is 1")
+    check(Set(json.keys) == ["version", "projects"] && json["version"] as? Int == 2, "file is version 2 with a projects list: \(json.keys)")
+    let items = json["projects"] as! [[String: Any]]
+    check(items.count == 2 && items.allSatisfy { Set($0.keys) == ["projectId", "displayName"] }, "each project holds exactly projectId/displayName")
     let leftovers = try! FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)
     check(leftovers == ["config.json"], "no temp files left behind: \(leftovers)")
 
-    // Blank display name falls back to the ID; project ID is trimmed.
-    try! FirebaseProjectConfig.save(FirebaseProjectSelection(projectId: " p1 ", displayName: "  "), to: url)
-    check((try? FirebaseProjectConfig.load(from: url)) == sel("p1"), "blank displayName falls back to projectId, id trimmed")
+    // An empty list is a valid file, distinct from no file.
+    try! FirebaseProjectConfig.save([], to: url)
+    check(FileManager.default.fileExists(atPath: url.path) && (try? FirebaseProjectConfig.load(from: url)) == [], "empty list saves and loads")
 
-    // Corrupt / invalid / unsupported files are errors, and reading never modifies them.
-    func write(_ text: String) { try! text.write(to: url, atomically: false, encoding: .utf8) }
-    write("{not json")
-    check(configError { try FirebaseProjectConfig.load(from: url) } == .corrupt("not a valid selection"), "garbage is corrupt")
+    // Normalisation: trimmed IDs, blank names fall back to the ID, repeated IDs keep the first.
+    try! FirebaseProjectConfig.save([FirebaseProjectEntry(projectId: " p1 ", displayName: "  "), entry("p2", "Two"), entry("p1", "Again"), entry("p2", "Dup")], to: url)
+    check((try? FirebaseProjectConfig.load(from: url)) == [entry("p1"), entry("p2", "Two")], "save trims, falls back to the ID and dedupes")
+    write("{\"version\":2,\"projects\":[{\"projectId\":\"a\",\"displayName\":\"First\"},{\"projectId\":\" a \"},{\"projectId\":\"b\"}]}")
+    check((try? FirebaseProjectConfig.load(from: url)) == [entry("a", "First"), entry("b")], "load dedupes repeated IDs keeping the first, missing name → ID")
+
+    // Version 1 (plugin 0.1.0) is read as one project and left alone until the next save.
+    write("{\"version\":1,\"projectId\":\"old-proj\",\"displayName\":\"Old Project\"}")
+    let v1 = try! Data(contentsOf: url)
+    check((try? FirebaseProjectConfig.load(from: url)) == [entry("old-proj", "Old Project")], "version 1 reads as a one-project list")
+    check((try! Data(contentsOf: url)) == v1, "reading a version 1 file never rewrites it")
+    write("{\"version\":1,\"projectId\":\"old-proj\"}")
+    check((try? FirebaseProjectConfig.load(from: url)) == [entry("old-proj")], "version 1 without a name falls back to the ID")
     write("{\"version\":1,\"projectId\":\"  \",\"displayName\":\"x\"}")
-    check(configError { try FirebaseProjectConfig.load(from: url) } == .corrupt("projectId is empty"), "empty project ID is corrupt")
-    write("{\"version\":1,\"displayName\":\"x\"}")
-    check(configError { try FirebaseProjectConfig.load(from: url) } != nil, "missing projectId is an error")
-    write("{\"version\":2,\"projectId\":\"p\",\"displayName\":\"p\"}")
-    check(configError { try FirebaseProjectConfig.load(from: url) } == .unsupportedVersion(2), "newer version is unsupported")
+    check(configError { try FirebaseProjectConfig.load(from: url) } == .corrupt("projectId is empty"), "version 1 with a blank ID is corrupt")
+    write("{\"version\":1,\"projectId\":\"old-proj\",\"displayName\":\"Old\"}")
+    try! FirebaseProjectConfig.save((try! FirebaseProjectConfig.load(from: url)) + [entry("new-proj")], to: url)
+    let upgraded = try! JSONSerialization.jsonObject(with: Data(contentsOf: url)) as! [String: Any]
+    check(upgraded["version"] as? Int == 2 && (upgraded["projects"] as? [Any])?.count == 2, "the next save writes version 2")
+
+    // Damaged files are errors, and reading never modifies them.
+    let notValid = FirebaseConfigError.corrupt("not a valid project list")
+    for (label, text) in [("garbage", "{not json"), ("array root", "[]"), ("no version", "{\"projects\":[]}"),
+                          ("string version", "{\"version\":\"2\",\"projects\":[]}"), ("boolean version", "{\"version\":true,\"projects\":[]}"),
+                          ("projects not an array", "{\"version\":2,\"projects\":{}}"), ("no projects key", "{\"version\":2}"),
+                          ("entry not an object", "{\"version\":2,\"projects\":[\"x\"]}"), ("entry without an ID", "{\"version\":2,\"projects\":[{\"displayName\":\"x\"}]}"),
+                          ("version 1 without an ID", "{\"version\":1,\"displayName\":\"x\"}")] {
+        write(text)
+        check(configError { try FirebaseProjectConfig.load(from: url) } == notValid, "\(label) is corrupt")
+    }
+    write("{\"version\":2,\"projects\":[{\"projectId\":\"ok\"},{\"projectId\":\"  \"}]}")
+    check(configError { try FirebaseProjectConfig.load(from: url) } == .corrupt("projectId is empty"), "a blank project ID in the list is corrupt")
+    write("{\"version\":3,\"projects\":[]}")
+    check(configError { try FirebaseProjectConfig.load(from: url) } == .unsupportedVersion(3), "newer version is unsupported")
     write("{\"version\":3,\"somethingNew\":true}")
     check(configError { try FirebaseProjectConfig.load(from: url) } == .unsupportedVersion(3), "newer schema without our fields reports its version")
+    write("{\"version\":0}")
+    check(configError { try FirebaseProjectConfig.load(from: url) } == .unsupportedVersion(0), "version 0 is unsupported")
     let before = try! Data(contentsOf: url)
     _ = try? FirebaseProjectConfig.load(from: url)
     check((try! Data(contentsOf: url)) == before, "load never rewrites a bad file")
@@ -118,12 +150,12 @@ func testSaveFailureKeepsPreviousFile() {
         try? FileManager.default.removeItem(at: dir)
     }
     let url = dir.appendingPathComponent("config.json")
-    try! FirebaseProjectConfig.save(sel("keep-me", "Keep Me"), to: url)
+    try! FirebaseProjectConfig.save([entry("keep-me", "Keep Me")], to: url)
     let original = try! Data(contentsOf: url)
 
     // Parent directory is read-only: the temp file can't be created.
     try! FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir.path)
-    if case .writeFailed? = configError({ try FirebaseProjectConfig.save(sel("other"), to: url); return nil }) {} else {
+    if case .writeFailed? = configError({ try FirebaseProjectConfig.save([entry("other")], to: url); return nil }) {} else {
         check(false, "save into a read-only directory throws writeFailed")
     }
     check((try! Data(contentsOf: url)) == original, "failed save leaves the previous file byte-for-byte intact")
@@ -132,13 +164,13 @@ func testSaveFailureKeepsPreviousFile() {
 
     // A path component that is a regular file can't become a directory.
     let blocked = dir.appendingPathComponent("config.json/nested/config.json")
-    if case .writeFailed? = configError({ try FirebaseProjectConfig.save(sel("x"), to: blocked); return nil }) {} else {
+    if case .writeFailed? = configError({ try FirebaseProjectConfig.save([entry("x")], to: blocked); return nil }) {} else {
         check(false, "save under a regular file throws writeFailed")
     }
     check((try! Data(contentsOf: url)) == original, "still intact after blocked-path failure")
 
-    // Refuses to persist an empty project.
-    check(configError({ try FirebaseProjectConfig.save(FirebaseProjectSelection(projectId: " ", displayName: "n"), to: url); return nil }) != nil, "empty projectId refused")
+    // Refuses to persist a blank project ID anywhere in the list.
+    check(configError({ try FirebaseProjectConfig.save([entry("fine"), FirebaseProjectEntry(projectId: " ", displayName: "n")], to: url); return nil }) != nil, "blank projectId refused")
     check((try! Data(contentsOf: url)) == original, "refused save changed nothing")
 }
 
@@ -146,7 +178,7 @@ func testConcurrentWriters() {
     let dir = makeTempDirectory()
     defer { try? FileManager.default.removeItem(at: dir) }
     let url = dir.appendingPathComponent("config.json")
-    try! FirebaseProjectConfig.save(sel("seed"), to: url)
+    try! FirebaseProjectConfig.save([entry("seed-a"), entry("seed-b")], to: url)
 
     let writers = 8, rounds = 60
     let lock = NSLock()
@@ -158,7 +190,7 @@ func testConcurrentWriters() {
         group.enter()
         DispatchQueue.global().async {
             for r in 0..<rounds {
-                do { try FirebaseProjectConfig.save(sel("writer-\(w)-\(r)", "Writer \(w)"), to: url) } catch { lock.lock(); writeFailures += 1; lock.unlock() }
+                do { try FirebaseProjectConfig.save([entry("writer-\(w)-\(r)-a", "Writer \(w)"), entry("writer-\(w)-\(r)-b")], to: url) } catch { lock.lock(); writeFailures += 1; lock.unlock() }
             }
             lock.lock(); finished += 1; lock.unlock()
             group.leave()
@@ -168,18 +200,22 @@ func testConcurrentWriters() {
     DispatchQueue.global().async {
         while true {
             lock.lock(); let done = finished == writers; lock.unlock()
-            // Every read, mid-storm, must see a complete valid selection: never torn, never missing.
-            do { if try FirebaseProjectConfig.load(from: url) == nil { lock.lock(); readFailures += 1; lock.unlock() } }
-            catch { lock.lock(); readFailures += 1; lock.unlock() }
+            // Every read, mid-storm, must see one writer's complete two-project list: never torn, never missing.
+            do {
+                let list = try FirebaseProjectConfig.load(from: url)
+                let complete = list.count == 2 && list[0].projectId.hasSuffix("-a") && list[1].projectId.hasSuffix("-b")
+                    && list[0].projectId.dropLast(2) == list[1].projectId.dropLast(2)
+                if !complete { lock.lock(); readFailures += 1; lock.unlock() }
+            } catch { lock.lock(); readFailures += 1; lock.unlock() }
             if done { break }
         }
         group.leave()
     }
     group.wait()
     check(writeFailures == 0, "no writer failed under contention (\(writeFailures))")
-    check(readFailures == 0, "readers never saw a torn or missing file (\(readFailures))")
+    check(readFailures == 0, "readers never saw a torn or mixed list (\(readFailures))")
     let final = try? FirebaseProjectConfig.load(from: url)
-    check(final?.projectId.hasPrefix("writer-") == true && final?.projectId.hasSuffix("-\(rounds - 1)") == true,
+    check(final?.count == 2 && final?[0].projectId.hasPrefix("writer-") == true && final?[0].projectId.hasSuffix("-\(rounds - 1)-a") == true,
           "final file is a complete last write of one writer: \(String(describing: final))")
     let leftovers = (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []
     check(leftovers == ["config.json"], "no temp files left after the storm: \(leftovers)")
@@ -213,16 +249,16 @@ func testStore() async {
     let a = FirebaseProjectStore(url: url, interval: 0.05)
     let b = FirebaseProjectStore(url: url, interval: 0.05)
     a.start(); b.start()
-    check(a.state == .none && b.state == .none, "absent file → .none")
+    check(a.state == .empty && b.state == .empty && a.projects.isEmpty, "absent file → .empty")
     check(a.isRunning, "started store is running")
 
-    try! a.select(sel("proj-1", "Project One"))
-    check(a.state == .selected(sel("proj-1", "Project One")), "select adopts immediately in the chooser")
-    await eventually("other store sees the new selection through the file within 2s") { b.state == .selected(sel("proj-1", "Project One")) }
+    try! a.save([entry("proj-1", "Project One")])
+    check(a.state == .listed([entry("proj-1", "Project One")]) && a.projects.map(\.projectId) == ["proj-1"], "save adopts immediately in the saving store")
+    await eventually("other store sees the new list through the file within 2s") { b.state == .listed([entry("proj-1", "Project One")]) }
 
-    // Atomic replacement by an outside process, even with identical size.
-    try! FirebaseProjectConfig.save(sel("proj-2", "Project Two"), to: url)
-    await eventually("both stores converge on an external atomic replacement") { a.state.projectId == "proj-2" && b.state.projectId == "proj-2" }
+    // Atomic replacement by an outside writer, adding a project.
+    try! FirebaseProjectConfig.save([entry("proj-1", "Project One"), entry("proj-2", "Project Two")], to: url)
+    await eventually("both stores converge on an external atomic replacement") { a.projects.map(\.projectId) == ["proj-1", "proj-2"] && b.projects.map(\.projectId) == ["proj-1", "proj-2"] }
 
     // Unchanged file: state is not republished.
     nonisolated(unsafe) var changes = 0
@@ -235,34 +271,46 @@ func testStore() async {
     b.reload()
     check(changes == 0, "reload of identical content doesn't change state")
 
-    // An invalid external edit becomes .invalid and is left alone; picking repairs it.
+    // An invalid external edit becomes .invalid and is left alone; saving a list repairs it.
     try! "oops".write(to: url, atomically: true, encoding: .utf8)
     await eventually("corrupt edit → .invalid") { if case .invalid = a.state { return true } else { return false } }
     check((try! String(contentsOf: url, encoding: .utf8)) == "oops", "invalid file is not overwritten by reading")
-    try! b.select(sel("proj-3"))
-    await eventually("explicit selection repairs it for everyone") { a.state.projectId == "proj-3" }
+    check(a.projects.isEmpty, "an invalid file lists no projects")
+    try! b.save([entry("proj-3")])
+    await eventually("explicit save repairs it for everyone") { a.projects.map(\.projectId) == ["proj-3"] }
 
-    // Removal returns to .none.
+    // A version 1 file written by plugin 0.1.0 shows as one project and stays version 1.
+    let v1 = "{\"version\":1,\"projectId\":\"legacy\",\"displayName\":\"Legacy\"}"
+    try! v1.write(to: url, atomically: true, encoding: .utf8)
+    await eventually("a version 1 file reads as one project") { a.state == .listed([entry("legacy", "Legacy")]) }
+    try? await Task.sleep(nanoseconds: 200_000_000)
+    check((try! String(contentsOf: url, encoding: .utf8)) == v1, "following a version 1 file never rewrites it")
+
+    // An emptied list and a removed file are both "no projects".
+    try! a.save([])
+    await eventually("an empty saved list → .empty") { b.state == .empty }
+    check(FileManager.default.fileExists(atPath: url.path), "the empty list is a real file")
+    try! b.save([entry("again")])
     try! FileManager.default.removeItem(at: url)
-    await eventually("deleted file → .none") { a.state == .none }
+    await eventually("deleted file → .empty") { a.state == .empty }
 
     // stop() ends observation.
     a.stop()
     check(!a.isRunning, "stopped store is not running")
-    try! FirebaseProjectConfig.save(sel("after-stop"), to: url)
+    try! FirebaseProjectConfig.save([entry("after-stop")], to: url)
     try? await Task.sleep(nanoseconds: 300_000_000)
-    check(a.state == .none, "a stopped store no longer follows the file")
+    check(a.state == .empty, "a stopped store no longer follows the file")
     a.start()
-    check(a.state.projectId == "after-stop", "start() re-reads on activation")
+    check(a.projects.map(\.projectId) == ["after-stop"], "start() re-reads on activation")
     a.stop(); b.stop()
 
-    // select() failing leaves state alone.
+    // save() failing leaves state alone.
     let blocker = dir.appendingPathComponent("blocker")
     try! "file".write(to: blocker, atomically: true, encoding: .utf8)
     let c = FirebaseProjectStore(url: blocker.appendingPathComponent("config.json"), interval: 0.05)
     var threw = false
-    do { try c.select(sel("x")) } catch { threw = true }
-    check(threw && c.state == .none, "failed select throws and leaves state unchanged")
+    do { try c.save([entry("x")]) } catch { threw = true }
+    check(threw && c.state == .empty, "failed save throws and leaves state unchanged")
 }
 
 // MARK: - Parser
@@ -339,84 +387,128 @@ func testPickerModel() async {
     let dir = makeTempDirectory()
     defer { try? FileManager.default.removeItem(at: dir) }
     let url = dir.appendingPathComponent("config.json")
-    let store = FirebaseProjectStore(url: url, interval: 0.05)
-    let alpha = FirebaseProject(projectId: "alpha-1", displayName: "Alpha App")
-    let beta = FirebaseProject(projectId: "beta-2", displayName: "Beta Service")
-    let list = envelope([("alpha-1", "Alpha App"), ("beta-2", "Beta Service")])
+    func makeStore(saved: [FirebaseProjectEntry]) -> FirebaseProjectStore {
+        try? FileManager.default.removeItem(at: url)
+        if !saved.isEmpty { try! FirebaseProjectConfig.save(saved, to: url) }
+        let store = FirebaseProjectStore(url: url, interval: 0.05)
+        store.reload()
+        return store
+    }
+    func saved() -> [FirebaseProjectEntry] { (try? FirebaseProjectConfig.load(from: url)) ?? [] }
+    let alpha = project("alpha-1", "Alpha App"), beta = project("beta-2", "Beta Service"), gamma = project("gamma-3", "Gamma")
+    let list = envelope([("alpha-1", "Alpha App"), ("beta-2", "Beta Service"), ("gamma-3", "Gamma")])
+    func row(_ p: FirebaseProject, checked: Bool, listed: Bool = true) -> FirebaseProjectPickerModel.Row {
+        .init(project: p, isChecked: checked, isListedByCLI: listed)
+    }
 
-    // Loading → loaded; search by name and by ID; refresh.
+    // Before listing: the saved projects only, checked. After: CLI order, then saved projects the CLI didn't return.
+    let store = makeStore(saved: [entry("alpha-1", "Alpha App"), entry("legacy", "Legacy Project")])
     let shell = FakeShell(ok(list))
     let model = FirebaseProjectPickerModel(run: shell.runner, store: store)
-    check(model.phase == .idle, "starts idle")
+    check(model.phase == .idle && !model.hasListed, "starts idle")
+    check(model.rows == [row(alpha, checked: true, listed: false), row(project("legacy", "Legacy Project"), checked: true, listed: false)], "before listing, only saved projects, checked: \(model.rows)")
     await model.refresh()
-    check(model.phase == .loaded([alpha, beta]), "loaded: \(model.phase)")
-    model.query = "BETA"; check(model.filtered == [beta], "search by name, case-insensitive")
-    model.query = "alpha-1"; check(model.filtered == [alpha], "search by ID")
-    model.query = "zzz"; check(model.filtered.isEmpty, "no match")
-    model.query = ""; check(model.filtered == [alpha, beta], "cleared query shows all")
+    check(model.phase == .loaded && model.hasListed, "loaded: \(model.phase)")
+    check(model.rows == [row(alpha, checked: true), row(beta, checked: false), row(gamma, checked: false), row(project("legacy", "Legacy Project"), checked: true, listed: false)],
+          "CLI order, saved checked, saved-but-unlisted last: \(model.rows)")
+    model.query = "BETA"; check(model.filteredRows.map(\.id) == ["beta-2"], "search by name, case-insensitive")
+    model.query = "alpha-1"; check(model.filteredRows.map(\.id) == ["alpha-1"], "search by ID")
+    model.query = "legacy"; check(model.filteredRows.map(\.id) == ["legacy"], "search reaches the not-listed row")
+    model.query = "zzz"; check(model.filteredRows.isEmpty, "no match")
+    model.query = ""; check(model.filteredRows.count == 4, "cleared query shows all")
     await model.refresh()
     check(shell.calls.count == 2, "refresh re-runs the CLI")
 
-    // Confirm writes only the listed project; cancelling writes nothing.
-    check(!FileManager.default.fileExists(atPath: url.path), "nothing written before confirming")
-    check(!model.confirm(FirebaseProject(projectId: "ghost", displayName: "Ghost")), "unlisted project refused")
-    check(model.saveError != nil && !FileManager.default.fileExists(atPath: url.path), "refusal writes nothing")
-    check(model.confirm(beta), "listed project confirmed")
-    check((try? FirebaseProjectConfig.load(from: url)) == sel("beta-2", "Beta Service"), "confirmed project persisted")
-    check(store.state == .selected(sel("beta-2", "Beta Service")), "store adopts it")
-    check(model.isFinished && !model.confirm(alpha), "a finished picker can't write again")
+    // Checks survive a refresh; toggling an unknown ID does nothing.
+    model.toggle("beta-2"); model.toggle("nope")
+    await model.refresh()
+    check(model.rows.first { $0.id == "beta-2" }?.isChecked == true && model.rows.count == 4, "checks survive a refresh, unknown toggles are ignored")
+
+    // Save: still-checked saved projects keep their order, unchecked ones go, new ones are appended.
+    model.toggle("legacy")
+    check(saved().map(\.projectId) == ["alpha-1", "legacy"], "nothing is written before saving")
+    check(model.save(), "save succeeds")
+    check(saved() == [entry("alpha-1", "Alpha App"), entry("beta-2", "Beta Service")], "saved list: \(saved())")
+    check(store.projects.map(\.projectId) == ["alpha-1", "beta-2"], "store adopts the saved list")
+    check(model.isFinished && !model.save(), "a finished window can't save again")
+
+    // Saved order is kept; new checks follow in CLI order, not click order.
+    let ordered = makeStore(saved: [entry("gamma-3", "Gamma"), entry("alpha-1", "Alpha App")])
+    let m2 = FirebaseProjectPickerModel(run: FakeShell(ok(list)).runner, store: ordered)
+    await m2.refresh(); m2.toggle("beta-2")
+    check(m2.save() && saved().map(\.projectId) == ["gamma-3", "alpha-1", "beta-2"], "saved order kept, new project appended: \(saved().map(\.projectId))")
+    let fresh = makeStore(saved: [])
+    let m3 = FirebaseProjectPickerModel(run: FakeShell(ok(list)).runner, store: fresh)
+    await m3.refresh(); m3.toggle("gamma-3"); m3.toggle("alpha-1")
+    check(m3.save() && saved().map(\.projectId) == ["alpha-1", "gamma-3"], "new projects follow the CLI's order, not click order: \(saved().map(\.projectId))")
+
+    // A saved project takes the CLI's current display name.
+    let renamed = makeStore(saved: [entry("alpha-1", "Old Name")])
+    let m4 = FirebaseProjectPickerModel(run: FakeShell(ok(list)).runner, store: renamed)
+    await m4.refresh()
+    check(m4.save() && saved() == [entry("alpha-1", "Alpha App")], "display name refreshed from the CLI: \(saved())")
 
     // Cancel: no write, and a late result is dropped.
+    let keep = makeStore(saved: [entry("alpha-1", "Alpha App")])
     let slow = FakeShell(ok(list)); slow.delayNanos = 300_000_000
-    let cancelled = FirebaseProjectPickerModel(run: slow.runner, store: store)
+    let cancelled = FirebaseProjectPickerModel(run: slow.runner, store: keep)
     let before = try! Data(contentsOf: url)
     let pending = Task { await cancelled.refresh() }
     try? await Task.sleep(nanoseconds: 50_000_000)
     check(cancelled.phase == .loading, "slow listing is loading")
+    cancelled.toggle("alpha-1")
     cancelled.cancel()
     await pending.value
-    check(cancelled.phase == .loading, "late result after cancel doesn't change state: \(cancelled.phase)")
-    check(!cancelled.confirm(alpha), "cancelled picker refuses to commit")
-    check((try! Data(contentsOf: url)) == before && store.state.projectId == "beta-2", "cancel leaves the config unchanged")
+    check(cancelled.phase == .loading && !cancelled.hasListed, "late result after cancel doesn't change state: \(cancelled.phase)")
+    check(!cancelled.save(), "cancelled window refuses to save")
+    check((try! Data(contentsOf: url)) == before && keep.projects.map(\.projectId) == ["alpha-1"], "cancel leaves the config unchanged")
 
     // Only one request at a time.
     let counting = FakeShell(ok(list)); counting.delayNanos = 200_000_000
-    let busy = FirebaseProjectPickerModel(run: counting.runner, store: store)
+    let busy = FirebaseProjectPickerModel(run: counting.runner, store: keep)
     async let first: Void = busy.refresh()
     try? await Task.sleep(nanoseconds: 30_000_000)
     async let second: Void = busy.refresh()
     async let third: Void = busy.refresh()
     _ = await (first, second, third)
     check(counting.calls.count == 1, "overlapping refreshes run the CLI once (\(counting.calls.count))")
-    check(busy.phase == .loaded([alpha, beta]), "and still end loaded")
+    check(busy.phase == .loaded, "and still end loaded")
 
-    // Failure → failed → retry succeeds.
+    // CLI failure: saved projects stay visible and can be unchecked, which saves an empty list; retry works.
+    let down = makeStore(saved: [entry("alpha-1", "Alpha App")])
     let flaky = FakeShell(FirebaseShellResult(stdout: "", stderr: "zsh: command not found: firebase", exitCode: 127))
-    let retry = FirebaseProjectPickerModel(run: flaky.runner, store: store)
-    await retry.refresh()
-    if case .failed(let message) = retry.phase { check(message.contains("firebase-setup"), "missing CLI points to setup: \(message)") }
-    else { check(false, "failed phase expected, got \(retry.phase)") }
-    check(retry.confirm(alpha) == false, "can't confirm from a failed listing")
+    let m5 = FirebaseProjectPickerModel(run: flaky.runner, store: down)
+    await m5.refresh()
+    if case .failed(let message) = m5.phase { check(message.contains("firebase-setup"), "missing CLI points to setup: \(message)") }
+    else { check(false, "failed phase expected, got \(m5.phase)") }
+    check(m5.rows == [row(alpha, checked: true, listed: false)] && !m5.hasListed, "saved projects stay visible while the CLI fails: \(m5.rows)")
+    m5.toggle("alpha-1")
+    check(m5.save() && saved().isEmpty && down.state == .empty && FileManager.default.fileExists(atPath: url.path), "unchecking everything saves an empty list")
     flaky.result = ok(list)
-    await retry.refresh()
-    check(retry.phase == .loaded([alpha, beta]), "retry after failure loads")
+    let m6 = FirebaseProjectPickerModel(run: flaky.runner, store: down)
+    await m6.refresh()
+    check(m6.phase == .loaded && m6.rows.count == 3 && m6.rows.allSatisfy { !$0.isChecked }, "retry after failure loads, nothing checked")
+    let retrying = FirebaseProjectPickerModel(run: FakeShell(FirebaseShellResult(stdout: "", stderr: "", exitCode: 2)).runner, store: down)
+    await retrying.refresh()
+    if case .failed = retrying.phase {} else { check(false, "exit 2 → failed") }
+    flaky.result = ok(list)
 
-    // Save failure keeps the previous selection and reports why.
+    // Save failure keeps the window open and the saved list intact.
     let blocker = dir.appendingPathComponent("blocker")
     try! "file".write(to: blocker, atomically: true, encoding: .utf8)
     let brokenStore = FirebaseProjectStore(url: blocker.appendingPathComponent("config.json"), interval: 0.05)
-    try? FirebaseProjectConfig.save(sel("existing"), to: url)
+    _ = makeStore(saved: [entry("existing")])
     let saving = FirebaseProjectPickerModel(run: FakeShell(ok(list)).runner, store: brokenStore)
-    await saving.refresh()
-    check(!saving.confirm(alpha), "failed save returns false")
+    await saving.refresh(); saving.toggle("alpha-1")
+    check(!saving.save(), "failed save returns false")
     check(saving.saveError?.contains("Couldn't save") == true, "save error surfaced: \(String(describing: saving.saveError))")
-    check(!saving.isFinished, "picker stays open after a failed save so the user can retry")
-    check(brokenStore.state == .none && (try? FirebaseProjectConfig.load(from: url))?.projectId == "existing", "previous selection retained")
+    check(!saving.isFinished, "window stays open after a failed save so the user can retry")
+    check(brokenStore.state == .empty && saved().map(\.projectId) == ["existing"], "previous list retained")
 
-    // Empty project list is a loaded-but-empty state, not an error.
-    let empty = FirebaseProjectPickerModel(run: FakeShell(ok(envelope([]))).runner, store: store)
+    // Empty CLI list with nothing saved is a loaded-but-empty state, not an error.
+    let empty = FirebaseProjectPickerModel(run: FakeShell(ok(envelope([]))).runner, store: makeStore(saved: []))
     await empty.refresh()
-    check(empty.phase == .loaded([]) && empty.filtered.isEmpty, "empty list")
+    check(empty.phase == .loaded && empty.rows.isEmpty && empty.filteredRows.isEmpty, "empty list")
 }
 
 // MARK: - Product catalog
