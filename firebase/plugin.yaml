@@ -1,0 +1,14 @@
+manifest_version: 2
+name: firebase
+version: 0.1.0
+description: >
+  Firebase Console widgets for Work42: Authentication, Analytics, Firestore and Crashlytics, each its own
+  widget showing that product's live Console page, each with a Set Project button. The project is chosen
+  from `firebase projects:list` and shared by every Firebase widget through ~/.work42/firebase/config.json.
+  Bundles a setup skill, a global using-firebase index, and one skill per product describing what the
+  Firebase CLI can and cannot do for it.
+author: work42
+sdk_version: 2.3.1
+sdk_abi: 12
+requires: []
+global_skills: using-firebase

@@ -613,6 +613,38 @@ func testSkills() {
     }
 }
 
+// MARK: - Manifest and package contract
+
+func testManifest() {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    let fm = FileManager.default
+    let yaml = (try? String(contentsOf: root.appendingPathComponent("plugin.yaml"), encoding: .utf8)) ?? ""
+    // Top-level scalar keys only; the description is a folded block.
+    var fields: [String: String] = [:]
+    for line in yaml.components(separatedBy: "\n") where !line.hasPrefix(" ") {
+        guard let colon = line.firstIndex(of: ":") else { continue }
+        fields[String(line[..<colon])] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
+    }
+    check(fields["manifest_version"] == "2", "manifest v2")
+    check(fields["name"] == "firebase" && fields["version"] == "0.1.0", "name and version")
+    check(fields["sdk_version"] == "2.3.1" && fields["sdk_abi"] == "12", "SDK 2.3.1 / ABI 12")
+    check(fields["requires"] == "[]", "requires nothing")
+    check(fields["global_skills"] == "using-firebase", "only the index skill is global")
+    // No session type, workflow, intents, MCP or compiled hooks: the plugin only adds widgets and skills.
+    for absent in ["session-types", "workflows", "intents", "mcp", "Sources", "tab-templates"] {
+        check(!fm.fileExists(atPath: root.appendingPathComponent(absent).path), "no \(absent) contribution")
+    }
+    // Nothing that must be generated at install time is committed.
+    let found = fm.enumerator(atPath: root.path)?.compactMap { $0 as? String } ?? []
+    check(!found.contains { $0.hasSuffix(".dylib") || $0.hasSuffix("widget.yaml") || $0.hasSuffix("firebase-debug.log") || $0.contains(".build/") }, "no build products committed")
+    // The README documents every released widget and skill.
+    let readme = (try? String(contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)) ?? ""
+    for product in FirebaseProduct.all {
+        check(readme.contains("`\(product.widgetId)`") && readme.contains(product.title) && readme.contains("`firebase-\(product.id)`"), "README covers \(product.widgetId)")
+    }
+    check(readme.contains("~/.work42/firebase/config.json") && readme.contains("firebase login") && readme.contains("firebase-setup"), "README covers the config file and the two sign-ins")
+}
+
 @main
 struct Runner {
     @MainActor
@@ -628,6 +660,7 @@ struct Runner {
         testWidgetLayout()
         testSyncScriptDetectsDrift()
         testSkills()
+        testManifest()
         print("\(checks) checks, \(failures) failures")
         exit(failures == 0 ? 0 : 1)
     }
