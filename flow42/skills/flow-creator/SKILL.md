@@ -51,7 +51,7 @@ ambiguous, ask before drafting.
    replace `~/.work42/flows/<id>/` in one finalized move. Preserve unaffected
    variants. Updating a variant replaces its `flow.yaml` in place; do not keep
    registry revisions or recording snapshots.
-9. Query `work42 debug devices --json` for currently registered Work42 device
+9. Query `work42 device list --json` for currently registered Work42 device
    classes. Offer to record another variant only for available classes absent
    from the manifest. If accepted,
    let Work42 select the concrete device and begin a new recording. Add no

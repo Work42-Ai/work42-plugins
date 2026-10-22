@@ -34,7 +34,7 @@
       "ordinal": 3,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "You are in Testing. Your goal is to execute the testing plan against the real build and prove the result. Load the linear42-qa skill: it launches the project with `work42 debug start`, records the run, publishes the QA report document and writes the verdict.",
+      "entry_prompt": "You are in Testing. Your goal is to execute the testing plan against the real build and prove the result. Load the linear42-qa skill: it runs the project with its normal command in the background (the agent's commands show in the Terminal widget), opens its device with `work42 device open`, records the run, publishes the QA report document and writes the verdict.",
       "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"},{\"forAll\":\"subtasks\",\"where\":{\"field\":\"done\",\"op\":\"equals\",\"value\":\"true\"}}]}",
       "icon": "testtube.2",
       "color_light": "#B45309",
@@ -666,7 +666,7 @@
     {
       "stage": "Planning",
       "kind": "execute",
-      "pattern": "work42 debug",
+      "pattern": "work42 device",
       "action": "allow"
     },
     {
@@ -1230,7 +1230,7 @@
     {
       "stage": "In-Progress",
       "kind": "execute",
-      "pattern": "work42 debug",
+      "pattern": "work42 device",
       "action": "allow"
     },
     {
@@ -1794,7 +1794,7 @@
     {
       "stage": "Testing",
       "kind": "execute",
-      "pattern": "work42 debug",
+      "pattern": "work42 device",
       "action": "allow"
     },
     {
@@ -2358,7 +2358,7 @@
     {
       "stage": "Human Review",
       "kind": "execute",
-      "pattern": "work42 debug",
+      "pattern": "work42 device",
       "action": "allow"
     },
     {
@@ -2922,7 +2922,7 @@
     {
       "stage": "Done",
       "kind": "execute",
-      "pattern": "work42 debug",
+      "pattern": "work42 device",
       "action": "allow"
     },
     {

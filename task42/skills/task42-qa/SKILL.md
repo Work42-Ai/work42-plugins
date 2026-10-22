@@ -1,6 +1,6 @@
 ---
 name: task42-qa
-description: QA for a task42 task at Testing — execute the testing plan against the real build (launched with work42 debug start), prove every acceptance criterion with recordings or screenshots, write the report to qa/report and the verdict to qa/verdict. Never soft-pass; when blocked, stop and ask Yan.
+description: QA for a task42 task at Testing — execute the testing plan against the real build (run with its normal commands, which show in the Terminal widget), prove every acceptance criterion with recordings or screenshots, write the report to qa/report and the verdict to qa/verdict. Never soft-pass; when blocked, stop and ask Yan.
 ---
 
 # QA (task42)
@@ -14,13 +14,13 @@ You are the Lead, now following the QA skill. **Your job: execute the testing pl
 
 ## Run the plan
 
-1. **Launch.** `work42 debug configs`, then `work42 debug start "<config>"`; wait until it is ready.
+1. **Launch.** Run the product with its normal command (`flutter run -d <device>`, `npm run dev`, …) in the background, so its output shows in the session's Terminal widget. If it targets a device, `work42 device list`, then `work42 device open <browser|ios|android>`; wait until the app is ready.
 2. **Prove each step with a visual.**
    - Browser, iOS or Android flow: `work42 device start --device <d>`, drive it (`work42 device actions` lists the verbs), `work42 device stop`. The stop prints the bundle path; `<bundle>/recording.mov` is the video and `events.jsonl` has the numbered steps and their times. If the plan names a flow and variant (`flow`, `variant`, `config`, `covers`; never infer a variant), follow it with the `flow-player` skill.
    - No device fits (the macOS app, a CLI): `screencapture -v` or screenshots.
    - Visual proof is strongly encouraged, not a hard gate: an AC without one says `no visual proof: <why>`.
 3. **Keep the proof.** Put every file in `~/.work42/run/sessions/$WORK42_SESSION_ID/qa/round-<n>/` (`mkdir -p` it; `n` is 1 more than the folders already there; copy a recording with `ffmpeg -i <src> -c copy <dst>`; a frame is `ffmpeg -ss <t> -i <bundle>/recording.mov -frames:v 1 <out>.png`). The Lead attaches this folder to the PR.
-4. **Try the edges**, not only the happy path. Capture console lines with `work42 debug console --tail 40`.
+4. **Try the edges**, not only the happy path. Capture console output by redirecting the command to a file (`… 2>&1 | tee /tmp/run.log`) or reading its Terminal tab.
 
 ## The bar
 
