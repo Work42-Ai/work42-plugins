@@ -20,13 +20,14 @@ image, or, for a video, a `[▶ alt](<video>)` link followed by a poster frame l
 
 Titles and icons: `<KEY> Spec` (📐), `<KEY> Testing Plan` (🧪), `<KEY> QA Report` (🧾), so documents on
 different issues never look alike in Linear, and Work42's document widgets recognise them. The spec and
-testing plan are authored in Planning only; the script refuses them in any other stage. The QA report is
-written in Testing.
+testing plan are authored in Planning only and the QA report in Testing; the session's workflow gates which
+stage may run this script (no check here).
 
 Prints `{"slug", "url"}` of the document. Any failure (a snapshot, an upload, a missing file or session id)
 exits 1 BEFORE the document is touched, so a half-built document never replaces a good one.
 
-Only the standard library; it shells out to `work42`, `linear`, `curl` and, for video posters, `ffmpeg`.
+Only the standard library; it calls the Work42 app's local artifact server over HTTP and shells out to `linear`,
+`curl` and, for video posters, `ffmpeg`. It never runs a `work42` command.
 """
 import argparse
 import hashlib
@@ -36,13 +37,14 @@ import re
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 
 TOKEN = re.compile(r"^\[\[artifact:([a-z0-9][a-z0-9-]*)\]\]$")
 FENCE = re.compile(r"^\s*(```|~~~)")
 DOCUMENT_URL = re.compile(r"https://linear\.app/\S+?/document/(\S+)")
 CACHE_FILE = ".linear-upload.json"
 MEDIA = re.compile(r"!\[([^\]]*)\]\(((?:/|~/)[^)\s]+)\)")
-STAGE_LOCKED = {"spec": ("Planning",), "testing": ("Planning",), "shape": ("Shape", "Design")}
 CONTENT_TYPES = {
     ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
     ".webp": "image/webp", ".mov": "video/quicktime", ".mp4": "video/mp4", ".webm": "video/webm",
@@ -92,21 +94,51 @@ def sha256_of(path):
     return digest.hexdigest()
 
 
-def snapshot(artifact_id, workdir):
-    """Render the artifact to a PNG (full page, 2x) and return its path."""
+def runtime_path():
+    return os.path.expanduser("~/.work42/artifacts/runtime.json")
+
+
+def snapshot_url(artifact_id, session_id):
+    """The artifact server's snapshot URL for this session's artifact, from the app's runtime descriptor."""
+    try:
+        with open(runtime_path()) as handle:
+            runtime = json.load(handle)
+        port, secret = int(runtime["port"]), str(runtime["secret"])
+    except (OSError, ValueError, KeyError, TypeError):
+        raise Failure("the Work42 app isn't running; open it and retry")
+    token = hashlib.sha256(("%s:%s" % (secret, session_id)).encode("utf-8")).hexdigest()[:20]
+    return "http://127.0.0.1:%d/%s-%s/%s/snapshot.png?width=1000" % (port, session_id, token, artifact_id)
+
+
+def snapshot(artifact_id, session_id, workdir):
+    """Render the artifact to a PNG through the app's artifact server and return its path."""
+    url = snapshot_url(artifact_id=artifact_id, session_id=session_id)
     out = os.path.join(workdir, artifact_id + ".png")
-    result = run(["work42", "artifact", "snapshot", artifact_id, "--out", out, "--json"])
-    if result.returncode != 0:
-        detail = (result.stderr or result.stdout).strip()
-        raise Failure("snapshot of artifact '%s' failed: %s" % (artifact_id, detail))
+    try:
+        with urllib.request.urlopen(url, timeout=60) as response:
+            data = response.read()
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            raise Failure("no artifact '%s' in this session" % artifact_id)
+        raise Failure("snapshot of artifact '%s' failed (HTTP %d)" % (artifact_id, error.code))
+    except (urllib.error.URLError, OSError) as error:
+        raise Failure("couldn't reach the Work42 app to snapshot artifact '%s' (%s); open it and retry"
+                      % (artifact_id, getattr(error, "reason", error)))
+    with open(out, "wb") as handle:
+        handle.write(data)
     return out
 
 
+def artifact_dir(artifact_id):
+    """`$WORK42_SESSION_DIR/artifacts/<id>/`, the session's own folder for this artifact."""
+    session_dir = os.environ.get("WORK42_SESSION_DIR", "")
+    if not session_dir:
+        raise Failure("WORK42_SESSION_DIR isn't set; it is needed to find artifact '%s'" % artifact_id)
+    return os.path.join(session_dir, "artifacts", artifact_id)
+
+
 def cache_path(artifact_id):
-    result = run(["work42", "artifact", "path", artifact_id])
-    if result.returncode != 0:
-        raise Failure("couldn't locate artifact '%s': %s" % (artifact_id, (result.stderr or result.stdout).strip()))
-    return os.path.join(result.stdout.strip(), CACHE_FILE)
+    return os.path.join(artifact_dir(artifact_id), CACHE_FILE)
 
 
 def read_cache(path):
@@ -143,9 +175,9 @@ def upload(path, filename, content_type):
     return asset_url
 
 
-def asset_url_for(artifact_id, workdir):
+def asset_url_for(artifact_id, session_id, workdir):
     """The uploaded image URL for the artifact: reuse the last upload when the PNG is unchanged."""
-    png = snapshot(artifact_id, workdir)
+    png = snapshot(artifact_id, session_id, workdir)
     digest = sha256_of(png)
     cache = cache_path(artifact_id)
     cached = read_cache(cache)
@@ -162,15 +194,18 @@ def asset_url_for(artifact_id, workdir):
     return url
 
 
-def artifact_titles():
-    """{artifact id: title} from `work42 artifact list --json` (empty when it can't be read)."""
-    result = run(["work42", "artifact", "list", "--json"])
-    if result.returncode != 0:
-        return {}
-    try:
-        return {item["id"]: item.get("title") or item["id"] for item in json.loads(result.stdout)}
-    except (ValueError, KeyError, TypeError):
-        return {}
+def artifact_titles(artifact_ids):
+    """{artifact id: title} from each artifact's `meta.json` (the id when there is no readable title)."""
+    titles = {}
+    for artifact_id in artifact_ids:
+        title = None
+        try:
+            with open(os.path.join(artifact_dir(artifact_id), "meta.json")) as handle:
+                title = json.load(handle).get("title")
+        except (OSError, ValueError, AttributeError, Failure):
+            pass
+        titles[artifact_id] = title if isinstance(title, str) and title.strip() else artifact_id
+    return titles
 
 
 def rewrite(lines, tokens, session_id, workdir):
@@ -178,8 +213,8 @@ def rewrite(lines, tokens, session_id, workdir):
     urls = {}
     for _, artifact_id in tokens:
         if artifact_id not in urls:
-            urls[artifact_id] = asset_url_for(artifact_id, workdir)
-    titles = artifact_titles()
+            urls[artifact_id] = asset_url_for(artifact_id, session_id, workdir)
+    titles = artifact_titles(urls)
     out = list(lines)
     for index, artifact_id in tokens:
         title = titles.get(artifact_id, artifact_id).replace("[", "(").replace("]", ")")
@@ -255,21 +290,6 @@ KINDS = {"spec": ("Spec", ":triangular_ruler:"), "testing": ("Testing Plan", ":t
          "qa": ("QA Report", ":receipt:"), "shape": ("Product Shape", ":jigsaw:")}
 
 
-def require_stage(session_id, allowed):
-    """The spec and testing plan are authored in Planning only, the product shape in Shape or Design; refuse elsewhere."""
-    if not session_id:
-        raise Failure("WORK42_SESSION_ID isn't set; it is needed to check the session is in %s" % " or ".join(allowed))
-    result = run(["work42", "session", "show", "--session", session_id, "--json"])
-    try:
-        stage = json.loads(result.stdout)["stage"] if result.returncode == 0 else None
-    except (ValueError, KeyError, TypeError):
-        stage = None
-    if stage is None:
-        raise Failure("couldn't read the session stage: %s" % (result.stderr or result.stdout).strip()[:200])
-    if stage not in allowed:
-        raise Failure("this document can only be published in %s (this session is in %s)" % (" or ".join(allowed), stage))
-
-
 def publish(args, markdown_path):
     label, icon = KINDS[args.kind]
     title = "%s %s" % (args.issue, label)
@@ -293,9 +313,9 @@ def main(argv):
     parser = argparse.ArgumentParser(description="Publish markdown to a Linear document (artifacts become images).")
     parser.add_argument("--issue", required=True, help="Issue key the document is attached to (e.g. WOR-6).")
     parser.add_argument("--kind", required=True, choices=sorted(KINDS),
-                        help="spec -> '<KEY> Spec' (📐), testing -> '<KEY> Testing Plan' (🧪), both Planning only; "
-                             "shape -> '<KEY> Product Shape' (🧩), Shape or Design only (Product Shape sessions); "
-                             "qa -> '<KEY> QA Report' (🧾).")
+                        help="spec -> '<KEY> Spec' (📐), testing -> '<KEY> Testing Plan' (🧪); "
+                             "shape -> '<KEY> Product Shape' (🧩); qa -> '<KEY> QA Report' (🧾). "
+                             "The workflow decides in which stage each may run.")
     parser.add_argument("--file", required=True, help="Markdown file to publish, or - for stdin.")
     parser.add_argument("--slug", help="Update this existing document instead of creating one.")
     args = parser.parse_args(argv)
@@ -314,8 +334,6 @@ def main(argv):
     tokens = artifact_lines(lines)
     session_id = os.environ.get("WORK42_SESSION_ID", "")
     try:
-        if args.kind in STAGE_LOCKED:
-            require_stage(session_id, STAGE_LOCKED[args.kind])
         if tokens and not session_id:
             raise Failure("WORK42_SESSION_ID isn't set; it is needed to link artifacts back to this session")
         with tempfile.TemporaryDirectory() as workdir:
