@@ -87,7 +87,7 @@ private struct TestingPlanWidgetView: View {
                 VStack(alignment: .leading, spacing: DT.s8) {
                     Text("No testing plan yet")
                         .font(.system(size: DT.f13, weight: .semibold))
-                    Text("Author one with `work42 storage set plan/testing`. It'll appear here automatically.")
+                    Text("Author one with the `storage_set` tool (key `plan/testing`). It'll appear here automatically.")
                         .font(.system(size: DT.f11))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)

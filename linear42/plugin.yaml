@@ -1,6 +1,6 @@
 manifest_version: 2
 name: linear42
-version: 1.0.3
+version: 1.0.4
 description: >
   The Linear-native task lifecycle, replacing task42. Provides the linear42
   workflow (Planning -> In-Progress -> Testing -> Human Review -> Done) with
@@ -14,6 +14,6 @@ description: >
   "New Product Shape" create-intent and one skill per issue type. Configured
   entirely from ~/.config/linear42/config.json.
 author: work42
-sdk_version: 2.6.4
-sdk_abi: 12
+sdk_version: 2.8.0
+sdk_abi: 13
 requires: [github, figma]

@@ -416,9 +416,10 @@ func commentEventText(_ comment: LinearComment) -> String {
     return text + comment.body
 }
 
-/// The shell line that posts a system event into the session (deduped by fingerprint).
-func eventPostCommand(sessionId: String, fingerprint: String, message: String) -> String {
-    "work42 event post --session \(shellQuote(sessionId)) --fingerprint \(shellQuote(fingerprint)) \(shellQuote(message))"
+/// The arguments of the `event_post` tool call that posts a system event into the session
+/// (deduped by fingerprint). Plain strings: no shell quoting is involved any more.
+func eventPostArguments(fingerprint: String, message: String) -> [String: String] {
+    ["message": message, "fingerprint": fingerprint]
 }
 
 // MARK: - Session scoping
@@ -448,8 +449,8 @@ func canDisplay(typeId: String?) -> Bool {
     typeId != nil
 }
 
-/// Reads `type_id` from `work42 session show --session <id> --json`
-/// (`{"id","name","stage","type_id","workspace_id"}`).
+/// Reads `type_id` from the `session_show` tool's result
+/// (`{"id","name","stage","type_id","workspace_id","archived_at"}`) as JSON.
 func parseSessionTypeId(_ data: Data) -> String? {
     guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
           let typeId = object["type_id"] as? String, !typeId.isEmpty

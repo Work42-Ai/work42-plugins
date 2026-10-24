@@ -7,14 +7,14 @@
 // (`work42://task/<sessionId>`). A plugin hooks dylib links only
 // Work42PluginKit (see PluginHookInstaller's build args), so it cannot
 // reach Flow42Core's PlannedDayStore/TodoSessionLink directly — this
-// shells out to `work42 todos add` instead, the CLI-mediated equivalent.
+// shells out to `todo42 todos add` instead, the CLI-mediated equivalent.
 //
 // `plan/kind` and `jira/url` are NOT written here — they're seeded
 // declaratively from session-types/task.json's `args` (SessionMint's
 // generic arg->storage path, task42-plugin-conversion s1) before onCreate
 // ever runs.
 //
-// `work42 todos add` does not dedupe by url the way
+// `todo42 todos add` does not dedupe by url the way
 // `TodoSessionLink.ensureTodo` does — safe here because onCreate only
 // fires on a genuinely new session insert (SessionMint.finishMint's
 // `guard inserted else { return }`), never on a re-mint.
@@ -25,12 +25,14 @@ import Work42PluginKit
 final class Task42Hooks: Work42SessionHooks {
     func onCreate(_ context: SessionCreateContext) async throws {
         let url = "work42://task/\(context.sessionId)"
-        let command = "work42 todos add --title \(shellQuote(context.name)) --url \(shellQuote(url))"
+        let command = "todo42 todos add --title \(shellQuote(context.name)) --url \(shellQuote(url))"
         let result = try await context.shell.run(command: command)
+        // 127: todo42 is not installed. The To-Do is a convenience, so the session is still valid without it.
+        if result.exitCode == 127 { return }
         guard result.exitCode == 0 else {
             throw WidgetServiceError(
-                message: "work42 todos add failed (exit \(result.exitCode)): \(result.stderr)",
-                suggestion: "check `work42` is on PATH and \(context.worktreePath) resolves a workspace"
+                message: "todo42 todos add failed (exit \(result.exitCode)): \(result.stderr)",
+                suggestion: "check `todo42` is installed (ask the agent to run the todo42-setup skill) and \(context.worktreePath) resolves a workspace"
             )
         }
     }

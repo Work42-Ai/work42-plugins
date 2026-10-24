@@ -11,7 +11,7 @@
 // STORAGE (storageNamespace "plan" — shared with the subtasks/testing-plan
 // widgets and the workflow gates):
 //   plan/spec         — the spec markdown. Read-only here; written by the
-//                        agent via `work42 storage set plan/spec`.
+//                        agent via the `storage_set` tool (key `plan/spec`).
 //   plan/approved_at  — ISO-8601 timestamp; written by Approve Plan.
 //   plan/approved_by  — the approver's username; written by Approve Plan.
 // Approval is simply the presence of plan/approved_at — there is no
@@ -152,7 +152,7 @@ private struct SpecWidgetView: View {
                 VStack(alignment: .leading, spacing: DT.s8) {
                     Text("No spec yet")
                         .font(.system(size: DT.f13, weight: .semibold))
-                    Text("Draft one with `work42 storage set plan/spec`, then approve it here.")
+                    Text("Draft one with the `storage_set` tool (key `plan/spec`), then approve it here.")
                         .font(.system(size: DT.f12))
                         .foregroundStyle(DT.textSecondary)
                 }
