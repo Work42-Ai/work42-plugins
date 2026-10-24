@@ -30,12 +30,12 @@ prompt did not ask for.**
 - **Intake** — resolve the PR (`github/prs`) and read its description for linked
   Jira (`jira/url`) / Figma / associated PRs; attach each one you find. If
   several repos are involved, ask the user before checking out the others. When
-  intake is complete, `work42 transition "AI Review"`. (The entry prompt covers
+  intake is complete, call the `transition` tool with target "AI Review". (The entry prompt covers
   this; no extra skill guidance needed.)
 - **AI Review** — the substantial pass. See below.
 - **Human Review** — help the human read the published artifact: answer
   clarifying questions, and stage PR comments (through the capability ask) when
-  asked. When every attached PR merges, `work42 transition "Done"`.
+  asked. When every attached PR merges, call the `transition` tool with target "Done".
 - **Done** — terminal. No action.
 
 ## AI Review — build ONE source-linked explainer artifact
@@ -49,15 +49,15 @@ This is the stage that carries real work. When you enter AI Review:
    not a file-by-file dump, but the handful of changes that matter, each with a
    short "what + why + risk" note. Use the **`work42-artifact-explainer`** skill
    for the diagram-first structure and the **`work42-artifact`** skill for the
-   `work42 artifact set` mechanics.
+   `artifact_set` mechanics.
 3. **Give every highlighted item a source deep-link** so clicking it opens
    straight to that exact change. Follow the **`work42-source-links`** skill's
    hierarchy: prefer a GitHub PR hunk link, then a blob permalink, then a local
    `file:line`.
 4. **Publish, record, hand off.** Once the artifact renders cleanly
-   (`work42 artifact status <id>` shows no errors), write its id to storage —
-   `work42 storage set review/artifact_id "<id>"` — then
-   `work42 transition "Human Review"`. Writing `review/artifact_id` is the gate
+   (`artifact_status` shows no errors), write its id to storage —
+   `storage_set` (key `review/artifact_id`) — then
+   call the `transition` tool with target "Human Review". Writing `review/artifact_id` is the gate
    that opens Human Review, so do it only when the artifact is actually ready.
 
 Keep the artifact honest: highlight genuine risks and design trade-offs, not

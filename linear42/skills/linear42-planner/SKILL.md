@@ -12,7 +12,7 @@ You are the Lead, now following the Planner skill. **Turn a fuzzy idea into a co
 ## Before starting
 
 - `cd` to the session worktree.
-- The attached issues: `work42 storage get linear/issue_keys` (several are possible; decide whether to plan across them as one shared plan or one per issue) and `linear/issue_ref` (seeds the first). Read each with `linear issue view <KEY>`. Unbound: you create the issue (step 4).
+- The attached issues: `storage_get` (key `linear/issue_keys`) (several are possible; decide whether to plan across them as one shared plan or one per issue) and `linear/issue_ref` (seeds the first). Read each with `linear issue view <KEY>`. Unbound: you create the issue (step 4).
 - The config: `jq . ~/.config/linear42/config.json`. If it is missing or incomplete, stop and ask Yan; never guess a team.
 
 ## The process
@@ -20,17 +20,17 @@ You are the Lead, now following the Planner skill. **Turn a fuzzy idea into a co
 Don't write the spec until you understand the problem and Yan has answered your questions.
 
 1. **Investigate first.** Walk the codebase (utilities, conventions, prior art) and read the issue and its comments. "Simple" tasks are where unexamined assumptions waste the most work.
-2. **Ask, one question at a time**, as `@yan [QUESTION] …` with 2–4 options when you can. Hunt edge cases: empty states, error paths, concurrency, back-compat, failure behaviour. Resolve every open question before asking for approval.
-3. **Build confirmed artifacts** before locking the spec: a visual-decision artifact for anything that looks like something (mermaid diagram or HTML/SVG mockup) and a per-item explainer for every plan item (problem with real file:line, approach, diagram-first; use `work42-artifact-explainer`). Drive them with `work42-artifact`: `work42 artifact set <id>`, check `status` shows no errors, then reference it alone on a line as `[[artifact:<id>]]` and ask "Does this match what you have in mind?". Artifacts are loopback-only (vendor JS locally, never fetch) and mermaid node labels must be plain (no colon, no `[[…]]`, no trailing prose). Confirmed artifacts are locked decisions; reference them from the spec's Design section.
+2. **Ask with the `ask_user` tool, one question at a time**, with 2–4 options when you can. Hunt edge cases: empty states, error paths, concurrency, back-compat, failure behaviour. Resolve every open question before asking for approval.
+3. **Build confirmed artifacts** before locking the spec: a visual-decision artifact for anything that looks like something (mermaid diagram or HTML/SVG mockup) and a per-item explainer for every plan item (problem with real file:line, approach, diagram-first; use `work42-artifact-explainer`). Drive them with `work42-artifact`: `artifact_set`, check `artifact_status` shows no errors, then reference it alone on a line as `[[artifact:<id>]]` and ask "Does this match what you have in mind?". Artifacts are loopback-only (vendor JS locally, never fetch) and mermaid node labels must be plain (no colon, no `[[…]]`, no trailing prose). Confirmed artifacts are locked decisions; reference them from the spec's Design section.
 4. **Bind or create the issue.** If neither `linear/issue_keys` nor `linear/issue_ref` is set:
    ```bash
    TEAM="$(jq -r .default_team ~/.config/linear42/config.json)"
    linear issue create --team "$TEAM" --title "<task title>" --description-file - <<'MD'
    <one-paragraph summary>
    MD
-   work42 storage set linear/issue_ref '"<KEY>"'     # the key printed by the create
+   storage_set(key: "linear/issue_ref", value: "<KEY>")     # the key printed by the create
    ```
-   Wait for the sync agent to resolve it (`work42 storage get linear/issues/<KEY>/issue`) before creating documents. To attach another issue, append its key to the `linear/issue_keys` array (read, add, write the whole array); never overwrite `linear/issue_ref` once `linear/issue_keys` exists.
+   Wait for the sync agent to resolve it (`storage_get` (key `linear/issues/<KEY>/issue`)) before creating documents. To attach another issue, append its key to the `linear/issue_keys` array (read, add, write the whole array); never overwrite `linear/issue_ref` once `linear/issue_keys` exists.
 5. **Author the plan in Linear.** Planning forbids file edits: pass content on stdin with quoted heredocs.
 
    **Spec → a document.** Follow `./spec-template.md` (Context, Goals, Acceptance Criteria, Design, Out of Scope, Risks & Edge Cases, Open Questions). Write acceptance criteria in EARS form ("WHEN <trigger>, THE SYSTEM SHALL <response>", numbered AC1, AC2…) and reference confirmed artifacts in Design, one `[[artifact:<id>]]` per line. Publish with the helper, never a bare `linear document create`:
@@ -42,7 +42,7 @@ Don't write the spec until you understand the problem and Yan has answered your 
    ```
    It prints `{"slug","url"}`. Read the document back as stored (`linear api 'query{document(id:"<slug>"){content}}'`, never `document view --raw`), then record it:
    ```bash
-   work42 storage set linear/issues/<KEY>/spec_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
+   storage_set(key: "linear/issues/<KEY>/spec_doc", value: {"slug": "<slug>", "url": "<url>"})
    ```
    **Sub-issues.** One per subtask, in implementation order, each with a description a Worker loaded cold can execute (exact paths, the interface it consumes or produces, concrete behaviour):
    ```bash
@@ -50,7 +50,7 @@ Don't write the spec until you understand the problem and Yan has answered your 
    <files, interface, behaviour>
    MD
    ```
-   Never write `plan/subtasks`: the sync agent mirrors the sub-issues within a poll (`work42 storage get plan/subtasks` to confirm).
+   Never write `plan/subtasks`: the sync agent mirrors the sub-issues within a poll (`storage_get` with key `plan/subtasks` to confirm).
 
    **No placeholders.** No "TBD", "TODO", "handle errors appropriately". Name exact paths, signatures and behaviour, and keep names consistent across the spec and every sub-issue. A placeholder is an open question for Yan.
 
@@ -59,17 +59,17 @@ Don't write the spec until you understand the problem and Yan has answered your 
    .claude/skills/linear42-general/publish-doc.py --issue <KEY> --kind testing --file - <<'MD'
    …
    MD
-   work42 storage set linear/issues/<KEY>/testing_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
+   storage_set(key: "linear/issues/<KEY>/testing_doc", value: {"slug": "<slug>", "url": "<url>"})
    ```
 6. **Approval is a hard gate.** Wait for Yan: the green **Approve Plan** button on the Spec Document tab (enabled once the spec document and a sub-issue exist), or moving the issue to a started state in Linear while in Planning. Either writes `plan/approved_at`; there is no approve command and you never write it. When it holds the session offers In-Progress; run it then, not before.
 
 ## Edits after approval
 
-Go back to Planning if needed (`work42 transition "Planning"`), revise the documents (`publish-doc.py … --slug <slug>` with the **whole** new markdown) and sub-issues, and **clear the approval yourself**:
+Go back to Planning if needed (call the `transition` tool with target "Planning"), revise the documents (`publish-doc.py … --slug <slug>` with the **whole** new markdown) and sub-issues, and **clear the approval yourself**:
 
 ```bash
-work42 storage delete plan/approved_at
-work42 storage delete plan/approved_by
+storage_delete(key: "plan/approved_at")
+storage_delete(key: "plan/approved_by")
 ```
 
 Leave `linear/approval_stamped` alone: the sync agent sees the approval gone, posts "Plan approval revoked in Work42" on each issue with a spec, and clears it. Then ask for approval again.

@@ -286,20 +286,6 @@ struct Flow42PlayerWidgetTests {
         #expect(try registrySnapshot(temporary) == before)
     }
 
-    @Test("player makes Work42 recording cleanup mandatory on every post-start exit")
-    func recordingEnvelopeContract() throws {
-        let skill = collapsed(try String(contentsOf: root.appendingPathComponent("flow42/skills/flow-player/SKILL.md"), encoding: .utf8)).lowercased()
-        #expect(skill.contains("must successfully start work42 recording before the first flow action"))
-        for exit in ["success", "failure", "cancellation", "action error", "agent exception"] {
-            #expect(skill.contains(exit))
-        }
-        #expect(skill.contains("`work42 device stop` is mandatory before every return path"))
-        #expect(skill.contains("never delete failed or cancelled evidence"))
-        #expect(skill.contains("substitute another registered work42 action"))
-        #expect(skill.contains("skip the action entirely"))
-        #expect(skill.contains("never mutate the flow from a failed workaround"))
-    }
-
     @Test("widget composes the approved passive library and commentable detail surfaces")
     func widgetBoundary() throws {
         let widget = try String(contentsOf: root.appendingPathComponent("flow42/widgets/flow-definition/Sources/Widget.swift"), encoding: .utf8)

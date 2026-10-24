@@ -5,7 +5,7 @@ description: Product Shape type skill for anything that is neither a clear featu
 
 # Product Shape: other
 
-Load `linear42-product` first. This skill is the method for `shape/type = "other"`. Often this type turns into a feature or a bug halfway: if the work firms up, tell the user, switch with `work42 storage set shape/type '"feature"'` (or `"bug"`), and continue with that skill from where you are.
+Load `linear42-product` first. This skill is the method for `shape/type = "other"`. Often this type turns into a feature or a bug halfway: if the work firms up, tell the user, switch with `storage_set` (key `shape/type`, value `"feature"` or `"bug"`), and continue with that skill from where you are.
 
 ## Bundled method skills
 
@@ -20,7 +20,7 @@ Find out what kind of thing this is and what decision it serves:
 3. Is there a decision to make (option A or B), a thing to design, or a thing to learn?
 4. What's the deadline pressure, if any, and what happens if we wait?
 
-Confirm the framing in chat, then `work42 storage set shape/discovery_done "\"$(date -u +%FT%TZ)\""`.
+Confirm the framing in chat, then call `storage_set` with key `shape/discovery_done` and the current UTC timestamp as the value.
 
 ## Shape
 

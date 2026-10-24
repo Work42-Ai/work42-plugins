@@ -24,7 +24,7 @@ Use Work42 artifacts for **all proposed UI rendering**: make the screen or flow
 visible, use realistic copy, and include the relevant loading, empty, error and
 permission states. Load `work42-artifact` and `work42-artifact-mockup` for UI
 previews (or `work42-artifact-explainer` for flows). Create the artifact with
-`work42 artifact set`, check `work42 artifact status`, then show its
+`artifact_set`, check `artifact_status`, then show its
 `[[artifact:<id>]]` token alone on a line. Do not substitute paragraphs for a
 screen the user needs to see. An artifact preview is an ideation prototype,
 not evidence that the final Figma design has been built or validated.
@@ -67,17 +67,17 @@ Everything you write is from the point of view of the person using the product: 
 
 Rules about gates:
 
-- A holding gate does not move the session. When it holds, the session receives `<Stage> is now available — run work42 transition "<Stage>"`: run exactly that.
-- **Never write `shape/approved_at`.** When the shape and the design are complete, ask the user in chat (`@yan [APPROVAL] …`), listing what you built and the open edge cases, and tell them they approve by running `work42 storage set shape/approved_at "$(date -u +%FT%TZ)"`. That key isn't on the workflow's allowed list for you, so the attempt stops and asks the user.
-- Going back is normal. Design exposing a gap means `work42 transition "Shape"`, republish the document with `--slug`, and return.
+- A holding gate does not move the session. When it holds, the session receives "<Stage> is now available": call the `transition` tool with that target.
+- **Never write `shape/approved_at`.** When the shape and the design are complete, ask the user in chat (`@yan [APPROVAL] …`), listing what you built and the open edge cases, and, once they say yes, call `storage_set` with key `shape/approved_at` and the current UTC timestamp as the value; that key isn't on the workflow's allowed list for you, so the call stops and asks the user to allow it.
+- Going back is normal. Design exposing a gap means calling the `transition` tool with target "Shape", republish the document with `--slug`, and return.
 - File edits are blocked in every stage. Pass document content on stdin with quoted heredocs.
 
 ## Picking the type
 
 1. Read the issue: `linear issue view <KEY>` and its labels. A `Bug` label means bug; `Feature` or `Improvement` means feature; anything else, or no label, is unclear.
-2. If there is no issue yet (blank session), debate the problem and candidate directions with the user first. Keep the issue draft in artifacts until its purpose and scope are agreed, then create the issue with `linear issue create --team "$(jq -r .default_team ~/.config/linear42/config.json)"` and bind it (`work42 storage set linear/issue_ref '"<KEY>"'`).
-3. If the type is unclear, ask: `@yan [QUESTION] Is this a feature, a bug, or something else?` with those three options.
-4. Write it: `work42 storage set shape/type '"feature"'`, then load the matching skill: `linear42-product-feature`, `linear42-product-bug` or `linear42-product-other`. The Design stage always uses `linear42-product-figma`.
+2. If there is no issue yet (blank session), debate the problem and candidate directions with the user first. Keep the issue draft in artifacts until its purpose and scope are agreed, then create the issue with `linear issue create --team "$(jq -r .default_team ~/.config/linear42/config.json)"` and bind it (`storage_set` with key `linear/issue_ref` and value `"<KEY>"`).
+3. If the type is unclear, ask with the `ask_user` tool, one question at a time: “Is this a feature, a bug, or something else?” with those three options.
+4. Write it: `storage_set` with key `shape/type` and value `"feature"`, `"bug"` or `"other"`, then load the matching skill: `linear42-product-feature`, `linear42-product-bug` or `linear42-product-other`. The Design stage always uses `linear42-product-figma`.
 
 ## Bundled skills
 
@@ -96,7 +96,7 @@ conflicts with *Product only* above, this skill wins. They produce Chat artifact
 
 ## Questions
 
-Ask **one question at a time**, as `@yan [QUESTION] …` with 2–4 options where you can. Hunt edge cases from the user's side: first-time user, empty state, loading, error, offline, too much data, no permission, two people at once, undo, interrupted halfway, a returning user whose data predates the feature. Resolve every open question before asking for approval, or list the unresolved ones explicitly in the document.
+Ask with the `ask_user` tool, **one question at a time**, with 2–4 options where you can. Hunt edge cases from the user's side: first-time user, empty state, loading, error, offline, too much data, no permission, two people at once, undo, interrupted halfway, a returning user whose data predates the feature. Resolve every open question before asking for approval, or list the unresolved ones explicitly in the document.
 
 ## Comments and Linear
 

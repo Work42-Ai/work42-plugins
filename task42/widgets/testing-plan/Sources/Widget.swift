@@ -10,7 +10,7 @@
 // STORAGE (storageNamespace "plan" — shared with the spec/subtasks
 // widgets and the workflow gates):
 //   plan/testing — the testing-plan markdown, authored by the Planner↔QA
-//                  dialogue (see the task42-planner/task42-qa skills).
+//                  dialogue.
 // Markdown links such as
 //   [login / browser](flow42://flow/login?variant=browser)
 // remain ordinary links. Work42's generic Open Link resolver offers them to
