@@ -20,14 +20,14 @@ One per requested device variant:
 ```markdown
 - flow: login
   variant: browser
-  config: "Web QA"
+  config: "flutter run -d chrome"
   covers: AC3, AC7
   expected: Authentication completes and the signed-in home screen is visible.
 
   [login / browser](flow42://flow/login?variant=browser)
 ```
 
-`flow` and `variant` are separate and required; browser, iOS and Android coverage repeats the entry three times. Confirm `config` with `work42 debug configs` (it starts the product and doesn't replace the variant).
+`flow` and `variant` are separate and required; browser, iOS and Android coverage repeats the entry three times. `config` is the normal command that runs the product for this flow (for example `flutter run -d chrome`); it doesn't replace the variant.
 
 ## Missing coverage
 

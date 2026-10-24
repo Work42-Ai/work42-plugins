@@ -17,7 +17,7 @@ A **task is a work42 session** of type `task`. There is no separate `task42` CLI
 2. **In-Progress requires Yan's approval of the Plan:** three facets authored together by the Planner and approved as one unit, the Spec (`plan/spec`), the Subtasks (`plan/subtasks`) and the Testing Plan (`plan/testing`). One click of the green **Approve Plan** button (the Plan tab: Spec · Subtasks · Testing Plan) writes `plan/approved_at` and `plan/approved_by`. There is no approve command.
 3. **One worktree per session**, created at session start; all subtasks share it.
 4. **Roles are skills the Lead loads, in one conversation: no subagents.** Yan approves the plan, shakes the build and merges. **Lead** (`task42-lead`) orchestrates. **Planner** (`task42-planner`) understands the task and authors the Plan. **Worker** (`task42-worker`) implements one subtask. **QA** (`task42-qa`) executes the testing plan.
-5. **QA proves it.** It launches the project with `work42 debug start`, records the run with `work42 device` (or a screen recording where no device fits), and writes `qa/report` and `qa/verdict`. A PASS opens Human Review.
+5. **QA proves it.** It runs the project with its normal command in the background (it shows in the Terminal widget), opens its device with `work42 device open`, records the run with `work42 device` (or a screen recording where no device fits), and writes `qa/report` and `qa/verdict`. A PASS opens Human Review.
 6. **The Lead opens the draft PR in Human Review** with QA's screenshots and recordings attached, and records it in `github/prs`.
 7. **Never run into a wall quietly.** Anything you can't resolve (a missing tool or config, a failing environment): stop, say exactly what you need in chat, and wait for Yan.
 
@@ -43,7 +43,7 @@ Reads (`work42 storage get/list`, `work42 artifact list/status/url`) are allowed
 
 ## Project QA guide
 
-`~/.work42/<project>/qa-guide.md` (Yan writes it) says how to test this product: the surfaces, credentials, fragile areas. *How to run* the product for each test is named in the Testing Plan: the `launch.json` config to start with `work42 debug start "<config>"` (confirm with `work42 debug configs`). Optional Flow42 coverage is authored with `flow42-qa-author` and always names separate `flow` and `variant` values.
+`~/.work42/<project>/qa-guide.md` (Yan writes it) says how to test this product: the surfaces, credentials, fragile areas. *How to run* the product for each test is named in the Testing Plan: the command that runs it (for example `flutter run -d chrome`). Optional Flow42 coverage is authored with `flow42-qa-author` and always names separate `flow` and `variant` values.
 
 ## CLI reference
 

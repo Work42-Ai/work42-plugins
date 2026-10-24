@@ -1,6 +1,6 @@
 ---
 name: linear42-qa
-description: QA for a linear42 task at Testing — execute the testing plan against the real build (launched with work42 debug start), prove every acceptance criterion with recordings or screenshots, publish the QA report as the issue's "<KEY> QA Report" Linear document with the media uploaded, then write qa/report and qa/verdict. Never soft-pass; when blocked, stop and ask Yan.
+description: QA for a linear42 task at Testing — execute the testing plan against the real build (run with its normal commands, which show in the Terminal widget), prove every acceptance criterion with recordings or screenshots, publish the QA report as the issue's "<KEY> QA Report" Linear document with the media uploaded, then write qa/report and qa/verdict. Never soft-pass; when blocked, stop and ask Yan.
 ---
 
 # QA (linear42)
@@ -16,7 +16,7 @@ You are the Lead, now following the QA skill. **Your job: execute the testing pl
 
 ## Run the plan
 
-1. **Launch.** `work42 debug configs`, then `work42 debug start "<config>"`; wait until it is ready.
+1. **Launch.** Run the product with its normal command (`flutter run -d <device>`, `npm run dev`, …) in the background, so its output shows in the session's Terminal widget. If it targets a device, `work42 device list`, then `work42 device open <browser|ios|android>`; wait until the app is ready.
 2. **Prove each step with a visual.**
    - Browser, iOS or Android flow: `work42 device start --device <d>`, drive it (`work42 device actions` lists the verbs), `work42 device stop`. The stop prints the bundle path; its `recording.mov` is the video and `events.jsonl` has step times, so a frame is `ffmpeg -ss <t> -i <bundle>/recording.mov -frames:v 1 <out>.png`. If the plan names a flow and variant, follow it with the `flow-player` skill.
    - No device fits (the macOS app, a CLI): `screencapture -v` or screenshots.
