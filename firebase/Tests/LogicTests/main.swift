@@ -725,8 +725,8 @@ func testManifest() {
         fields[String(line[..<colon])] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
     }
     check(fields["manifest_version"] == "2", "manifest v2")
-    check(fields["name"] == "firebase" && fields["version"] == "0.2.0", "name and version 0.2.0 (\(fields["version"] ?? "none"))")
-    check(fields["sdk_version"] == "2.3.1" && fields["sdk_abi"] == "12", "SDK 2.3.1 / ABI 12")
+    check(fields["name"] == "firebase" && fields["version"] == "0.2.1", "name and version 0.2.1 (\(fields["version"] ?? "none"))")
+    check(fields["sdk_version"] == "2.6.4" && fields["sdk_abi"] == "12", "SDK 2.6.4 / ABI 12")
     check(fields["requires"] == "[]", "requires nothing")
     check(fields["global_skills"] == "using-firebase", "only the index skill is global")
     // No session type, workflow, intents, MCP or compiled hooks: the plugin only adds widgets and skills.

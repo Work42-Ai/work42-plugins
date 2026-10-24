@@ -1,5 +1,6 @@
+manifest_version: 2
 name: patrol42
-version: 1
+version: 1.0.1
 description: >
   The built-in Code Review session, extracted into a first-party plugin.
   Provides the code-review workflow (Intake -> AI Review -> Human Review ->
@@ -10,5 +11,6 @@ description: >
   creation does real imperative git work, carried entirely by the compiled
   onCreate hook. Reuses the github plugin's widget:github as the review surface.
 author: work42
-sdk_version: 12
+sdk_version: 2.6.4
+sdk_abi: 12
 requires: [github]
