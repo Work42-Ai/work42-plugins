@@ -385,80 +385,80 @@
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "allow"
     },
     {
@@ -541,50 +541,50 @@
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set linear/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=linear/*)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_at)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_by",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_by)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage delete linear/approval_stamped",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=linear/approval_stamped)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/discovery_done",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/discovery_done*)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/doc",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/doc*)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/type",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/type*)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set figma/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=figma/*)",
       "action": "allow"
     },
     {
@@ -602,19 +602,19 @@
     {
       "stage": "Discover",
       "kind": "execute",
-      "pattern": "work42 todos",
+      "pattern": "todo42 todos",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/*)",
       "action": "block"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
@@ -919,80 +919,80 @@
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "allow"
     },
     {
@@ -1075,50 +1075,50 @@
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set linear/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=linear/*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_at)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_by",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_by)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage delete linear/approval_stamped",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=linear/approval_stamped)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/discovery_done",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/discovery_done*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/doc",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/doc*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/type",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/type*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set figma/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=figma/*)",
       "action": "allow"
     },
     {
@@ -1136,19 +1136,19 @@
     {
       "stage": "Shape",
       "kind": "execute",
-      "pattern": "work42 todos",
+      "pattern": "todo42 todos",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/*)",
       "action": "block"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
@@ -1453,80 +1453,80 @@
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "allow"
     },
     {
@@ -1609,50 +1609,50 @@
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set linear/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=linear/*)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_at)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_by",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_by)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage delete linear/approval_stamped",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=linear/approval_stamped)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/discovery_done",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/discovery_done*)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/doc",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/doc*)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/type",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/type*)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set figma/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=figma/*)",
       "action": "allow"
     },
     {
@@ -1670,19 +1670,19 @@
     {
       "stage": "Design",
       "kind": "execute",
-      "pattern": "work42 todos",
+      "pattern": "todo42 todos",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/*)",
       "action": "block"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
@@ -1987,80 +1987,80 @@
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "allow"
     },
     {
@@ -2143,50 +2143,50 @@
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set linear/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=linear/*)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_at)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage delete plan/approved_by",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=plan/approved_by)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage delete linear/approval_stamped",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=linear/approval_stamped)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/discovery_done",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/discovery_done*)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/doc",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/doc*)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/type",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/type*)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set figma/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=figma/*)",
       "action": "allow"
     },
     {
@@ -2204,19 +2204,19 @@
     {
       "stage": "Ready",
       "kind": "execute",
-      "pattern": "work42 todos",
+      "pattern": "todo42 todos",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/*)",
       "action": "block"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
@@ -2227,92 +2227,92 @@
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/artifact",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/artifact)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/ideation_approved_at)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/approved_at)",
       "action": "allow"
     },
     {
       "stage": "Discover",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/artifact",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/artifact*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/artifact",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/artifact)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/ideation_approved_at)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/approved_at)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/artifact",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/artifact*)",
       "action": "allow"
     },
     {
       "stage": "Shape",
-      "kind": "execute",
-      "pattern": "work42 storage set shape/ideation_approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=shape/ideation_approved_at*)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/artifact",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/artifact)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/ideation_approved_at)",
       "action": "allow"
     },
     {
       "stage": "Design",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/approved_at)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/artifact",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/artifact)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/ideation_approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/ideation_approved_at)",
       "action": "allow"
     },
     {
       "stage": "Ready",
-      "kind": "execute",
-      "pattern": "work42 storage delete shape/approved_at",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_delete(key=shape/approved_at)",
       "action": "allow"
     }
   ]
