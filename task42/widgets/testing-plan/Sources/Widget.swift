@@ -10,7 +10,7 @@
 // STORAGE (storageNamespace "plan" — shared with the spec/subtasks
 // widgets and the workflow gates):
 //   plan/testing — the testing-plan markdown, authored by the Planner↔QA
-//                  dialogue (see the task42-planner/task42-qa skills).
+//                  dialogue.
 // Markdown links such as
 //   [login / browser](flow42://flow/login?variant=browser)
 // remain ordinary links. Work42's generic Open Link resolver offers them to
@@ -87,7 +87,7 @@ private struct TestingPlanWidgetView: View {
                 VStack(alignment: .leading, spacing: DT.s8) {
                     Text("No testing plan yet")
                         .font(.system(size: DT.f13, weight: .semibold))
-                    Text("Author one with `work42 storage set plan/testing`. It'll appear here automatically.")
+                    Text("Author one with the `storage_set` tool (key `plan/testing`). It'll appear here automatically.")
                         .font(.system(size: DT.f11))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)

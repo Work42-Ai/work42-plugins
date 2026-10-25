@@ -76,7 +76,7 @@ perspective only (no files, APIs or implementation). Its workflow is **Discover 
 | Design | Figma frames based on the approved artifact direction, validated against product scenarios | `shape/doc`, `shape/artifact`, `shape/ideation_approved_at` |
 | Ready | Handoff to engineering | `figma/links` and `shape/approved_at` |
 
-`shape/approved_at` is written **by the user only** (`work42 storage set shape/approved_at "$(date -u +%FT%TZ)"`); the
+`shape/approved_at` is written **by the user only** (`storage_set` (key `shape/approved_at`)); the
 agent asks for approval and the workflow doesn't allow it to write the key. Tabs: **Chat** (chat and **Artifacts**, split 40/60), **Design** (Figma),
 and **Issue Details** (Linear issue). Ideate and validate UI proposals in artifacts
 first; start Figma only after explicit approval of the current artifact direction.
@@ -137,7 +137,7 @@ because the click is caught inside the page. Option-click navigates in place.
 The Planner writes the spec and testing plan as Linear Documents. Linear renders neither raw HTML
 nor iframes, so an artifact (`[[artifact:<id>]]` in the markdown) can't appear in a document as
 such. `skills/linear42-general/publish-doc.py` publishes the markdown and replaces each token with a
-screenshot of the artifact (`work42 artifact snapshot`, uploaded through Linear's file upload) under
+screenshot of the artifact (`artifact_snapshot`, uploaded through Linear's file upload) under
 a link titled with the artifact's name, `work42://session/<session id>/artifact/<artifact id>`, which
 reopens the live artifact in the app (also from outside it: Safari, the Linear desktop app). Linear
 keeps the title link but not a link wrapped around the image. Local images and videos in the markdown
@@ -150,7 +150,7 @@ anonymous request for one returns 401).
 
 The agent drives the session only in `linear-task` sessions. The host starts a widget's background agent in
 every session where the widget is *available*, not only where it is placed, so on its first cycle the agent
-reads its session's type (`work42 session show`). In a `linear-task` session it does everything below. In any
+reads its session's type (`session_show`). In a `linear-task` session it does everything below. In any
 other known type (a task42 or chat session where you added the widget and bound an issue) it only **shows**
 the labels (issue key, status, sub-issue count) and keeps `linear/issues/<KEY>/issue` current: it never mirrors
 sub-issues into `plan/subtasks`, never approves or moves anything, and never posts comments. With no attached issue, or when
@@ -164,7 +164,7 @@ linking the spec, plus the In-Progress state). It also **relays Linear comments 
 a new comment or reply on the issue, on any of its sub-issues, or inline on the spec / testing
 documents arrives in the session's chat as a system event ("<name> left you a comment on Linear
 <url>", the quoted passage for inline comments, then the comment), through
-`work42 event post --fingerprint …` so a retry never double-posts. The first poll after binding
+`event_post` so a retry never double-posts. The first poll after binding
 only records existing comments, and every comment Work42 itself posts ends with
 `_Posted from Work42_` so it is never relayed back. Config problems, a missing mapped state, a
 missing or signed-out `linear` CLI, and an approval made in Linear are delivered the same way. It is the **only writer to Linear**, which keeps

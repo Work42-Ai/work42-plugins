@@ -23,7 +23,7 @@ Establish, one question at a time, and write the answers into the issue descript
 4. **Workaround**: what users do today.
 5. **First seen / changed**: when it began, if known, and what changed for the user around then.
 
-Confirm a one-paragraph report in chat, then `work42 storage set shape/discovery_done "\"$(date -u +%FT%TZ)\""`.
+Confirm a one-paragraph report in chat, then call `storage_set` with key `shape/discovery_done` and the current UTC timestamp as the value.
 
 ## Shape
 

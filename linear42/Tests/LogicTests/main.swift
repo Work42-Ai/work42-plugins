@@ -302,7 +302,7 @@ check(commentEventText(mk("c1", "please change this")) == "Yan left you a commen
 check(commentEventText(mk("c4", "fix it", quote: "line one\nline two")) == "Yan left you a comment on Linear https://linear.app/c4\n\n> line one\n> line two\n\nfix it", "event text quotes inline selections")
 check(commentEventText(LinearComment(id: "z", url: "u", author: "", body: "b", quotedText: nil, createdAt: "")) == "Someone left you a comment on Linear u\n\nb", "missing author falls back")
 
-check(eventPostCommand(sessionId: "s-1", fingerprint: "linear42-comment-c1", message: "it's here") == "work42 event post --session 's-1' --fingerprint 'linear42-comment-c1' 'it'\\''s here'", "event command is shell-quoted")
+check(eventPostArguments(fingerprint: "linear42-comment-c1", message: "it's here") == ["message": "it's here", "fingerprint": "linear42-comment-c1"], "event_post arguments carry the text verbatim")
 
 // MARK: - session scoping
 

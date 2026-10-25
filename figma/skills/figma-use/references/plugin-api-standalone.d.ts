@@ -1542,7 +1542,7 @@ interface UtilAPI {
  */
 interface ViewportAPI {
   /**
-   * Center of the the current page that is currently visible on screen.
+   * Center of the current page that is currently visible on screen.
    */
   center: Vector
   /**

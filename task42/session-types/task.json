@@ -20,13 +20,6 @@
   "shows_in_new_session_menu": true,
   "shows_in_session_list": true,
   "sort_order": 1,
-  "session_skills": [
-    "task42-general",
-    "task42-lead",
-    "task42-planner",
-    "task42-worker",
-    "task42-qa",
-    "flow42-qa-author"
-  ],
+  "session_skills": [],
   "create_intent": "new-task"
 }

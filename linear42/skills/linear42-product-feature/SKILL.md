@@ -23,7 +23,7 @@ Get to a problem statement the user confirms. Ask one question at a time:
 4. **Why now / why not**: what happens if we do nothing?
 5. **Unknowns**: assumptions that could sink it.
 
-Use `jobs-to-be-done` to find the job and `create-prd`'s value-proposition part (who, why, what before, what after, alternatives) to sharpen it. Then write a three-line problem statement in chat (who · job · pain), get a yes, and set `work42 storage set shape/discovery_done "\"$(date -u +%FT%TZ)\""`.
+Use `jobs-to-be-done` to find the job and `create-prd`'s value-proposition part (who, why, what before, what after, alternatives) to sharpen it. Then write a three-line problem statement in chat (who · job · pain), get a yes, and call `storage_set` with key `shape/discovery_done` and the current UTC timestamp as the value.
 
 ## Shape
 
@@ -67,11 +67,11 @@ Publish (stdin, quoted heredoc), record, and confirm with the user:
 # <KEY>: <feature title> — product shape
 …
 MD
-work42 storage set shape/doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
-work42 storage set linear/issues/<KEY>/spec_doc "$(jq -nc --arg s "<slug>" --arg u "<url>" '{slug:$s,url:$u}')"
+storage_set(key: "shape/doc", value: {"slug": "<slug>", "url": "<url>"})
+storage_set(key: "linear/issues/<KEY>/spec_doc", value: {"slug": "<slug>", "url": "<url>"})
 ```
 
-Read it back (`linear api 'query{document(id:"<slug>"){content}}'`, never `document view --raw`) and ask: `@yan [QUESTION] Does this shape match what you want?`. Revisions: republish with `--slug <slug>` and the whole new markdown.
+Read it back (`linear api 'query{document(id:"<slug>"){content}}'`, never `document view --raw`) and ask with the `ask_user` tool, one question at a time: “Does this shape match what you want?”. Revisions: republish with `--slug <slug>` and the whole new markdown.
 
 ## Design and after
 

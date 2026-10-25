@@ -209,9 +209,12 @@ final class LinearSpecWidget: Work42Widget {
         let now = ISO8601DateFormatter().string(from: Date())
         // approved_by first: approved_at is the gate signal, and its write posts the nudge.
         for (key, value) in [("approved_by", NSUserName()), ("approved_at", now)] {
-            let command = "work42 storage set plan/\(key) \(shellQuote(jsonString(value)))"
-            guard let result = try? await services.shell.run(command: command), result.exitCode == 0 else {
-                errorMessage = "Couldn't write plan/\(key). Is the work42 CLI available?"
+            do {
+                _ = try await services.tools.call(
+                    server: "work42-session", tool: "storage_set",
+                    arguments: ["key": .string("plan/\(key)"), "value": .string(value)], session: nil)
+            } catch {
+                errorMessage = "Couldn't write plan/\(key): \(error.localizedDescription)"
                 return
             }
         }
@@ -224,8 +227,12 @@ final class LinearSpecWidget: Work42Widget {
         errorMessage = nil
         // approved_at first: it is the gate signal.
         for key in ["approved_at", "approved_by"] {
-            guard let result = try? await services.shell.run(command: "work42 storage delete plan/\(key)"), result.exitCode == 0 else {
-                errorMessage = "Couldn't clear plan/\(key). Is the work42 CLI available?"
+            do {
+                _ = try await services.tools.call(
+                    server: "work42-session", tool: "storage_delete",
+                    arguments: ["key": .string("plan/\(key)")], session: nil)
+            } catch {
+                errorMessage = "Couldn't clear plan/\(key): \(error.localizedDescription)"
                 return
             }
         }

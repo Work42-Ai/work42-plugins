@@ -3,11 +3,11 @@ import Testing
 
 @Suite("Flow42 creator plugin contract")
 struct Flow42CreatorContractTests {
-    @Test("plugin declares exactly the two global skills and no command contributions")
+    @Test("plugin declares no skills and no command contributions")
     func minimalPlugin() throws {
         let plugin = try text(at: root.appendingPathComponent("flow42/plugin.yaml"))
-        #expect(plugin.contains("global_skills: flow-creator, flow-player"))
-        for absent in ["session-types", "workflows", "intents", "mcp", "Sources/Plugin.swift"] {
+        #expect(!plugin.contains("global_skills:"))
+        for absent in ["skills", "session-types", "workflows", "intents", "mcp", "Sources/Plugin.swift"] {
             #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("flow42/\(absent)").path))
         }
     }
@@ -56,18 +56,6 @@ struct Flow42CreatorContractTests {
                 #expect(FileManager.default.fileExists(atPath: fixtureRoot.appendingPathComponent(image).path))
             }
         }
-    }
-
-    @Test("skill requires confirmation, replacement, and missing-device follow-up")
-    func creatorWorkflow() throws {
-        let skill = collapsedWhitespace(
-            try text(at: root.appendingPathComponent("flow42/skills/flow-creator/SKILL.md"))
-        ).lowercased()
-        #expect(skill.contains("one or more completed work42 recording directories"))
-        #expect(skill.contains("do not write anything until the user explicitly confirms"))
-        #expect(skill.contains("updating a variant replaces its `flow.yaml` in place"))
-        #expect(skill.contains("available classes absent from the manifest"))
-        #expect(skill.contains("add no manifest entry or empty directory"))
     }
 
     private var root: URL {

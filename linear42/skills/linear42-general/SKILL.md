@@ -5,7 +5,7 @@ description: The linear42 task lifecycle — a Linear-native replacement for tas
 
 # linear42 — task lifecycle (Linear-native)
 
-A **task is a work42 session** of type `linear-task`, bound to one or more Linear issues. The plan lives in Linear; the workflow's **gates** live in session storage, and a background **sync agent** keeps them aligned. You use two CLIs: `work42` (storage, transitions, artifacts, devices) and `linear`. Never edit `~/.work42/work42.db` by hand.
+A **task is a Work42 session** of type `linear-task`, bound to one or more Linear issues. The plan lives in Linear; the workflow's **gates** live in session storage, and a background **sync agent** keeps them aligned. You use two CLIs: `work42` (storage, transitions, artifacts, devices) and `linear`. Never edit `~/.work42/work42.db` by hand.
 
 ## Prerequisites
 
@@ -48,7 +48,7 @@ Re-read on every poll and action. Nothing about the team, workspace or state nam
 
 ## Stages, gates, transitions
 
-`Planning → In-Progress → Testing → Human Review → Done`. Gates read storage: In-Progress needs `plan/approved_at` and a non-empty `plan/subtasks`; Testing needs every subtask done; Human Review needs `qa/verdict == "PASS"`; Done needs every `github/prs` entry merged. **A holding gate does not move the task.** The session receives `<Stage> is now available — run work42 transition "<Stage>"`: run that command. Only Yan approves a plan.
+`Planning → In-Progress → Testing → Human Review → Done`. Gates read storage: In-Progress needs `plan/approved_at` and a non-empty `plan/subtasks`; Testing needs every subtask done; Human Review needs `qa/verdict == "PASS"`; Done needs every `github/prs` entry merged. **A holding gate does not move the task.** The session receives "<Stage> is now available": call the `transition` tool with that target. Only Yan approves a plan.
 
 ## What each stage may run
 
@@ -62,7 +62,7 @@ The workflow blocks the rest (a blocked command is refused, an unlisted one may 
 | Human Review | `gh pr …` and `github/prs`; `linear issue comment add` is allowed. No other Linear writes, no artifacts. |
 | Done | Nothing. |
 
-Reads (`linear … view/list/query`, `work42 storage get/list`, `work42 artifact list/status/url`) are allowed everywhere.
+Reads (`linear … view/list/query`, `storage_get/list`, `artifact_list/status/url`) are allowed everywhere.
 
 ## The `linear` CLI (schpet/linear-cli)
 
@@ -100,7 +100,7 @@ Yan approves the plan, reviews the build and merges. **Lead** (`linear42-lead`) 
 
 1. Work in the session worktree, never the main checkout. Commit and push before completing a sub-issue.
 2. Every fix is its own sub-issue (`--parent`), implemented by the Worker.
-3. Never hand-set a stage: satisfy the gate, wait for the "now available" message, run `work42 transition`.
+3. Never hand-set a stage: satisfy the gate, wait for the "now available" message, run the `transition` tool.
 4. Never write `plan/subtasks`; never approve on Yan's behalf.
 5. Before calling a task done, verify every `github/prs` entry is merged.
 6. The chat is the log: narrate decisions, blockers and results.

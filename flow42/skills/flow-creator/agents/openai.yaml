@@ -1,4 +1,0 @@
-interface:
-  display_name: "Flow Creator"
-  short_description: "Create durable flows from Work42 recordings"
-  default_prompt: "Use $flow-creator to turn these Work42 recordings into a confirmed device flow."

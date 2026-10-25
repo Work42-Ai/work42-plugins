@@ -2,12 +2,11 @@
 
 The built-in `task` session type — its 5-stage lifecycle (Planning ->
 In-Progress -> Testing -> Human Review -> Done), its Spec/Subtasks/QA/
-Testing-Plan widgets, its Planner/Worker/QA skills, and its "New Task"
-creation — extracted into a first-party bundle. The reference conversion
-for the Work42 plugin platform: the first plugin to exercise every
-contribution kind (a declarative workflow, a declarative session type +
-create-intent, a compiled `onCreate` session hook, and type-scoped skills)
-in one bundle.
+Testing-Plan widgets and its "New Task" creation — extracted into a
+first-party bundle: a declarative workflow, a declarative session type +
+create-intent and a compiled `onCreate` session hook. Agents work a task with
+the Work42 tools (`storage_*`, `transition`, `workflow_status`, `artifact_*`,
+`device_*`); the Planner/Worker/QA skills of the first version are gone.
 
 This is a like-for-like extraction, not a redesign — installing this
 plugin must leave every existing task session's behavior, gates, and
@@ -31,12 +30,6 @@ task42/
     subtasks/                        plan/subtasks — toggle/expand/delete rows
     qa/                               qa/report — read-only themed markdown
     testing-plan/                    plan/testing — read-only themed markdown
-  skills/
-    task42-general/                  agent-facing reference (storage model, CLI)
-    task42-lead/                     the orchestrating Lead role
-    task42-planner/                  the Planner role (spec authoring)
-    task42-worker/                   the Worker role (implementation)
-    task42-qa/                       the QA role (verification)
   Sources/
     Plugin.swift                     onCreate hook: linked To-Do (plan/kind
                                       seeds declaratively via session-types/task.json's

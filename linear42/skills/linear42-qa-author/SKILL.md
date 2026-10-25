@@ -35,11 +35,11 @@ If the flow or variant doesn't exist:
 
 1. Say which criteria lack reusable guidance and ask Yan whether to record that variant.
 2. If yes, let Work42 pick the device and create one or more completed Work42 recordings.
-3. Invoke the global `flow-creator` skill to propose the standalone variant; Yan confirms it before it is added to the manifest.
+3. Ask Yan how to structure the recordings into a standalone variant; he confirms it before it is added to the manifest.
 4. Add the testing-plan entry only once the saved manifest maps that variant. Never invent empty variants, translate another platform's steps, author from coordinates or keep recording identifiers.
 
 ## Boundary and handoff
 
 linear42 works without Flow42: don't import its code, require its widget, or add flows to criteria that other evidence covers. If an approved plan requires a flow that is unavailable at Testing, QA stops and asks Yan; it never swaps in other coverage.
 
-Return the exact entries, the criteria each covers and the expected visual outcome. Don't run the flow while planning; at Testing `linear42-qa` follows it with `flow-player`.
+Return the exact entries, the criteria each covers and the expected visual outcome. Don't run the flow while planning; at Testing `linear42-qa` follows the entries by hand.

@@ -68,13 +68,13 @@ The widget renders one tab per attached Figma file. Namespace `figma`, key
 Read the current session's files:
 
 ```bash
-work42 storage get figma/links
+storage_get(key: "figma/links")
 ```
 
 After creating or finding a file, attach it so it appears in the widget:
 
 ```bash
-work42 storage set figma/links '[{"url":"https://www.figma.com/design/AbC123/My-Design","name":"My Design"}]'
+storage_set(key: "figma/links", value: [{"url":"https://www.figma.com/design/AbC123/My-Design","name":"My Design"}])
 ```
 
 Preserve existing links when adding a file: read the array first, then write

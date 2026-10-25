@@ -41,7 +41,6 @@ let package = Package(
                 "figma/widgets/figma/Sources/Widget.swift",
                 "task42/README.md",
                 "task42/plugin.yaml",
-                "task42/skills",
                 "task42/workflows/task42.json",
                 "task42/session-types/task.json",
                 "task42/intents/new-task.json",
@@ -87,11 +86,6 @@ let package = Package(
             name: "Flow42PlayerWidgetTests",
             dependencies: ["Flow42DefinitionCore"],
             path: "Tests/Flow42PlayerWidgetTests",
-            resources: [.copy("Fixtures")]
-        ),
-        .testTarget(
-            name: "Task42FlowConsumerContractTests",
-            path: "Tests/Task42FlowConsumerContractTests",
             resources: [.copy("Fixtures")]
         ),
     ]

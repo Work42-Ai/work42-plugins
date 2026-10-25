@@ -33,9 +33,9 @@ Each attached issue is one capsule: the key on Linear purple, the status in that
 | `plan/approved_at`, `plan/approved_by` | the In-Progress gate's signal | Approve action, sync agent |
 
 ```bash
-work42 storage set linear/issue_ref '"WOR-123"'                    # bind (or use the Attach field)
-work42 storage set linear/issue_keys '["WOR-123","WOR-124"]'       # attach another: write the whole array
-work42 storage get linear/issues/WOR-123/issue                     # what the sync agent resolved
+storage_set(key: "linear/issue_ref", value: "WOR-123")                    # bind (or use the Attach field)
+storage_set(key: "linear/issue_keys", value: ["WOR-123","WOR-124"])       # attach another: write the whole array
+storage_get(key: "linear/issues/WOR-123/issue")                     # what the sync agent resolved
 ```
 
 Never write `plan/subtasks` yourself: create or complete sub-issues with `linear` and the next poll updates the gates.

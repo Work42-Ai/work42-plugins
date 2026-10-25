@@ -21,12 +21,12 @@ Read the Product Shape document (`linear api 'query{document(id:"<slug>"){conten
 - **every row of the shape's edge-case table that changes what the user sees**: first time, empty, loading, error with retry, no permission, too much data, concurrent change, interrupted, reversal/undo, existing users;
 - for a bug: the corrected state and any new message.
 
-Name frames `<flow> / <step or state>` (e.g. `Invite / Error: email already a member`) so the shape's edge-case rows map one-to-one onto frames. Reuse the product's existing components and tokens if the user points you at a design system; otherwise keep it plain and say so. Add a first "Overview" frame with the flow map and a legend of states. Don't invent features beyond the shape; if drawing exposes a gap, note it and offer `work42 transition "Shape"` rather than patching it silently.
+Name frames `<flow> / <step or state>` (e.g. `Invite / Error: email already a member`) so the shape's edge-case rows map one-to-one onto frames. Reuse the product's existing components and tokens if the user points you at a design system; otherwise keep it plain and say so. Add a first "Overview" frame with the flow map and a legend of states. Don't invent features beyond the shape; if drawing exposes a gap, note it and offer the `transition` tool with target "Shape" rather than patching it silently.
 
 ## Link and hand over
 
 ```bash
-work42 storage set figma/links "$(jq -nc --arg u "<figma url>" --arg n "<KEY> <short title>" '[{url:$u,name:$n}]')"
+storage_set(key: "figma/links", value: [{"url": "<figma url>", "name": "<KEY> <short title>"}])
 ```
 
 Append instead of overwrite when there are several files (read `figma/links` first). Then add the link to the Linear issue:
@@ -38,4 +38,4 @@ _Posted from Work42_
 MD
 ```
 
-Validate actual Figma screenshots against the agreed artifact and product scenarios. Render captured screenshots and a short scenario review in a Chat artifact; distinguish observed evidence from assumptions, and resolve unclear behavior before final approval. Show the user the Figma tab, summarise in chat which edge cases each frame covers and which rows are deliberately undrawn (with the reason), and ask for approval: `@yan [APPROVAL] …`. Remind them that approving means running `work42 storage set shape/approved_at "$(date -u +%FT%TZ)"`; you never write it. When it lands, the session offers Ready; run `work42 transition "Ready"`.
+Validate actual Figma screenshots against the agreed artifact and product scenarios. Render captured screenshots and a short scenario review in a Chat artifact; distinguish observed evidence from assumptions, and resolve unclear behavior before final approval. Show the user the Figma tab, summarise in chat which edge cases each frame covers and which rows are deliberately undrawn (with the reason), and ask for approval. Tell them that once they say yes you call `storage_set` with key `shape/approved_at` and the current UTC timestamp as the value; that key isn't on the workflow's allowed list for you, so the call stops and asks the user to allow it; you never write it on your own. When it lands, the session offers Ready; run the `transition` tool with target "Ready".

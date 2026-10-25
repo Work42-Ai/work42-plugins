@@ -8,7 +8,7 @@
       "ordinal": 1,
       "is_initial": true,
       "is_terminal": false,
-      "entry_prompt": "You are in Planning. Your goal is to turn this task into a plan Yan can approve: a spec, subtasks and a testing plan. Load the task42-planner skill to run the planning process.",
+      "entry_prompt": "You are in Planning. Your goal is to turn this task into a plan Yan can approve: a spec, subtasks and a testing plan.",
       "entry_gate": null,
       "icon": "circle",
       "color_light": "#0284C7",
@@ -21,7 +21,7 @@
       "ordinal": 2,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "You are in In-Progress. Your goal is to implement the plan one subtask at a time, marking each done once it is committed and pushed. Load the task42-worker skill for each subtask. If the plan turns out to be wrong, run `work42 transition \"Planning\"`.",
+      "entry_prompt": "You are in In-Progress. Your goal is to implement the plan one subtask at a time, marking each done once it is committed and pushed. If the plan turns out to be wrong, run the `transition` tool with target \"Planning\".",
       "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"}]}",
       "icon": "play.circle.fill",
       "color_light": "#6D28D9",
@@ -34,7 +34,7 @@
       "ordinal": 3,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "You are in Testing. Your goal is to execute the testing plan against the real build and prove the result. Load the task42-qa skill: it runs the project with its normal command in the background (the agent's commands show in the Terminal widget), opens its device with `work42 device open`, records the run, writes the QA report and the verdict.",
+      "entry_prompt": "You are in Testing. Your goal is to execute the testing plan against the real build and prove the result. Run the project with its normal command in the background (the agent's commands show in the Terminal widget), open its device with `device_open`, record the run, write the QA report and the verdict.",
       "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"},{\"forAll\":\"subtasks\",\"where\":{\"field\":\"done\",\"op\":\"equals\",\"value\":\"true\"}}]}",
       "icon": "testtube.2",
       "color_light": "#B45309",
@@ -47,7 +47,7 @@
       "ordinal": 4,
       "is_initial": false,
       "is_terminal": false,
-      "entry_prompt": "You are in Human Review. Your goal is to hand the finished work to Yan as a draft pull request that carries QA's screenshots and recordings. Load the task42-lead skill to open the PR, attach the media and add it to github/prs. This stage is read, build and test only. If the work needs changes, run `work42 transition \"Planning\"`.",
+      "entry_prompt": "You are in Human Review. Your goal is to hand the finished work to Yan as a draft pull request that carries QA's screenshots and recordings. Open the PR, attach the media and add it to github/prs. This stage is read, build and test only. If the work needs changes, run the `transition` tool with target \"Planning\".",
       "entry_gate": "{\"or\":[{\"namespace\":\"qa\",\"key\":\"verdict\",\"op\":\"equals\",\"value\":\"PASS\"},{\"and\":[{\"namespace\":\"config\",\"key\":\"skip_testing\",\"op\":\"equals\",\"value\":\"true\"},{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"forAll\":\"subtasks\",\"where\":{\"field\":\"done\",\"op\":\"equals\",\"value\":\"true\"}}]}]}",
       "icon": "eye",
       "color_light": "#C2410C",
@@ -611,62 +611,62 @@
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/subtasks",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/subtasks*)",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 device",
+      "kind": "mcp",
+      "pattern": "mcp__work42-device__*",
       "action": "allow"
     },
     {
@@ -1175,62 +1175,62 @@
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/subtasks",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/subtasks*)",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 device",
+      "kind": "mcp",
+      "pattern": "mcp__work42-device__*",
       "action": "allow"
     },
     {
@@ -1739,62 +1739,62 @@
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/subtasks",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/subtasks*)",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 device",
+      "kind": "mcp",
+      "pattern": "mcp__work42-device__*",
       "action": "allow"
     },
     {
@@ -2303,62 +2303,62 @@
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/subtasks",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/subtasks*)",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 device",
+      "kind": "mcp",
+      "pattern": "mcp__work42-device__*",
       "action": "allow"
     },
     {
@@ -2867,62 +2867,62 @@
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 storage get",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_get",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 storage list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_list",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/subtasks",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/subtasks*)",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 transition",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__transition",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 transitions list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_status",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 workflow show",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__workflow_show",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 artifact list",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_list",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 artifact status",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_status",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 artifact url",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_url",
       "action": "allow"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 device",
+      "kind": "mcp",
+      "pattern": "mcp__work42-device__*",
       "action": "allow"
     },
     {
@@ -2939,92 +2939,92 @@
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "block"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "block"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "block"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/spec",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/spec*)",
       "action": "block"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "block"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "block"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "block"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 storage set plan/testing",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=plan/testing*)",
       "action": "block"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "allow"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 storage set qa/",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=qa/*)",
       "action": "block"
     },
     {
@@ -3059,98 +3059,98 @@
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "block"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "block"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "block"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 artifact set",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_set",
       "action": "block"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "block"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "block"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "block"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 artifact path",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_assets_path",
       "action": "block"
     },
     {
       "stage": "Planning",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "allow"
     },
     {
       "stage": "In-Progress",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "block"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "block"
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "block"
     },
     {
       "stage": "Done",
-      "kind": "execute",
-      "pattern": "work42 artifact remove",
+      "kind": "mcp",
+      "pattern": "mcp__work42-artifact__artifact_remove",
       "action": "block"
     },
     {
       "stage": "Testing",
-      "kind": "execute",
-      "pattern": "work42 device",
+      "kind": "mcp",
+      "pattern": "mcp__work42-device__*",
       "action": "allow"
     },
     {
@@ -3197,8 +3197,8 @@
     },
     {
       "stage": "Human Review",
-      "kind": "execute",
-      "pattern": "work42 storage set github/prs",
+      "kind": "mcp",
+      "pattern": "mcp__work42-session__storage_set(key=github/prs*)",
       "action": "allow"
     },
     {

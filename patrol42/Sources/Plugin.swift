@@ -17,11 +17,11 @@
 // A plugin hooks dylib links only Work42PluginKit, so it cannot reach
 // Work42Core's Work42Link / RepoDiscovery / TodoSessionLink directly — PR
 // parsing is done in-hook and every side effect goes through `context.shell`
-// (`git ...`, `work42 storage set`, `work42 todos add`), the CLI-mediated
-// equivalents, exactly as task42's hook does.
+// (`git ...`, `todo42 todos add`) or `context.tools` (the `storage_set` tool),
+// exactly as task42's hook does.
 //
-// `work42 todos add` does not dedupe by url the way TodoSessionLink.ensureTodo
-// does — safe here because onCreate only fires on a genuinely new session
+// `todo42 todos add` does not dedupe by url the way TodoSessionLink.ensureTodo
+// did — safe here because onCreate only fires on a genuinely new session
 // insert (SessionMint's `guard inserted`), and code-review creation is
 // idempotent by the PR key (re-opening a PR loads the existing session, so the
 // hook never re-fires for the same PR).
@@ -78,17 +78,19 @@ final class Patrol42Hooks: Work42SessionHooks {
             )
         }
 
-        // Seed github/prs (the github widget + Done gate read it). Written via
-        // the CLI because the hook's storage service writes only the plugin's
-        // own namespace — github/prs is a cross-namespace seed.
+        // Seed github/prs (the github widget + Done gate read it). Written with the
+        // `storage_set` tool because the hook's storage service writes only the
+        // plugin's own namespace — github/prs is a cross-namespace seed.
         let prsJSON = Self.githubPrsJSON(prURL: prURL)
-        let seed = try await context.shell.run(
-            command: "work42 storage set github/prs \(q(prsJSON))"
-        )
-        guard seed.exitCode == 0 else {
+        do {
+            let prs = try JSONDecoder().decode(WidgetJSONValue.self, from: Data(prsJSON.utf8))
+            _ = try await context.tools.call(
+                server: "work42-session", tool: "storage_set",
+                arguments: ["key": .string("github/prs"), "value": prs], session: nil)
+        } catch {
             throw WidgetServiceError(
-                message: "seeding github/prs failed (exit \(seed.exitCode)): \(seed.stderr)",
-                suggestion: "check `work42` is on PATH and the session resolves"
+                message: "seeding github/prs failed: \(error.localizedDescription)",
+                suggestion: "check the session resolves and the Work42 app is running"
             )
         }
 
@@ -98,7 +100,7 @@ final class Patrol42Hooks: Work42SessionHooks {
         let title = "PR Review: \(pr.owner)/\(pr.repo)#\(pr.number)"
         let todoURL = "work42://code-review?pr=\(prURL)"
         _ = try? await context.shell.run(
-            command: "work42 todos add --title \(q(title)) --url \(q(todoURL))"
+            command: "todo42 todos add --title \(q(title)) --url \(q(todoURL))"
         )
     }
 

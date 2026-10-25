@@ -12,15 +12,15 @@
 // One `linear api` GraphQL call per poll feeds all of it. The `linear` CLI is the
 // only thing that talks to Linear.
 //
-// WRITES go through `work42 storage set|delete` in the shell, never through
-// `services.storage`: the host binds a background agent's storage to the widget
-// SLUG ("linear-issue"), so it could not write the `plan/*` or `linear/*` keys the
-// gates need. The CLI is session-scoped (WORK42_SESSION_ID) and, like every
-// storage write, re-checks the workflow gates — which is what posts the
+// WRITES go through the `storage_set` / `storage_delete` tools of the `work42-session`
+// server (`services.tools`), never through `services.storage`: the host binds a background
+// agent's storage to the widget SLUG ("linear-issue"), so it could not write the `plan/*` or
+// `linear/*` keys the gates need. The tools are scoped to this session and, like every
+// storage write, re-check the workflow gates — which is what posts the
 // "In-Progress is now available" nudge when approval arrives from Linear.
 //
 // Problems surface as warning chips AND as system events posted into the session's chat
-// with `work42 event post --fingerprint <fp>` (deduped per session), and new Linear
+// with the `event_post` tool and a fingerprint (deduped per session), and new Linear
 // comments (issue, sub-issues, spec / testing documents) are relayed the same way.
 
 import Foundation
@@ -73,9 +73,9 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     /// Returns the number of seconds to sleep before the next cycle.
     private func cycle(services: WidgetBackgroundServices) async -> Int {
         if sessionTypeId == nil {
-            let command = "work42 session show --session \(shellQuote(services.sessionId)) --json"
-            if let result = try? await services.shell.run(command: command), result.exitCode == 0,
-               let data = result.stdout.data(using: .utf8) {
+            if let shown = try? await services.tools.call(
+                server: "work42-session", tool: "session_show", arguments: [:], session: nil),
+               let data = try? JSONEncoder().encode(shown) {
                 sessionTypeId = parseSessionTypeId(data)
             }
         }
@@ -184,12 +184,13 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         for copy in plan.copies {
             let from = copy.from.split(separator: "/", maxSplits: 1).map(String.init)
             guard let value = await read(from[0], from[1], services),
-                  await run("work42 storage set \(shellQuote(copy.to)) \(shellQuote(json(value)))", services)
+                  await sessionTool("storage_set", ["key": .string(copy.to), "value": value], services)
             else { return }
         }
-        guard await run("work42 storage set \(shellQuote("linear/issue_keys")) \(shellQuote(json(.array(plan.keys.map { .string($0) }))))", services)
+        guard await sessionTool("storage_set", ["key": .string("linear/issue_keys"),
+                                                "value": .array(plan.keys.map { .string($0) })], services)
         else { return }
-        for address in plan.deletes { _ = await run("work42 storage delete \(shellQuote(address))", services) }
+        for address in plan.deletes { _ = await sessionTool("storage_delete", ["key": .string(address)], services) }
     }
 
     private func apply(
@@ -275,7 +276,7 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
             await ensure("linear/approval_stamped", .bool(true), services)
             await ensure("plan/approved_at", .string(now), services)
             approvedAt = now
-            await postEvent("Plan approved in Linear — run `work42 transition \"In-Progress\"`.",
+            await postEvent("Plan approved in Linear — call the transition tool with target \"In-Progress\".",
                             fingerprint: "linear42-approved-\(now)", services)
         }
         for issue in issues {
@@ -423,10 +424,10 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
     // MARK: - System events and the comment relay
 
     /// Posts a system event into this session's chat, once per fingerprint
-    /// (`work42 event post` dedupes through the session's `events/delivered`).
+    /// (`event_post` dedupes through the session's `events/delivered`).
     @discardableResult
     private func postEvent(_ message: String, fingerprint: String, _ services: WidgetBackgroundServices) async -> Bool {
-        await run(eventPostCommand(sessionId: services.sessionId, fingerprint: fingerprint, message: message), services)
+        await sessionTool("event_post", eventPostArguments(fingerprint: fingerprint, message: message).mapValues { WidgetJSONValue.string($0) }, services)
     }
 
     private func documentSlug(_ issueKey: String, _ name: String, _ services: WidgetBackgroundServices) async -> String? {
@@ -574,6 +575,17 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         return result.exitCode == 0
     }
 
+    /// Calls a `work42-session` tool for this session. False when the call fails (the next poll retries).
+    private func sessionTool(_ tool: String, _ arguments: [String: WidgetJSONValue],
+                             _ services: WidgetBackgroundServices) async -> Bool {
+        do {
+            _ = try await services.tools.call(server: "work42-session", tool: tool, arguments: arguments, session: nil)
+            return true
+        } catch {
+            return false
+        }
+    }
+
     // MARK: - Storage helpers
 
     private func read(_ namespace: String, _ key: String, _ services: WidgetBackgroundServices) async -> WidgetJSONValue? {
@@ -603,12 +615,12 @@ final class LinearSyncAgent: WidgetBackgroundAgent {
         let parts = address.split(separator: "/", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return }
         if await read(parts[0], parts[1], services) == value { return }
-        _ = await run("work42 storage set \(shellQuote(address)) \(shellQuote(json(value)))", services)
+        _ = await sessionTool("storage_set", ["key": .string(address), "value": value], services)
     }
 
     private func ensureAbsent(_ address: String, _ services: WidgetBackgroundServices) async {
         let parts = address.split(separator: "/", maxSplits: 1).map(String.init)
         guard parts.count == 2, await read(parts[0], parts[1], services) != nil else { return }
-        _ = await run("work42 storage delete \(shellQuote(address))", services)
+        _ = await sessionTool("storage_delete", ["key": .string(address)], services)
     }
 }

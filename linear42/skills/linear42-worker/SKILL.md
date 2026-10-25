@@ -7,13 +7,13 @@ description: Worker skill — followed by the Lead (same agent, same conversatio
 
 You are the Lead, now following the Worker skill for **exactly one sub-issue**. When it's done you return to `linear42-lead`; load this skill again for the next one. See `linear42-general` for the storage model and the `linear` CLI.
 
-**Your task is the sub-issue's title and description**, which the Planner wrote to stand alone. The spec is wider context. You need the sub-issue key (an `id` in `work42 storage get plan/subtasks`), the worktree (`cd` there; never edit the main checkout) and the branch, already checked out.
+**Your task is the sub-issue's title and description**, which the Planner wrote to stand alone. The spec is wider context. You need the sub-issue key (an `id` in `storage_get` (key `plan/subtasks`)), the worktree (`cd` there; never edit the main checkout) and the branch, already checked out.
 
 ## Workflow
 
 1. **Read the sub-issue, then the spec.** `linear issue view <SUBKEY>`, then
-   `linear document view "$(work42 storage get linear/issues/<KEY>/spec_doc | jq -r .slug)" --raw` (`<KEY>` is the parent issue; `work42 storage get linear/issue_keys` lists them).
-2. **View every `[[artifact:<id>]]` in the spec before writing code.** They are confirmed visual decisions: `work42 artifact url <id>` or `status <id>`; your work must match. A missing artifact: say so in chat and pause for Yan, never guess a visual decision.
+   `linear document view <slug> --raw`, where `<slug>` is the `slug` in the `storage_get` result for key `linear/issues/<KEY>/spec_doc` (`<KEY>` is the parent issue; `storage_get` (key `linear/issue_keys`) lists them).
+2. **View every `[[artifact:<id>]]` in the spec before writing code.** They are confirmed visual decisions: `artifact_url` or `artifact_status` (id `<id>`); your work must match. A missing artifact: say so in chat and pause for Yan, never guess a visual decision.
 3. **Implement, in your lane.** Touch only what the sub-issue needs. If it overlaps another sub-issue, say so and stop. A bug outside your scope is not yours to fix inline: surface it so the Lead creates a new sub-issue.
 4. **Run the local checks** (the QA guide at `~/.work42/<slug>/qa-guide.md` says how to exercise the build).
 5. **`git add`, `git commit` (name the sub-issue key), `git push`** to the task branch.

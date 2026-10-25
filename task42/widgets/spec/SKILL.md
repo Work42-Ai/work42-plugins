@@ -1,6 +1,6 @@
 ---
 name: widget-spec
-description: How the Spec widget (kindId widget:spec) works on a task session. It renders the task's spec markdown (plan/spec) with the .work42 theme, inline [[artifact:id]] embeds and shared pinned comments, and exposes the Approve Plan action, including revoking an approval. Author or read the spec with `work42 storage set|get plan/spec`.
+description: How the Spec widget (kindId widget:spec) works on a task session. It renders the task's spec markdown (plan/spec) with the .work42 theme, inline [[artifact:id]] embeds and shared pinned comments, and exposes the Approve Plan action, including revoking an approval. Author or read the spec with `storage_get` / `storage_set` (key `plan/spec`).
 ---
 
 # Spec widget
@@ -14,11 +14,11 @@ Renders the session's spec (Context / Acceptance Criteria / Out of Scope…) as 
 | `plan/approved_by` | string | The approver's username. |
 
 ```bash
-work42 storage get plan/spec
-work42 storage get plan/approved_at
+storage_get(key: "plan/spec")
+storage_get(key: "plan/approved_at")
 ```
 
-To write the spec, pipe the markdown through `jq -Rs .` to make it a JSON string (see `task42-planner`).
+To write the spec, call `storage_set` with key `plan/spec` and the markdown as a JSON string value.
 
 ## Approve Plan and revoke
 
