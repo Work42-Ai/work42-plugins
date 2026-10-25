@@ -1,6 +1,6 @@
 manifest_version: 2
 name: github
-version: 1.0.1
+version: 1.0.2
 description: >
   GitHub integration for Work42. Provides the GitHub PR browser widget
   (one tab per attached PR, background watch loop, PR activity events) and the
@@ -8,6 +8,6 @@ description: >
   launch). Includes a GitHub Review tab template and a plugin skill that
   explains how the two widgets work together.
 author: work42
-sdk_version: 2.6.4
-sdk_abi: 12
+sdk_version: 2.8.0
+sdk_abi: 13
 requires: []
