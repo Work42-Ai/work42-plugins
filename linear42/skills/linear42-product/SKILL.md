@@ -24,8 +24,8 @@ Use Work42 artifacts for **all proposed UI rendering**: make the screen or flow
 visible, use realistic copy, and include the relevant loading, empty, error and
 permission states. Load `work42-artifact` and `work42-artifact-mockup` for UI
 previews (or `work42-artifact-explainer` for flows). Create the artifact with
-`artifact_set`, check `artifact_status`, then show its
-`[[artifact:<id>]]` token alone on a line. Do not substitute paragraphs for a
+`artifact_set`, check `artifact_status`; its card then appears in chat by itself
+(never write the `[[artifact:<id>]]` token in chat). Do not substitute paragraphs for a
 screen the user needs to see. An artifact preview is an ideation prototype,
 not evidence that the final Figma design has been built or validated.
 
