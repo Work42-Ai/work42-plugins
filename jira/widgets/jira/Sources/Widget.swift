@@ -126,7 +126,7 @@ struct JiraEntry: Codable, Sendable, Equatable {
 ///   jira/issues — JSON array of { url, key } (multiple issues, one tab each).
 @Observable
 @MainActor
-final class JiraWidget: Work42Widget {
+final class JiraWidget: Work42Widget, Work42BrowserBacked {
 
     // MARK: - Work42Widget conformance
 
@@ -200,6 +200,39 @@ final class JiraWidget: Work42Widget {
 
     func makeView(services: SessionServices) -> AnyView {
         AnyView(JiraWidgetMainView(widget: self, services: services))
+    }
+
+    /// The attached issues as a browser, or nil while none is attached or opened. The view and the host's headless resolve are both
+    /// made from this, so a device that opens the tab the Mac never showed gets the same tabs.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard let first = displayedURLs.first else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: first,
+                // No isolation selector: it blanks the whole page when the user
+                // isn't signed in yet (nothing matches).
+                selector: "",
+                // Shared cookie store with the regular Browser widget.
+                dataStoreKey: "browser",
+                title: "Jira",
+                icon: "ticket"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                guard let self else { return }
+                self.browserModel = model
+                // Sync all issue tabs (replace the seeded first tab from spec).
+                self.syncTabs()
+                // + opens the attach form.
+                model.onNewTab = { [weak self] in
+                    self?.showingAttachForm = true
+                }
+                // × detaches the issue.
+                model.onTabClosed = { [weak self] tabID in
+                    Task { await self?.detach(tabID: tabID) }
+                }
+            }
+        )
     }
 
     // MARK: - Load from storage (with legacy migration)
@@ -619,38 +652,12 @@ private struct JiraBrowserView: View {
     let widget: JiraWidget
     let services: SessionServices
 
-    private var firstURL: URL {
-        widget.displayedURLs.first ?? URL(string: "https://www.atlassian.net")!
-    }
-
     var body: some View {
-        BrowserSurface(
-            spec: BrowserSurfaceSpec(
-                url: firstURL,
-                // No isolation selector: it blanks the whole page when the user
-                // isn't signed in yet (nothing matches).
-                selector: "",
-                // Shared cookie store with the regular Browser widget.
-                dataStoreKey: "browser",
-                title: "Jira",
-                icon: "ticket"
-            ),
-            cacheKey: widget.id,
-            configure: { [weak widget] model in
-                guard let widget else { return }
-                widget.browserModel = model
-                // Sync all issue tabs (replace the seeded first tab from spec).
-                widget.syncTabs()
-                // + opens the attach form.
-                model.onNewTab = { [weak widget] in
-                    widget?.showingAttachForm = true
-                }
-                // × detaches the issue.
-                model.onTabClosed = { [weak widget] tabID in
-                    Task { await widget?.detach(tabID: tabID) }
-                }
+        Group {
+            if let declaration = widget.browserSurface {
+                BrowserSurface(declaration)
             }
-        )
+        }
         // Re-sync tabs when the issue list changes (out-of-band attach/detach).
         .onChange(of: widget.displayedURLs.map(\.absoluteString)) { _, _ in
             widget.syncTabs()

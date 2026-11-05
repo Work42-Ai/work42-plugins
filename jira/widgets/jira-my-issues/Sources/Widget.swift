@@ -132,7 +132,7 @@ private func canonicalJiraIssueURL(key: String, from original: String) -> String
 ///   jira-my-issues/board — string, the pinned Jira board URL.
 @Observable
 @MainActor
-final class JiraBoardWidget: Work42Widget {
+final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
 
     // MARK: - Work42Widget conformance
 
@@ -287,6 +287,33 @@ final class JiraBoardWidget: Work42Widget {
         AnyView(JiraBoardWidgetMainView(widget: self, services: services))
     }
 
+    /// The pinned board as a browser, or nil while it loads or none is pinned. The view and the host's headless resolve are both
+    /// made from this, so a device that opens the tab the Mac never showed gets the same page.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard !isLoading, let url = boardURL else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: url,
+                // No isolation selector: show the full Jira board page.
+                // An auth-gated selector would blank the page for logged-out
+                // users; an empty selector works from the first load.
+                selector: "",
+                // Shared cookie store with the Browser and Jira widgets —
+                // sign in once, stay signed in across widgets.
+                dataStoreKey: "browser",
+                title: "Jira",
+                icon: "ticket"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                // Stash the model so the action-area intent can read the
+                // current browser URL (model.urlDraft) without going through
+                // the cache every time.
+                self?.browserModel = model
+            }
+        )
+    }
+
     // MARK: - Storage
 
     /// Read the board URL from own storage namespace. If absent or unavailable,
@@ -383,27 +410,9 @@ private struct JiraBoardBrowserView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            BrowserSurface(
-                spec: BrowserSurfaceSpec(
-                    url: url,
-                    // No isolation selector: show the full Jira board page.
-                    // An auth-gated selector would blank the page for logged-out
-                    // users; an empty selector works from the first load.
-                    selector: "",
-                    // Shared cookie store with the Browser and Jira widgets —
-                    // sign in once, stay signed in across widgets.
-                    dataStoreKey: "browser",
-                    title: "Jira",
-                    icon: "ticket"
-                ),
-                cacheKey: widget.id,
-                configure: { [weak widget] model in
-                    // Stash the model so the action-area intent can read the
-                    // current browser URL (model.urlDraft) without going through
-                    // the cache every time.
-                    widget?.browserModel = model
-                }
-            )
+            if let declaration = widget.browserSurface {
+                BrowserSurface(declaration)
+            }
 
             // Editing no longer clears first: the current URL is seeded into a
             // sheet and replaced only after validation succeeds.

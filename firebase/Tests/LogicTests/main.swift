@@ -725,8 +725,9 @@ func testManifest() {
         fields[String(line[..<colon])] = String(line[line.index(after: colon)...]).trimmingCharacters(in: .whitespaces)
     }
     check(fields["manifest_version"] == "2", "manifest v2")
-    check(fields["name"] == "firebase" && fields["version"] == "0.2.1", "name and version 0.2.1 (\(fields["version"] ?? "none"))")
-    check(fields["sdk_version"] == "2.6.4" && fields["sdk_abi"] == "12", "SDK 2.6.4 / ABI 12")
+    check(fields["name"] == "firebase" && fields["version"] == "0.2.2", "name and version 0.2.2 (\(fields["version"] ?? "none"))")
+    // 2.12.0: the widgets conform to `Work42BrowserBacked` (WOR-644, WOR-645), so a device can read their tabs without a view.
+    check(fields["sdk_version"] == "2.12.0" && fields["sdk_abi"] == "14", "SDK 2.12.0 / ABI 14")
     check(fields["requires"] == "[]", "requires nothing")
     check(fields["global_skills"] == "using-firebase", "only the index skill is global")
     // No session type, workflow, intents, MCP or compiled hooks: the plugin only adds widgets and skills.
