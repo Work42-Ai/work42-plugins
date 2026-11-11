@@ -10,7 +10,7 @@ description: >
   global using-firebase index, and one skill per product describing what the Firebase CLI can and cannot do
   for it.
 author: work42
-sdk_version: 2.6.4
-sdk_abi: 12
+sdk_version: 2.13.0
+sdk_abi: 15
 requires: []
 global_skills: using-firebase

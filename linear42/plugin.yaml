@@ -14,6 +14,6 @@ description: >
   "New Product Shape" create-intent and one skill per issue type. Configured
   entirely from ~/.config/linear42/config.json.
 author: work42
-sdk_version: 2.9.0
-sdk_abi: 14
+sdk_version: 2.13.0
+sdk_abi: 15
 requires: [github, figma]

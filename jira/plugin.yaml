@@ -8,6 +8,6 @@ description: >
   Includes a Jira Work tab template and a plugin skill that explains how the
   two widgets work together.
 author: work42
-sdk_version: 2.6.4
-sdk_abi: 12
+sdk_version: 2.13.0
+sdk_abi: 15
 requires: []
