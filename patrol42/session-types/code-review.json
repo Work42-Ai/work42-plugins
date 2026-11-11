@@ -7,7 +7,11 @@
     "chat",
     "files",
     "terminal",
-    "widget:github"
+    "widget:github",
+    "browser",
+    "artifacts",
+    "iosSimulator",
+    "androidDevice"
   ],
   "icon": "checkmark.shield",
   "accent_hex": null,

@@ -11,7 +11,11 @@
     "files",
     "terminal",
     "widget:qa",
-    "widget:github"
+    "widget:github",
+    "browser",
+    "artifacts",
+    "iosSimulator",
+    "androidDevice"
   ],
   "icon": "checklist",
   "enforce_capability_gate": true,
