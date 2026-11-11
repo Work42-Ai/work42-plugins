@@ -744,7 +744,7 @@ final class GitHubBackgroundAgent: WidgetBackgroundAgent {
 /// handle VIEW concerns only (AC10).
 @Observable
 @MainActor
-final class GitHubPRWidget: Work42Widget {
+final class GitHubPRWidget: Work42Widget, Work42BrowserBacked {
 
     // MARK: - Work42Widget conformance
 
@@ -845,6 +845,43 @@ final class GitHubPRWidget: Work42Widget {
 
     func makeView(services: SessionServices) -> AnyView {
         AnyView(PRWidgetMainView(widget: self, services: services))
+    }
+
+    /// The pull request pages as a browser, or nil while no PR is attached or opened. The view and the host's headless resolve are
+    /// both made from this, so a device that opens the tab the Mac never showed gets the same tabs. (The view adds the session
+    /// services and the selection resolver for highlight-to-comment; they are about drawing, not about the data.)
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard let first = displayedURLs.first else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: first,
+                // No isolation selector: `.logged-in .application-main` blanks the
+                // whole page when the store has no GitHub session (nothing matches),
+                // leaving no way to reach the Sign in chrome. Render the full page.
+                selector: "",
+                // Shared cookie store with the regular Browser widget — sign in
+                // once anywhere, every browser-based widget inherits the session.
+                dataStoreKey: "browser",
+                title: "GitHub PR",
+                icon: "arrow.triangle.pull"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                guard let self else { return }
+                // Store the model so the open-link intent can select tabs.
+                self.browserModel = model
+                // Sync all PR tabs (replace the seeded first tab from spec).
+                self.syncTabs()
+                // + opens the attach form.
+                model.onNewTab = { [weak self] in
+                    self?.showingAttachForm = true
+                }
+                // × removes the PR from storage.
+                model.onTabClosed = { [weak self] tabID in
+                    Task { await self?.detach(tabID: tabID) }
+                }
+            }
+        )
     }
 
     // MARK: - Load PRs from storage
@@ -1065,46 +1102,20 @@ private struct PRBrowserView: View {
     let widget: GitHubPRWidget
     let services: SessionServices
 
-    private var firstURL: URL {
-        widget.displayedURLs.first ?? URL(string: "https://github.com")!
-    }
-
     var body: some View {
-        BrowserSurface(
-            spec: BrowserSurfaceSpec(
-                url: firstURL,
-                // No isolation selector: `.logged-in .application-main` blanks the
-                // whole page when the store has no GitHub session (nothing matches),
-                // leaving no way to reach the Sign in chrome. Render the full page.
-                selector: "",
-                // Shared cookie store with the regular Browser widget — sign in
-                // once anywhere, every browser-based widget inherits the session.
-                dataStoreKey: "browser",
-                title: "GitHub PR",
-                icon: "arrow.triangle.pull"
-            ),
-            cacheKey: widget.id,
-            // The SDK owns the whole highlight-to-comment affordance (bubble,
-            // composer, dictate-to-comment). We supply ONLY the resolver that
-            // maps a raw PR-page selection into "PR #N · path:Lx–Ly".
-            services: services,
-            selectionResolver: makeGitHubSelectionResolver(services: services),
-            configure: { [weak widget] model in
-                guard let widget else { return }
-                // Store the model so the open-link intent can select tabs.
-                widget.browserModel = model
-                // Sync all PR tabs (replace the seeded first tab from spec).
-                widget.syncTabs()
-                // + opens the attach form.
-                model.onNewTab = { [weak widget] in
-                    widget?.showingAttachForm = true
-                }
-                // × removes the PR from storage.
-                model.onTabClosed = { [weak widget] tabID in
-                    Task { await widget?.detach(tabID: tabID) }
-                }
+        // The data is the widget's declaration; the SDK owns the whole highlight-to-comment affordance (bubble, composer,
+        // dictate-to-comment), and we supply ONLY the resolver that maps a raw PR-page selection into "PR #N · path:Lx–Ly".
+        Group {
+            if let declaration = widget.browserSurface {
+                BrowserSurface(
+                    spec: declaration.spec,
+                    cacheKey: declaration.cacheKey,
+                    services: services,
+                    selectionResolver: makeGitHubSelectionResolver(services: services),
+                    configure: declaration.configure
+                )
             }
-        )
+        }
         // Re-sync tabs when prs changes (out-of-band attach/detach or storage update).
         .onChange(of: widget.displayedURLs.map(\.absoluteString)) { _, _ in
             widget.syncTabs()

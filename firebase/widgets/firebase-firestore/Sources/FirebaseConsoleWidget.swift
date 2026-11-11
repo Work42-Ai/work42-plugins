@@ -25,7 +25,7 @@ import Work42PluginKit
 
 @Observable
 @MainActor
-final class FirebaseConsoleWidget: Work42Widget {
+final class FirebaseConsoleWidget: Work42Widget, Work42BrowserBacked {
 
     let product: FirebaseProduct
     let store: FirebaseProjectStore
@@ -96,6 +96,18 @@ final class FirebaseConsoleWidget: Work42Widget {
 
     func makeView(services: SessionServices) -> AnyView {
         AnyView(FirebaseConsoleView(widget: self))
+    }
+
+    /// This product's Console pages as a browser, or nil while the project list is invalid or empty. The view and the host's
+    /// headless resolve are both made from this, so a device that opens the tab the Mac never showed gets the same tabs.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        if case .invalid = store.state { return nil }
+        guard let first = descriptors.first else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(url: first.url, selector: "", dataStoreKey: "browser",
+                                     title: product.title, icon: product.icon),
+            cacheKey: id,
+            configure: { [weak self] model in self?.surfaceMounted(model) })
     }
 
     // MARK: Tabs
@@ -259,12 +271,8 @@ private struct FirebaseConsoleView: View {
     private var content: some View {
         if case .invalid(let why) = widget.store.state {
             message(why)
-        } else if let first = widget.descriptors.first {
-            BrowserSurface(
-                spec: BrowserSurfaceSpec(url: first.url, selector: "", dataStoreKey: "browser",
-                                         title: widget.product.title, icon: widget.product.icon),
-                cacheKey: widget.id,
-                configure: { [weak widget] model in widget?.surfaceMounted(model) })
+        } else if let declaration = widget.browserSurface {
+            BrowserSurface(declaration)
         } else {
             message(FirebaseTabs.emptyMessage(listedCount: widget.store.projects.count))
         }

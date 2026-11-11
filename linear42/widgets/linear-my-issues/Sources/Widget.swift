@@ -26,7 +26,7 @@ import Work42PluginKit
 
 @Observable
 @MainActor
-final class LinearMyIssuesWidget: Work42Widget {
+final class LinearMyIssuesWidget: Work42Widget, Work42BrowserBacked {
 
     // MARK: Work42Widget conformance
 
@@ -122,6 +122,31 @@ final class LinearMyIssuesWidget: Work42Widget {
         let latest = Linear42Config.load()
         if latest != config { config = latest }
     }
+
+    /// The assigned-issues page of the configured workspace; nil while linear42 is not configured.
+    var myIssuesURL: URL? {
+        guard case .success(let config) = config else { return nil }
+        let ws = config.workspace.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? config.workspace
+        return URL(string: "https://linear.app/\(ws)/my-issues/assigned")
+    }
+
+    /// The page as a browser, or nil while linear42 is not configured. The view and the host's headless resolve are both made from
+    /// this, so a device that opens the tab the Mac never showed gets the same page.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard let url = myIssuesURL else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: url,
+                selector: "",
+                // Shared cookie store with the regular Browser widget — sign in once.
+                dataStoreKey: "browser",
+                title: "Linear",
+                icon: "list.bullet.rectangle"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in self?.browserModel = model }
+        )
+    }
 }
 
 // MARK: - View
@@ -150,21 +175,10 @@ private struct LinearMyIssuesView: View {
                 .multilineTextAlignment(.center)
                 .padding(DT.s24)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .success(let config):
-                if let url = myIssuesURL(workspace: config.workspace) {
-                    BrowserSurface(
-                        spec: BrowserSurfaceSpec(
-                            url: url,
-                            selector: "",
-                            // Shared cookie store with the regular Browser widget — sign in once.
-                            dataStoreKey: "browser",
-                            title: "Linear",
-                            icon: "list.bullet.rectangle"
-                        ),
-                        cacheKey: widget.id,
-                        configure: { [weak widget] model in widget?.browserModel = model }
-                    )
-                    .id(url.absoluteString)
+            case .success:
+                if let declaration = widget.browserSurface, let url = widget.myIssuesURL {
+                    BrowserSurface(declaration)
+                        .id(url.absoluteString)
                 }
             }
         }
@@ -175,11 +189,6 @@ private struct LinearMyIssuesView: View {
                 try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
             }
         }
-    }
-
-    private func myIssuesURL(workspace: String) -> URL? {
-        let ws = workspace.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? workspace
-        return URL(string: "https://linear.app/\(ws)/my-issues/assigned")
     }
 }
 

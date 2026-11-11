@@ -29,7 +29,7 @@ struct LinearDocRef: Equatable, Sendable {
 
 @Observable
 @MainActor
-final class LinearQAWidget: Work42Widget {
+final class LinearQAWidget: Work42Widget, Work42BrowserBacked {
 
     let id = "linear-qa"
     let title = "QA Report Document"
@@ -134,6 +134,30 @@ final class LinearQAWidget: Work42Widget {
         AnyView(LinearQAView(widget: self))
     }
 
+    /// The QA report documents as a browser, or nil while the issues hold none. The view and the host's headless resolve are both
+    /// made from this, so a device that opens the tab the Mac never showed gets the same tabs.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard let first = tabs.first else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: first.url,
+                selector: "",
+                dataStoreKey: "browser",
+                title: "QA Report Document",
+                icon: "checkmark.seal"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                guard let self else { return }
+                self.browserModel = model
+                self.syncTabs()
+                // Documents come from `qa/docs`, so + has nothing to add.
+                model.onNewTab = {}
+                model.onTabClosed = { [weak self] tabID in self?.tabClosed(tabID) }
+            }
+        )
+    }
+
     func refresh() async {
         guard let services else { return }
         await refreshDocs(services)
@@ -146,25 +170,8 @@ private struct LinearQAView: View {
 
     var body: some View {
         Group {
-            if let first = widget.tabs.first {
-                BrowserSurface(
-                    spec: BrowserSurfaceSpec(
-                        url: first.url,
-                        selector: "",
-                        dataStoreKey: "browser",
-                        title: "QA Report Document",
-                        icon: "checkmark.seal"
-                    ),
-                    cacheKey: widget.id,
-                    configure: { [weak widget] model in
-                        guard let widget else { return }
-                        widget.browserModel = model
-                        widget.syncTabs()
-                        // Documents come from `qa/docs`, so + has nothing to add.
-                        model.onNewTab = {}
-                        model.onTabClosed = { [weak widget] tabID in widget?.tabClosed(tabID) }
-                    }
-                )
+            if let declaration = widget.browserSurface {
+                BrowserSurface(declaration)
                 .onChange(of: widget.tabs.map(\.slugID)) { _, _ in widget.syncTabs() }
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {
