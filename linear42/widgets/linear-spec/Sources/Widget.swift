@@ -59,6 +59,12 @@ final class LinearSpecWidget: Work42Widget {
         ]
     }
 
+    /// What a collaborator can be allowed to do here: use the widget, and approve the plan.
+    var scopes: [WidgetScopeSpec] { [.use, WidgetScopeSpec(id: "approve", title: "Approve the plan")] }
+
+    /// One button, for the owner and for reviewers, that reads and confirms differently for each of them: the owner's approval and a
+    /// reviewer's sign-off are two entries under the same widget (`plan/approved`, `plan/reviewed`), each stored for the person who
+    /// gave it. An agent and a member without the reviewer role get no button.
     var intents: [WidgetIntentSpec] {
         [
             WidgetIntentSpec(
@@ -67,25 +73,49 @@ final class LinearSpecWidget: Work42Widget {
                 icon: "checkmark.seal.fill",
                 placement: [.palette, .actionArea],
                 actionAreaStyle: .labeled,
-                isEnabled: { [weak self] in
-                    guard let self else { return false }
-                    return canApprove
-                },
-                isConfirmed: { [weak self] in self?.isApproved ?? false },
-                actionAreaTitle: { [weak self] in
-                    guard let self else { return "Approve Plan" }
-                    if isApproving { return "Approving…" }
-                    if isApproved { return "Plan approved" }
-                    return "Approve Plan"
-                },
+                isEnabled: nil,
+                isConfirmed: nil,
                 onConfirmedTap: { [weak self] services in
                     await self?.revokeApproval(services: services)
                 },
                 performWithServices: { [weak self] services in
                     await self?.approvePlan(services: services)
                 }
-            ),
+            )
+            .forAudience(WidgetAudience([.owners, .role("reviewer")]))
+            .requiring("approve")
+            .perViewer(
+                title: { [weak self] who in self?.buttonTitle(for: who) ?? "Approve Plan" },
+                isEnabled: { [weak self] who in self?.canApprove(for: who) ?? false },
+                isConfirmed: { [weak self] who in self?.hasApproved(who) ?? false }),
         ]
+    }
+
+    // MARK: Per person
+
+    /// People who gave the owner's approval (`plan/approved`) and the reviewer's (`plan/reviewed`), by person id.
+    var approvers: Set<String> = []
+    var reviewers: Set<String> = []
+
+    /// The key `who` signs under: the owner approves, anyone else holding the reviewer role reviews.
+    private func key(for who: WidgetCollaborator) -> String { who.isOwner ? "approved" : "reviewed" }
+
+    func hasApproved(_ who: WidgetCollaborator) -> Bool {
+        who.isOwner ? approvers.contains(who.id) : reviewers.contains(who.id)
+    }
+
+    func buttonTitle(for who: WidgetCollaborator) -> String {
+        if isApproving { return "Approving…" }
+        switch (who.isOwner, hasApproved(who)) {
+        case (true, true): return "Plan approved"
+        case (true, false): return "Approve Plan"
+        case (false, true): return "Approved as reviewer"
+        case (false, false): return "Approve as reviewer"
+        }
+    }
+
+    func canApprove(for who: WidgetCollaborator) -> Bool {
+        !docs.isEmpty && hasSubIssues && !hasApproved(who) && !isApproving
     }
 
     // MARK: Observed state
@@ -164,9 +194,6 @@ final class LinearSpecWidget: Work42Widget {
     var isApproving = false
     var errorMessage: String?
 
-    /// Approve needs a spec document (on any attached issue) and at least one sub-issue, and is one-shot.
-    var canApprove: Bool { !docs.isEmpty && hasSubIssues && !isApproved && !isApproving }
-
     private var services: SessionServices?
 
     // MARK: Lifecycle
@@ -195,36 +222,66 @@ final class LinearSpecWidget: Work42Widget {
             nonEmpty = !rows.isEmpty
         }
         let approved = ((try? await services.storage.get(namespace: "plan", key: "approved_at")) ?? nil) != nil
+        let owners = Set(((try? await services.storage.people(key: "approved")) ?? [:]).keys)
+        let others = Set(((try? await services.storage.people(key: "reviewed")) ?? [:]).keys)
         if nonEmpty != hasSubIssues { hasSubIssues = nonEmpty }
         if approved != isApproved { isApproved = approved }
+        if owners != approvers { approvers = owners }
+        if others != reviewers { reviewers = others }
     }
 
     // MARK: Approve
 
+    /// Records the acting person's own approval, and for the owner also the keys the In-Progress gate and the sync agent read.
+    /// `services.actor` is whoever pressed the button, on this Mac or on another device.
     private func approvePlan(services: SessionServices) async {
-        guard canApprove else { return }
+        let who = services.actor
+        guard canApprove(for: who) else { return }
         isApproving = true
         errorMessage = nil
         defer { isApproving = false }
         let now = ISO8601DateFormatter().string(from: Date())
-        // approved_by first: approved_at is the gate signal, and its write posts the nudge.
-        for (key, value) in [("approved_by", NSUserName()), ("approved_at", now)] {
-            do {
-                _ = try await services.tools.call(
-                    server: "work42-session", tool: "storage_set",
-                    arguments: ["key": .string("plan/\(key)"), "value": .string(value)], session: nil)
-            } catch {
-                errorMessage = "Couldn't write plan/\(key): \(error.localizedDescription)"
-                return
-            }
+        do {
+            // Their own entry first: it is what the people-count gate reads, and only they can write it.
+            try await services.storage.setPerson(key: key(for: who), value: .string(now))
+        } catch {
+            errorMessage = "Couldn't record your approval: \(error.localizedDescription)"
+            return
         }
-        isApproved = true
+        if who.isOwner {
+            // approved_by first: approved_at is the gate signal, and its write posts the nudge.
+            for (key, value) in [("approved_by", who.displayName), ("approved_at", now)] {
+                do {
+                    _ = try await services.tools.call(
+                        server: "work42-session", tool: "storage_set",
+                        arguments: ["key": .string("plan/\(key)"), "value": .string(value)], session: nil)
+                } catch {
+                    errorMessage = "Couldn't write plan/\(key): \(error.localizedDescription)"
+                    return
+                }
+            }
+            isApproved = true
+            approvers.insert(who.id)
+        } else {
+            reviewers.insert(who.id)
+        }
     }
 
-    /// Clears the approval. The sync agent sees `plan/approved_at` gone while the approval is stamped on Linear,
-    /// and posts the revoke comment there.
+    /// Clears the acting person's own approval. When the owner takes theirs back, the legacy keys go too: the sync agent sees
+    /// `plan/approved_at` gone while the approval is stamped on Linear, and posts the revoke comment there.
     private func revokeApproval(services: SessionServices) async {
+        let who = services.actor
         errorMessage = nil
+        do {
+            try await services.storage.deletePerson(key: key(for: who))
+        } catch {
+            errorMessage = "Couldn't take back your approval: \(error.localizedDescription)"
+            return
+        }
+        guard who.isOwner else {
+            reviewers.remove(who.id)
+            return
+        }
         // approved_at first: it is the gate signal.
         for key in ["approved_at", "approved_by"] {
             do {
@@ -237,6 +294,7 @@ final class LinearSpecWidget: Work42Widget {
             }
         }
         isApproved = false
+        approvers.remove(who.id)
     }
 
     private func jsonString(_ value: String) -> String {
@@ -268,6 +326,17 @@ private struct LinearSpecView: View {
                 .padding(.horizontal, DT.s12)
                 .padding(.vertical, DT.s8)
                 .background(Color.orange.opacity(0.12))
+            }
+            if !widget.approvers.isEmpty || !widget.reviewers.isEmpty {
+                HStack(spacing: DT.s8) {
+                    Image(systemName: "checkmark.seal").foregroundStyle(DT.textSecondary)
+                    Text("Owner \(widget.approvers.count) · Reviewers \(widget.reviewers.count)")
+                        .font(.system(size: DT.f11))
+                        .foregroundStyle(DT.textSecondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, DT.s12)
+                .padding(.vertical, DT.s4)
             }
             if let first = widget.tabs.first {
                 BrowserSurface(

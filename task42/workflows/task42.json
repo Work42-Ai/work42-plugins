@@ -22,7 +22,7 @@
       "is_initial": false,
       "is_terminal": false,
       "entry_prompt": "You are in In-Progress. Your goal is to implement the plan one subtask at a time, marking each done once it is committed and pushed. If the plan turns out to be wrong, run the `transition` tool with target \"Planning\".",
-      "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"}]}",
+      "entry_gate": "{\"and\":[{\"namespace\":\"plan\",\"key\":\"approved_at\",\"op\":\"exists\"},{\"exists\":\"subtasks\"},{\"countPeople\":{\"role\":\"owner\",\"namespace\":\"plan\",\"key\":\"approved\"},\"atLeast\":1}]}",
       "icon": "play.circle.fill",
       "color_light": "#6D28D9",
       "color_dark": "#9D6BFF",
