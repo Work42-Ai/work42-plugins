@@ -11,6 +11,6 @@ description: >
   for it.
 author: work42
 sdk_version: 2.13.0
-sdk_abi: 15
+sdk_abi: 16
 requires: []
 global_skills: using-firebase

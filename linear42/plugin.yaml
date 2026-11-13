@@ -15,5 +15,5 @@ description: >
   entirely from ~/.config/linear42/config.json.
 author: work42
 sdk_version: 2.13.0
-sdk_abi: 15
+sdk_abi: 16
 requires: [github, figma]
