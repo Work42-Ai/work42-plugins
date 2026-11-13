@@ -9,26 +9,15 @@ struct FlowDefinitionHeader: View {
         HStack(spacing: DT.s8) {
             switch navigation.page {
             case .library:
-                Text("Flows")
-                    .font(.system(size: DT.f12, weight: .medium))
-                    .foregroundStyle(.primary)
+                WidgetHeaderTitle(name: "Flows")
                     .accessibilityAddTraits(.isHeader)
 
                 Spacer(minLength: 0)
 
             case .detail(let detail):
-                Button { navigation.back() } label: {
-                    Image(systemName: "chevron.left")
-                }
-                .glassIconButton()
-                .help("Back to Flows")
-                .accessibilityLabel("Back to Flows")
+                HeaderRoundButton(systemImage: "chevron.left", label: "Back to Flows") { navigation.back() }
 
-                Text(detail.name)
-                    .font(.system(size: DT.f12, weight: .semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                WidgetHeaderTitle(name: detail.name)
 
                 Spacer(minLength: 0)
 
