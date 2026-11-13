@@ -170,7 +170,7 @@ private let enrichedPathPrefix = "export PATH=\"$PATH:/opt/homebrew/bin:/usr/loc
 /// file-shaped `.git`, s8).
 @Observable
 @MainActor
-final class GitHubPRsWidget: Work42Widget {
+final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
 
     // MARK: - Work42Widget conformance
 
@@ -314,6 +314,35 @@ final class GitHubPRsWidget: Work42Widget {
 
     func makeView(services: SessionServices) -> AnyView {
         AnyView(GitHubPRsRootView(widget: self, services: services))
+    }
+
+    /// The repositories' pull request pages as a browser, or nil until the repositories are found. The view and the host's headless
+    /// resolve are both made from this, so a device that opens the tab the Mac never showed gets the same tabs.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard case .ready(let repos) = loadState, !repos.isEmpty else { return nil }
+        return browserSurface(for: repos)
+    }
+
+    /// The surface for `repos`: the first repository's page, then one tab per repository.
+    func browserSurface(for repos: [RepoInfo]) -> BrowserSurfaceDeclaration {
+        BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: repos[0].url,
+                selector: "",
+                dataStoreKey: "github",
+                title: "GitHub PRs",
+                icon: "arrow.triangle.pull"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                guard let self else { return }
+                self.browserModel = model
+                self.syncTabs(to: model, repos: repos)
+                model.onNewTab = { [weak self] in
+                    self?.showingAddRepoForm = true
+                }
+            }
+        )
     }
 
     // MARK: - Repo enumeration
@@ -619,24 +648,7 @@ private struct GitHubPRsBrowserView: View {
     let repos: [RepoInfo]
 
     var body: some View {
-        BrowserSurface(
-            spec: BrowserSurfaceSpec(
-                url: repos[0].url,
-                selector: "",
-                dataStoreKey: "github",
-                title: "GitHub PRs",
-                icon: "arrow.triangle.pull"
-            ),
-            cacheKey: widget.id,
-            configure: { [weak widget] model in
-                guard let widget else { return }
-                widget.browserModel = model
-                widget.syncTabs(to: model, repos: repos)
-                model.onNewTab = { [weak widget] in
-                    widget?.showingAddRepoForm = true
-                }
-            }
-        )
+        BrowserSurface(widget.browserSurface(for: repos))
     }
 }
 

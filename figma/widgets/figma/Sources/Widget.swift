@@ -92,7 +92,7 @@ struct FigmaLink: Codable, Sendable, Equatable {
 ///   figma/links — JSON array of { url, name } (multiple files, one tab each).
 @Observable
 @MainActor
-final class FigmaWidget: Work42Widget {
+final class FigmaWidget: Work42Widget, Work42BrowserBacked {
 
     // MARK: - Work42Widget conformance
 
@@ -157,6 +157,33 @@ final class FigmaWidget: Work42Widget {
 
     func makeView(services: SessionServices) -> AnyView {
         AnyView(FigmaWidgetMainView(widget: self, services: services))
+    }
+
+    /// The attached files as a browser, or nil while the links load or none is attached or opened. The view and the host's headless
+    /// resolve are both made from this, so a device that opens the tab the Mac never showed gets the same tabs.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard !isLoading, let first = displayedURLs.first else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: first,
+                selector: "",
+                dataStoreKey: "browser",
+                title: "Figma",
+                icon: "square.on.square.dashed"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                guard let self else { return }
+                self.browserModel = model
+                self.syncTabs()
+                model.onNewTab = { [weak self] in
+                    self?.showingAttachForm = true
+                }
+                model.onTabClosed = { [weak self] tabID in
+                    Task { await self?.detach(tabID: tabID) }
+                }
+            }
+        )
     }
 
     // MARK: - Load from storage
@@ -353,32 +380,12 @@ private struct FigmaBrowserView: View {
     let widget: FigmaWidget
     let services: SessionServices
 
-    private var firstURL: URL {
-        widget.displayedURLs.first ?? URL(string: "https://www.figma.com")!
-    }
-
     var body: some View {
-        BrowserSurface(
-            spec: BrowserSurfaceSpec(
-                url: firstURL,
-                selector: "",
-                dataStoreKey: "browser",
-                title: "Figma",
-                icon: "square.on.square.dashed"
-            ),
-            cacheKey: widget.id,
-            configure: { [weak widget] model in
-                guard let widget else { return }
-                widget.browserModel = model
-                widget.syncTabs()
-                model.onNewTab = { [weak widget] in
-                    widget?.showingAttachForm = true
-                }
-                model.onTabClosed = { [weak widget] tabID in
-                    Task { await widget?.detach(tabID: tabID) }
-                }
+        Group {
+            if let declaration = widget.browserSurface {
+                BrowserSurface(declaration)
             }
-        )
+        }
         .onChange(of: widget.displayedURLs.map(\.absoluteString)) { _, _ in
             widget.syncTabs()
         }

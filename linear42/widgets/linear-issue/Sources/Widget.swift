@@ -52,7 +52,7 @@ struct LinearIssueSnapshot: Equatable, Sendable {
 
 @Observable
 @MainActor
-final class LinearIssueWidget: Work42Widget {
+final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
 
     // MARK: Work42Widget conformance
 
@@ -114,6 +114,35 @@ final class LinearIssueWidget: Work42Widget {
 
     func makeView(services: SessionServices) -> AnyView {
         AnyView(LinearIssueMainView(widget: self, services: services))
+    }
+
+    /// The issue pages as a browser, or nil while there is nothing to show (not configured, still loading, the issue not found, or
+    /// no issue attached). The view and the host's headless resolve are both made from this, so a device that opens the tab the Mac
+    /// never showed gets the same tabs.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard case .success = config, !isLoading else { return nil }
+        if resolveError == "not_found", issueRef != nil { return nil }
+        guard let first = displayedTabKeys.first, let url = pageURL(forKey: first) else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: url,
+                // No isolation selector: it blanks the page when signed out.
+                selector: "",
+                // Shared cookie store with the regular Browser widget.
+                dataStoreKey: "browser",
+                title: "Issue Details",
+                icon: "list.bullet.rectangle"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                guard let self else { return }
+                self.browserModel = model
+                self.syncTabs()
+                // The chrome's + has nothing to add: issues attach from Open Link or the Planner.
+                model.onNewTab = {}
+                model.onTabClosed = { [weak self] tabID in self?.tabClosed(tabID) }
+            }
+        )
     }
 
     // MARK: Storage (read live; assign only on change so views never thrash)
@@ -344,32 +373,13 @@ private struct LinearIssueMainView: View {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if widget.resolveError == "not_found", let ref = widget.issueRef {
             LinearNotFoundView(widget: widget, ref: ref)
-        } else if let first = widget.displayedTabKeys.first, let url = widget.pageURL(forKey: first) {
+        } else if let declaration = widget.browserSurface {
             VStack(spacing: 0) {
                 if let key = widget.attachPromptKey,
                    widget.browserModel?.activeTabId == widget.stableTabID(for: key) {
                     LinearAttachBar(key: key, widget: widget)
                 }
-                BrowserSurface(
-                    spec: BrowserSurfaceSpec(
-                        url: url,
-                        // No isolation selector: it blanks the page when signed out.
-                        selector: "",
-                        // Shared cookie store with the regular Browser widget.
-                        dataStoreKey: "browser",
-                        title: "Issue Details",
-                        icon: "list.bullet.rectangle"
-                    ),
-                    cacheKey: widget.id,
-                    configure: { [weak widget] model in
-                        guard let widget else { return }
-                        widget.browserModel = model
-                        widget.syncTabs()
-                        // The chrome's + has nothing to add: issues attach from Open Link or the Planner.
-                        model.onNewTab = {}
-                        model.onTabClosed = { [weak widget] tabID in widget?.tabClosed(tabID) }
-                    }
-                )
+                BrowserSurface(declaration)
             }
             .alert(
                 "Detach \(widget.pendingDetachKey ?? "") from this session?",

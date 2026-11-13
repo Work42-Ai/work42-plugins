@@ -29,7 +29,7 @@ struct LinearDocRef: Equatable, Sendable {
 
 @Observable
 @MainActor
-final class LinearTestingWidget: Work42Widget {
+final class LinearTestingWidget: Work42Widget, Work42BrowserBacked {
 
     let id = "linear-testing"
     let title = "Testing Plan Document"
@@ -133,6 +133,30 @@ final class LinearTestingWidget: Work42Widget {
         AnyView(LinearTestingView(widget: self))
     }
 
+    /// The testing plan documents as a browser, or nil while the issues hold none. The view and the host's headless resolve are
+    /// both made from this, so a device that opens the tab the Mac never showed gets the same tabs.
+    var browserSurface: BrowserSurfaceDeclaration? {
+        guard let first = tabs.first else { return nil }
+        return BrowserSurfaceDeclaration(
+            spec: BrowserSurfaceSpec(
+                url: first.url,
+                selector: "",
+                dataStoreKey: "browser",
+                title: "Testing Plan Document",
+                icon: "testtube.2"
+            ),
+            cacheKey: id,
+            configure: { [weak self] model in
+                guard let self else { return }
+                self.browserModel = model
+                self.syncTabs()
+                // Documents come from the issues' storage, so + has nothing to add.
+                model.onNewTab = {}
+                model.onTabClosed = { [weak self] tabID in self?.tabClosed(tabID) }
+            }
+        )
+    }
+
     func refresh() async {
         guard let services else { return }
         await refreshDocs(services)
@@ -145,25 +169,8 @@ private struct LinearTestingView: View {
 
     var body: some View {
         Group {
-            if let first = widget.tabs.first {
-                BrowserSurface(
-                    spec: BrowserSurfaceSpec(
-                        url: first.url,
-                        selector: "",
-                        dataStoreKey: "browser",
-                        title: "Testing Plan Document",
-                        icon: "testtube.2"
-                    ),
-                    cacheKey: widget.id,
-                    configure: { [weak widget] model in
-                        guard let widget else { return }
-                        widget.browserModel = model
-                        widget.syncTabs()
-                        // Documents come from the issues' storage, so + has nothing to add.
-                        model.onNewTab = {}
-                        model.onTabClosed = { [weak widget] tabID in widget?.tabClosed(tabID) }
-                    }
-                )
+            if let declaration = widget.browserSurface {
+                BrowserSurface(declaration)
                 .onChange(of: widget.tabs.map(\.slugID)) { _, _ in widget.syncTabs() }
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {

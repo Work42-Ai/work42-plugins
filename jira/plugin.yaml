@@ -1,6 +1,6 @@
 manifest_version: 2
 name: jira
-version: 1.0.1
+version: 1.0.2
 description: >
   Jira integration for Work42. Provides the Jira issue browser widget
   (renders the issue linked to the current session) and the jira-my-issues
