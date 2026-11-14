@@ -34,6 +34,12 @@ final class SpecWidget: Work42Widget {
     var storageNamespace: String? { "plan" }
     var linkIntents: [WidgetLinkIntentSpec] { [] }
 
+    /// What a collaborator can be allowed to do here: use the widget, and approve the plan.
+    var scopes: [WidgetScopeSpec] { [.use, WidgetScopeSpec(id: "approve", title: "Approve the plan")] }
+
+    /// One button, for the owner and for reviewers, that reads and confirms differently for each of them: the owner's approval and a
+    /// reviewer's sign-off are two entries under the same widget (`plan/approved`, `plan/reviewed`), each stored for the person who
+    /// gave it. An agent and a member without the reviewer role get no button.
     var intents: [WidgetIntentSpec] {
         [
             WidgetIntentSpec(
@@ -42,26 +48,48 @@ final class SpecWidget: Work42Widget {
                 icon: "checkmark.seal.fill",
                 placement: [.palette, .actionArea],
                 actionAreaStyle: .labeled,
-                isEnabled: { [weak self] in
-                    guard let self else { return false }
-                    return hasSpec && !isApproving && !isApproved
-                },
-                isConfirmed: { [weak self] in self?.isApproved ?? false },
-                actionAreaTitle: { [weak self] in
-                    guard let self else { return "Approve Plan" }
-                    if isApproving { return "Approving…" }
-                    if isApproved { return "Plan approved" }
-                    return "Approve Plan"
-                },
+                isEnabled: nil,
+                isConfirmed: nil,
                 onConfirmedTap: { [weak self] services in
                     await self?.revokeApproval(services: services)
                 },
                 performWithServices: { [weak self] services in
                     await self?.approvePlan(services: services)
                 }
-            ),
+            )
+            .forAudience(WidgetAudience([.owners, .role("reviewer")]))
+            .requiring("approve")
+            .perViewer(
+                title: { [weak self] who in self?.buttonTitle(for: who) ?? "Approve Plan" },
+                isEnabled: { [weak self] who in self?.canApprove(for: who) ?? false },
+                isConfirmed: { [weak self] who in self?.hasApproved(who) ?? false }),
         ]
     }
+
+    // MARK: - Per person
+
+    /// People who gave the owner's approval (`plan/approved`) and the reviewer's (`plan/reviewed`), by person id.
+    var approvers: Set<String> = []
+    var reviewers: Set<String> = []
+
+    /// The key `who` signs under: the owner approves, anyone else holding the reviewer role reviews.
+    private func key(for who: WidgetCollaborator) -> String { who.isOwner ? "approved" : "reviewed" }
+
+    func hasApproved(_ who: WidgetCollaborator) -> Bool {
+        who.isOwner ? approvers.contains(who.id) : reviewers.contains(who.id)
+    }
+
+    func buttonTitle(for who: WidgetCollaborator) -> String {
+        if isApproving { return "Approving…" }
+        switch (who.isOwner, hasApproved(who)) {
+        case (true, true): return "Plan approved"
+        case (true, false): return "Approve Plan"
+        case (false, true): return "Approved as reviewer"
+        case (false, false): return "Approve as reviewer"
+        }
+    }
+
+    func canApprove(for who: WidgetCollaborator) -> Bool { hasSpec && !isApproving && !hasApproved(who) }
 
     // MARK: - Observed state
 
@@ -103,29 +131,51 @@ final class SpecWidget: Work42Widget {
         let approvedAt = (try? await services.storage.get(namespace: "plan", key: "approved_at")) ?? nil
         let newApproved = approvedAt != nil
         if newApproved != isApproved { isApproved = newApproved }
+        let owners = Set(((try? await services.storage.people(key: "approved")) ?? [:]).keys)
+        let others = Set(((try? await services.storage.people(key: "reviewed")) ?? [:]).keys)
+        if owners != approvers { approvers = owners }
+        if others != reviewers { reviewers = others }
     }
 
+    /// Records the acting person's own approval (`services.actor` is whoever pressed the button, on this Mac or another device),
+    /// and for the owner also the keys the In-Progress gate and readers of the plan use.
     private func approvePlan(services: SessionServices) async {
-        guard !isApproving else { return }
+        let who = services.actor
+        guard canApprove(for: who) else { return }
         isApproving = true
         defer { isApproving = false }
         let now = ISO8601DateFormatter().string(from: Date())
         do {
-            try await services.storage.set(key: "approved_at", value: .string(now))
-            try await services.storage.set(key: "approved_by", value: .string(NSUserName()))
-            isApproved = true
+            // Their own entry first: it is what the people-count gate reads, and only they can write it.
+            try await services.storage.setPerson(key: key(for: who), value: .string(now))
+            if who.isOwner {
+                try await services.storage.set(key: "approved_by", value: .string(who.displayName))
+                try await services.storage.set(key: "approved_at", value: .string(now))
+                isApproved = true
+                approvers.insert(who.id)
+            } else {
+                reviewers.insert(who.id)
+            }
         } catch {
             // Non-fatal — the button stays actionable; the palette surfaces
             // the failure from the intent invocation itself.
         }
     }
 
-    /// Revoke a prior approval: clears `plan/approved_at` (the gate signal) and `plan/approved_by`.
+    /// Takes back the acting person's own approval. When the owner takes theirs back, `plan/approved_at` (the gate signal) and
+    /// `plan/approved_by` go too.
     private func revokeApproval(services: SessionServices) async {
+        let who = services.actor
         do {
-            try await services.storage.delete(key: "approved_at")
-            try await services.storage.delete(key: "approved_by")
-            isApproved = false
+            try await services.storage.deletePerson(key: key(for: who))
+            if who.isOwner {
+                try await services.storage.delete(key: "approved_at")
+                try await services.storage.delete(key: "approved_by")
+                isApproved = false
+                approvers.remove(who.id)
+            } else {
+                reviewers.remove(who.id)
+            }
         } catch {
             // Non-fatal — the button stays confirmed; the host surfaces the failure.
         }
@@ -139,6 +189,34 @@ private struct SpecWidgetView: View {
     let services: SessionServices
 
     var body: some View {
+        VStack(spacing: 0) {
+            if !widget.approvers.isEmpty || !widget.reviewers.isEmpty {
+                HStack(spacing: DT.s8) {
+                    Image(systemName: "checkmark.seal").foregroundStyle(DT.textSecondary)
+                    Text("Owner \(widget.approvers.count) · Reviewers \(widget.reviewers.count)")
+                        .font(.system(size: DT.f11))
+                        .foregroundStyle(DT.textSecondary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, DT.s12)
+                .padding(.vertical, DT.s4)
+            }
+            content
+        }
+        .task {
+            // Live refresh: agent/CLI writes to `plan/spec` and `plan/approved_at` land while this tab is
+            // open. `.task` is cancelled when the view leaves the screen.
+            await widget.load()
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
+                if Task.isCancelled { break }
+                await widget.load()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         Group {
             if let spec = widget.spec, !spec.isEmpty {
                 Work42MarkdownDocument(
@@ -158,16 +236,6 @@ private struct SpecWidgetView: View {
                 }
                 .padding(DT.s16)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            }
-        }
-        .task {
-            // Live refresh: agent/CLI writes to `plan/spec` and `plan/approved_at` land while this tab is
-            // open. `.task` is cancelled when the view leaves the screen.
-            await widget.load()
-            while !Task.isCancelled {
-                try? await Task.sleep(nanoseconds: 3_000_000_000) // 3s
-                if Task.isCancelled { break }
-                await widget.load()
             }
         }
     }

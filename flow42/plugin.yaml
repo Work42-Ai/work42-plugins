@@ -4,5 +4,5 @@ version: 1.0.1
 description: Structured, device-specific flow guidance built exclusively on Work42 recordings and actions.
 author: work42
 sdk_version: 2.13.0
-sdk_abi: 15
+sdk_abi: 16
 requires: []
