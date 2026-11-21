@@ -71,10 +71,10 @@ optional and discovered by convention — no per-item lists in the manifest):
 | Field | Required | Description |
 |-------|----------|-------------|
 | `name` | yes | Slug (alphanumeric + hyphens). Must be unique across installed plugins. |
-| `version` | yes | Integer (e.g. `1`). Parsed as `Int` by the Work42 CLI — do not use semver strings. |
+| `version` | yes | The plugin's own version (e.g. `1` or `1.0.0`). |
 | `description` | yes | Human-readable description of the plugin. |
 | `author` | yes | Author name or organization. |
-| `sdk_version` | yes | Widget SDK ABI version. Must match the installed Work42 ABI. |
+| `sdk_version` | yes | The SDK release the plugin's native code is built with, e.g. `3.0.0`. Work42 runs it when it hosts the same major version at that release or newer. `work42 plugin build` stamps it; a plugin with no native code runs whatever it says. There is no ABI field. |
 | `requires` | no | Names of plugins this one depends on, e.g. `requires: [github]`. Install fails until they are installed; `work42 plugin remove` refuses to remove one that is still required. |
 
 Example `plugin.yaml`:
@@ -83,7 +83,7 @@ name: github
 version: 1
 description: GitHub PR browser and open-PRs list widgets for Work42.
 author: work42
-sdk_version: 11
+sdk_version: 3.0.0
 requires: []
 ```
 

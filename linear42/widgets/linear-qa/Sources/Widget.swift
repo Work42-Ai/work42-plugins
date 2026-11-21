@@ -201,7 +201,7 @@ private struct LinearQAView: View {
 }
 
 @_cdecl("work42_widget_sdk_version")
-public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }
+public func work42_widget_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
 
 @_cdecl("work42_widget_main")
 public func work42_widget_main() -> UnsafeMutableRawPointer {

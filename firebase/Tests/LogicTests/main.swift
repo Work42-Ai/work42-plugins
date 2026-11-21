@@ -728,7 +728,7 @@ func testManifest() {
     check(fields["name"] == "firebase" && fields["version"] == "0.2.2", "name and version 0.2.2 (\(fields["version"] ?? "none"))")
     // The widgets conform to `Work42BrowserBacked` (WOR-644, WOR-645, SDK 2.12.0), so a device can read their tabs without a
     // view. The manifest declares the SDK the plugin is built for: 2.16.0 / ABI 17 (the ABI the host requires exactly).
-    check(fields["sdk_version"] == "2.16.0" && fields["sdk_abi"] == "17", "SDK 2.16.0 / ABI 17")
+    check(fields["sdk_version"] == "3.0.0" && fields["sdk_abi"] == nil, "SDK 3.0.0, no sdk_abi")
     check(fields["requires"] == "[]", "requires nothing")
     check(fields["global_skills"] == "using-firebase", "only the index skill is global")
     // No session type, workflow, intents, MCP or compiled hooks: the plugin only adds widgets and skills.
