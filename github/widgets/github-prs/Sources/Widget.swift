@@ -14,13 +14,13 @@
 //   For each: `git -C <dir> config --get remote.origin.url` → parse owner/repo.
 //
 // TABS:
-//   One BrowserSurface tab per workspace repo at its /pulls page. Uses
-//   model.replaceTabs (via the configure closure, which saves the model in `browserModel`).
+//   One BrowserSurface tab per workspace repo at its /pulls page, set through
+//   services.browser.setTabs. The "+" button arrives as a services.browser event.
 //
 // ACTION-AREA INTENT:
 //   "Review GitHub PR" — placement: [.palette, .actionArea].
-//   isEnabled closure returns true ONLY when the active tab's URL (model.urlDraft)
-//   matches a PR page (/pull/<N> path). Enabled = the button appears in the
+//   isEnabled closure returns true ONLY when the page showing now (services.browser's
+//   `address`) matches a PR page (/pull/<N> path). Enabled = the button appears in the
 //   action center, resolves the PR head branch with `gh`, and fires the generic
 //   session.open intent (typeId "codeReview") with branch + initial github/prs
 //   metadata.
@@ -201,7 +201,7 @@ final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
                 actionAreaStyle: .labeled,
                 isEnabled: { [weak self] in
                     guard let self else { return false }
-                    let urlString = self.liveBrowserModel()?.urlDraft ?? ""
+                    let urlString = self.browserState.address
                     guard let reference = githubPRReference(urlString),
                           case .ready(let repos) = self.loadState
                     else { return false }
@@ -211,7 +211,7 @@ final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
                 },
                 perform: { [weak self] in
                     guard let self else { return }
-                    let urlString = self.liveBrowserModel()?.urlDraft ?? ""
+                    let urlString = self.browserState.address
                     guard let reference = githubPRReference(urlString) else { return }
                     guard let svc = self.services else { return }
                     guard case .ready(let repos) = self.loadState,
@@ -280,19 +280,36 @@ final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
     private var services: SessionServices?
     private var enumerationTask: Task<Void, Never>?
 
-    /// The surface's model, saved by the view's `configure:` closure; nil until the view has mounted.
-    var browserModel: BrowserWidgetModel?
+    /// The browser as it is now (its tabs, the one in front and the page showing), kept from `services.browser.tabs`.
+    private(set) var browserState = BrowserTabsState()
+    @ObservationIgnored private var browserTasks: [Task<Void, Never>] = []
+    /// The last `setTabs` call, so the next one starts after it and the tabs end as the last call said.
+    @ObservationIgnored private var pendingTabsCall: Task<Void, Never>?
 
-    /// The surface's model: the one `configure:` saved, else the cache entry under this widget's scope. The SDK
-    /// keys each surface by `"<session id or home>/<widget id>"`, so the unscoped lookup finds nothing.
-    private func liveBrowserModel() -> BrowserWidgetModel? {
-        browserModel ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")
+    /// Follows the widget's own browser: its state, and the "+" button.
+    private func observeBrowser(_ browser: any BrowserTabsService) {
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = [
+            Task { @MainActor [weak self] in
+                for await state in browser.tabs { self?.browserState = state }
+            },
+            Task { @MainActor [weak self] in
+                for await event in browser.events {
+                    switch event {
+                    case .newTabRequested: self?.showingAddRepoForm = true
+                    case .tabClosed: break
+                    @unknown default: break
+                    }
+                }
+            },
+        ]
     }
 
     // MARK: - Lifecycle
 
     func activate(services: SessionServices) {
         self.services = services
+        observeBrowser(services.browser)
         enumerationTask?.cancel()
         loadState = .loading
         enumerationTask = Task { @MainActor [weak self] in
@@ -304,7 +321,11 @@ final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
         enumerationTask?.cancel()
         enumerationTask = nil
         services = nil
-        browserModel = nil
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = []
+        pendingTabsCall?.cancel()
+        pendingTabsCall = nil
+        browserState = BrowserTabsState()
         loadState = .loading
         showingAddRepoForm = false
         BrowserSurfaceCache.shared.teardown(key: id)
@@ -333,15 +354,7 @@ final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
                 title: "GitHub PRs",
                 icon: "arrow.triangle.pull"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in
-                guard let self else { return }
-                self.browserModel = model
-                self.syncTabs(to: model, repos: repos)
-                model.onNewTab = { [weak self] in
-                    self?.showingAddRepoForm = true
-                }
-            }
+            cacheKey: id
         )
     }
 
@@ -516,19 +529,17 @@ final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
 
     private func publishRepos(_ repos: [RepoInfo]) {
         loadState = .ready(repos)
-        if let model = liveBrowserModel() {
-            syncTabs(to: model, repos: repos)
-        }
+        syncTabs(repos: repos)
     }
 
     private func publishRepos(merging autoRepos: [RepoInfo], manualOwnerRepos: [String]) {
         publishRepos(merge(autoRepos: autoRepos, manualOwnerRepos: manualOwnerRepos))
     }
 
-    /// Push one BrowserTab per repo into `model` via replaceTabs.
-    /// Called from the BrowserSurface configure closure and from post-enumeration
-    /// cache-hit sync.
-    func syncTabs(to model: BrowserWidgetModel, repos: [RepoInfo]) {
+    /// Show one BrowserTab per repo, through services.browser. Called after every enumeration; the first call also builds the
+    /// browser from `browserSurface`, so the tabs are right before any view is on screen.
+    func syncTabs(repos: [RepoInfo]) {
+        guard let browser = services?.browser else { return }
         let tabs = repos.map { repo in
             BrowserTab(
                 id: repo.tabID,
@@ -537,7 +548,11 @@ final class GitHubPRsWidget: Work42Widget, Work42BrowserBacked {
                 icon: "arrow.triangle.pull"
             )
         }
-        model.replaceTabs(tabs)
+        let previous = pendingTabsCall
+        pendingTabsCall = Task { @MainActor in
+            await previous?.value
+            try? await browser.setTabs(tabs)
+        }
     }
 }
 
@@ -640,8 +655,7 @@ private struct GitHubPRsErrorView: View {
 // MARK: - Browser view
 
 /// Renders a BrowserSurface with one tab per workspace repo at its /pulls page.
-/// The configure closure populates tabs via model.replaceTabs so BrowserSurface's
-/// seeded first-tab is immediately replaced with the full tab set.
+/// The widget sets the tabs through services.browser.setTabs, which replaces the first tab the surface seeds from its spec.
 @MainActor
 private struct GitHubPRsBrowserView: View {
     let widget: GitHubPRsWidget

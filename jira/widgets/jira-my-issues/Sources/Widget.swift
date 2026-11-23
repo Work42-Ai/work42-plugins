@@ -20,14 +20,14 @@
 //                     cacheKey:     id ("jira-my-issues")
 //                   An "Edit board" overlay opens a pre-filled editor. Saving
 //                   replaces the stored URL in place; removing it is a separate
-//                   destructive action. The configure: closure stashes the
-//                   BrowserWidgetModel so the action-area intent can read the
+//                   destructive action. The widget keeps the state of
+//                   services.browser so the action-area intent can read the
 //                   current URL.
 //
 // ACTION-AREA INTENT: "start-task-session"
 //   placement:       [.actionArea, .palette]
 //   actionAreaStyle: .labeled
-//   isEnabled:       true whenever model.urlDraft names a Jira issue — a
+//   isEnabled:       true whenever the page address names a Jira issue — a
 //                    /browse/<KEY> page, an issue open in a board/backlog/nav
 //                    modal (selectedIssue=<KEY>), a next-gen /issues/<KEY>, or a
 //                    JSM queue item. See jiraIssueKey(from:).
@@ -164,16 +164,10 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
 
     private var services: SessionServices?
 
-    /// Stashed reference to the BrowserWidgetModel, set once in the configure:
-    /// closure when the BrowserSurface becomes live.
-    /// @ObservationIgnored: changes to this field do not need to trigger SwiftUI
-    /// observations — the model itself is @Observable and its urlDraft is tracked
-    /// directly by any closure that reads it.
-    /// fileprivate so the configure: closure inside JiraBoardBrowserView (same
-    /// source file, different type) can write the model reference without
-    /// crossing the private boundary.
-    @ObservationIgnored
-    fileprivate var browserModel: BrowserWidgetModel?
+    /// The browser as it is now (its tabs and the page showing), kept from `services.browser.tabs`. The action-area intent reads
+    /// the page's address from it; it is observed, so the button follows the page.
+    private(set) var browserState = BrowserTabsState()
+    @ObservationIgnored private var browserTask: Task<Void, Never>?
 
     // MARK: - Intents
 
@@ -190,11 +184,7 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
                 actionAreaStyle: .labeled,
                 isEnabled: { [weak self] in
                     guard let self else { return false }
-                    // Prefer the stashed model; fall back to the static cache
-                    // accessor in case configure hasn't fired yet.
-                    let urlDraft = self.browserModel?.urlDraft
-                        ?? BrowserSurface.model(forKey: self.id, scope: self.services?.sessionId ?? "home")?.urlDraft
-                        ?? ""
+                    let urlDraft = self.browserState.address
                     // Enabled whenever the browser names a Jira issue — a
                     // /browse/ page OR an issue open in a board/backlog/nav modal
                     // (selectedIssue=…), a next-gen /issues/<KEY>, or a JSM queue
@@ -203,9 +193,7 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
                 },
                 perform: { [weak self] in
                     guard let self else { return }
-                    let model = self.browserModel
-                        ?? BrowserSurface.model(forKey: self.id, scope: self.services?.sessionId ?? "home")
-                    let currentURL = model?.urlDraft ?? ""
+                    let currentURL = self.browserState.address
                     guard !currentURL.isEmpty else { return }
                     guard let services = self.services else { return }
                     // Resolve the key from whichever shape the URL uses (path or
@@ -267,6 +255,11 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        let browser = services.browser
+        browserTask?.cancel()
+        browserTask = Task { @MainActor [weak self] in
+            for await state in browser.tabs { self?.browserState = state }
+        }
         Task { @MainActor [weak self] in
             await self?.loadBoardURL()
         }
@@ -275,7 +268,9 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
     func deactivate() {
         services = nil
         boardURL = nil
-        browserModel = nil
+        browserTask?.cancel()
+        browserTask = nil
+        browserState = BrowserTabsState()
         showingBoardEditor = false
         isLoading = false
         BrowserSurfaceCache.shared.teardown(key: id)
@@ -304,13 +299,7 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
                 title: "Jira",
                 icon: "ticket"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in
-                // Stash the model so the action-area intent can read the
-                // current browser URL (model.urlDraft) without going through
-                // the cache every time.
-                self?.browserModel = model
-            }
+            cacheKey: id
         )
     }
 
@@ -356,7 +345,7 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
         }
 
         if boardURL != url {
-            browserModel = nil
+            browserState = BrowserTabsState()
             BrowserSurfaceCache.shared.teardown(key: id)
         }
         boardURL = url
@@ -372,6 +361,7 @@ final class JiraBoardWidget: Work42Widget, Work42BrowserBacked {
             // Fail silently on clear — the UI resets to empty state regardless.
         }
         boardURL = nil
+        browserState = BrowserTabsState()
         BrowserSurfaceCache.shared.teardown(key: id)
     }
 }
@@ -401,8 +391,7 @@ private struct JiraBoardWidgetMainView: View {
 
 /// Renders the BrowserSurface for the pinned Jira board URL, with an
 /// "Edit board" overlay that opens a pre-filled editor.
-/// The configure: closure stashes the BrowserWidgetModel on the widget
-/// so the "Start Task Session" intent can read the current page URL.
+/// The widget keeps the browser's state (`services.browser`) so the "Start Task Session" intent can read the current page URL.
 @MainActor
 private struct JiraBoardBrowserView: View {
     let widget: JiraBoardWidget

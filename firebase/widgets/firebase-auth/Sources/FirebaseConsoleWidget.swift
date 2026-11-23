@@ -55,8 +55,11 @@ final class FirebaseConsoleWidget: Work42Widget, Work42BrowserBacked {
     var selectionModel: FirebaseProjectPickerModel?
 
     @ObservationIgnored private(set) var services: SessionServices?
-    /// The surface's model, saved from `configure:`.
-    @ObservationIgnored private var browserModel: BrowserWidgetModel?
+    /// The browser as it is now (its tabs and the one in front), kept from `services.browser.tabs`. Empty until the surface exists.
+    @ObservationIgnored private var browserState = BrowserTabsState()
+    @ObservationIgnored private var browserTasks: [Task<Void, Never>] = []
+    /// The last browser call, so the next one starts after it and the tabs end as the last call said.
+    @ObservationIgnored private var pendingBrowserCall: Task<Void, Never>?
     /// Tab id per tab key, stable for the widget's lifetime so tabs keep their page and selection.
     @ObservationIgnored private var tabIDs: [String: UUID] = [:]
     /// The title last pushed to each tab, so a page's own title isn't overwritten by every sync.
@@ -76,6 +79,7 @@ final class FirebaseConsoleWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        observeBrowser(services.browser)
         store.start()
     }
 
@@ -83,7 +87,11 @@ final class FirebaseConsoleWidget: Work42Widget, Work42BrowserBacked {
         store.stop()
         closeSelection()
         services = nil
-        browserModel = nil
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = []
+        pendingBrowserCall?.cancel()
+        pendingBrowserCall = nil
+        browserState = BrowserTabsState()
         tabIDs = [:]
         titles = [:]
         lastListedIds = []
@@ -106,8 +114,7 @@ final class FirebaseConsoleWidget: Work42Widget, Work42BrowserBacked {
         return BrowserSurfaceDeclaration(
             spec: BrowserSurfaceSpec(url: first.url, selector: "", dataStoreKey: "browser",
                                      title: product.title, icon: product.icon),
-            cacheKey: id,
-            configure: { [weak self] model in self?.surfaceMounted(model) })
+            cacheKey: id)
     }
 
     // MARK: Tabs
@@ -125,38 +132,80 @@ final class FirebaseConsoleWidget: Work42Widget, Work42BrowserBacked {
         syncTabs()
     }
 
-    /// Called from the surface's `configure:` (first mount, or a remount with a cached model).
-    func surfaceMounted(_ model: BrowserWidgetModel) {
-        browserModel = model
-        // A new surface seeds one tab for its first URL. Adopt it as the first tab so that page isn't loaded twice.
-        if model.tabs.count == 1, let seeded = model.tabs.first, let first = descriptors.first,
-           tabIDs[first.key] == nil, seeded.url == first.url {
-            tabIDs[first.key] = seeded.id
-        }
-        model.onNewTab = { [weak self] in self?.openSelection() }
-        model.onTabClosed = { [weak self] id in self?.tabClosed(id) }
+    /// Follows the widget's own browser through services.browser: its state, and the tab bar ("+" opens the selection window,
+    /// "×" hides the project).
+    private func observeBrowser(_ browser: any BrowserTabsService) {
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = [
+            Task { @MainActor [weak self] in
+                for await state in browser.tabs { self?.browserChanged(state) }
+            },
+            Task { @MainActor [weak self] in
+                for await event in browser.events {
+                    switch event {
+                    case .newTabRequested: self?.openSelection()
+                    case .tabClosed(let id): self?.tabClosed(id)
+                    @unknown default: break
+                    }
+                }
+            },
+        ]
+    }
+
+    /// The browser's state moved. When the surface has just come into being (its tabs went from none to some), match its tabs to
+    /// `descriptors` and show a link that was waiting for it.
+    private func browserChanged(_ state: BrowserTabsState) {
+        let surfaceAppeared = browserState.tabs.isEmpty && !state.tabs.isEmpty
+        browserState = state
+        guard surfaceAppeared else { return }
         syncTabs()
         applyPendingLink()
+    }
+
+    /// A new surface seeds one tab for its first URL. Adopt it as the first tab so that page isn't loaded twice.
+    private func adoptSeededTab() {
+        guard browserState.tabs.count == 1, let seeded = browserState.tabs.first, let first = descriptors.first,
+              tabIDs[first.key] == nil, seeded.url == first.url else { return }
+        tabIDs[first.key] = seeded.id
+    }
+
+    /// Runs `call` on this widget's browser after the previous one finished. A failure (no browser yet) changes nothing.
+    private func enqueue(_ call: @escaping @MainActor (any BrowserTabsService) async throws -> Void) {
+        guard let browser = services?.browser else { return }
+        let previous = pendingBrowserCall
+        pendingBrowserCall = Task { @MainActor in
+            await previous?.value
+            try? await call(browser)
+        }
     }
 
     /// Makes the browser's tabs match `descriptors`. Tabs are only replaced when the set of tab ids changes,
     /// and existing tabs are kept as they are, so the page and address the user is on survive a sync.
     private func syncTabs() {
-        guard let model = browserModel else { return }
         let wanted = descriptors
-        guard !wanted.isEmpty else { return }   // the surface is replaced by a message; it re-syncs when mounted again
+        guard !wanted.isEmpty else { return }   // the surface is replaced by a message; it re-syncs when it appears again
+        adoptSeededTab()
         let ids = wanted.map { tabID(for: $0.key) }
-        if model.tabs.map(\.id) != ids {
+        let current = browserState.tabs
+        if current.map(\.id) != ids {
             let tabs = zip(wanted, ids).map { descriptor, id in
-                model.tabs.first { $0.id == id }
+                current.first { $0.id == id }
                     ?? BrowserTab(id: id, url: descriptor.url, title: descriptor.title, icon: product.icon)
             }
-            model.replaceTabs(tabs)
+            enqueue { try await $0.setTabs(tabs) }
         }
         for (descriptor, id) in zip(wanted, ids) where titles[descriptor.key] != descriptor.title {
-            titles[descriptor.key] = descriptor.title
-            model.updateTab(id, title: descriptor.title)
+            let key = descriptor.key, title = descriptor.title
+            // Remembered once the browser took it, so a call made before the browser existed is tried again.
+            enqueue { [weak self] browser in
+                try await browser.updateTab(id, title: title, url: nil, icon: nil)
+                self?.titles[key] = title
+            }
         }
+    }
+
+    private func selectTab(_ id: UUID) {
+        enqueue { try await $0.selectTab(id) }
     }
 
     private func tabID(for key: String) -> UUID {
@@ -196,30 +245,30 @@ final class FirebaseConsoleWidget: Work42Widget, Work42BrowserBacked {
             pendingLink = nil
         case .selectListed(let projectId, let url):
             hidden.remove(projectId)
-            guard let model = browserModel else { return }
+            guard !browserState.tabs.isEmpty else { return }
             syncTabs()
             // The SDK can't load a URL into an existing tab, so a tab that isn't already on the link gets
             // replaced by a new one carrying it.
-            if model.tabs.first(where: { $0.id == tabID(for: projectId) })?.url != url {
+            if browserState.tabs.first(where: { $0.id == tabID(for: projectId) })?.url != url {
                 tabIDs[projectId] = UUID()
                 titles[projectId] = nil
                 linkURLs[projectId] = url
                 syncTabs()
             }
             linkURLs[projectId] = nil
-            model.selectTab(tabID(for: projectId))
+            selectTab(tabID(for: projectId))
             pendingLink = nil
         case .openTemporary(let tab):
             let key = FirebaseTabs.temporaryKey(tab.projectId)
             let changed = temporary != tab
             temporary = tab
-            guard let model = browserModel else { return }
+            guard !browserState.tabs.isEmpty else { return }
             if changed, tabIDs[key] != nil {
                 tabIDs[key] = UUID()
                 titles[key] = nil
             }
             syncTabs()
-            model.selectTab(tabID(for: key))
+            selectTab(tabID(for: key))
             pendingLink = nil
         }
     }

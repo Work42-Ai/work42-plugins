@@ -64,7 +64,7 @@ The button appears in the action center while `github-prs` is active. It is:
   GitHub page.
 
 Its enabled state is driven by `WidgetIntentSpec.isEnabled` — a render-time
-closure that reads the current URL from the widget's `BrowserWidgetModel`.
+closure that reads the current URL from the widget's browser (`services.browser`).
 
 Clicking the enabled button maps the URL to GitHub's stable
 `refs/pull/<number>/head` git ref, then fires:

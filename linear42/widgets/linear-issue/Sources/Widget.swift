@@ -90,7 +90,11 @@ final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
     var resolveError: String?
     var cliError: String?
     var isLoading = false
-    @ObservationIgnored var browserModel: BrowserWidgetModel?
+    /// The browser as it is now (its tabs and the one in front), kept from `services.browser.tabs`.
+    private(set) var browserState = BrowserTabsState()
+    @ObservationIgnored private var browserTasks: [Task<Void, Never>] = []
+    /// The last `setTabs` / `selectTab` call, so the next one starts after it and the tabs end as the last call said.
+    @ObservationIgnored private var pendingTabsCall: Task<Void, Never>?
     @ObservationIgnored private var tabIDs: [String: UUID] = [:]
 
     private var services: SessionServices?
@@ -99,6 +103,7 @@ final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        observeBrowser(services.browser)
         isLoading = true
         Task { @MainActor [weak self] in
             await self?.refresh()
@@ -108,8 +113,33 @@ final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
 
     func deactivate() {
         services = nil
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = []
+        pendingTabsCall?.cancel()
+        pendingTabsCall = nil
+        browserState = BrowserTabsState()
         isLoading = false
         BrowserSurfaceCache.shared.teardown(key: id)
+    }
+
+    /// Follows the widget's own browser: its state, and the tab bar. The "+" has nothing to add (issues attach from Open Link or
+    /// the Planner), so it is heard and ignored; "×" asks what to do with the tab.
+    private func observeBrowser(_ browser: any BrowserTabsService) {
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = [
+            Task { @MainActor [weak self] in
+                for await state in browser.tabs { self?.browserState = state }
+            },
+            Task { @MainActor [weak self] in
+                for await event in browser.events {
+                    switch event {
+                    case .newTabRequested: break
+                    case .tabClosed(let tabID): self?.tabClosed(tabID)
+                    @unknown default: break
+                    }
+                }
+            },
+        ]
     }
 
     func makeView(services: SessionServices) -> AnyView {
@@ -133,15 +163,7 @@ final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
                 title: "Issue Details",
                 icon: "list.bullet.rectangle"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in
-                guard let self else { return }
-                self.browserModel = model
-                self.syncTabs()
-                // The chrome's + has nothing to add: issues attach from Open Link or the Planner.
-                model.onNewTab = {}
-                model.onTabClosed = { [weak self] tabID in self?.tabClosed(tabID) }
-            }
+            cacheKey: id
         )
     }
 
@@ -219,14 +241,27 @@ final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
 
     /// One tab per attached issue, then the temporary ones (a dashed icon marks them as not attached).
     func syncTabs() {
-        guard let model = browserModel else { return }
         let tabs = displayedTabKeys.compactMap { key -> BrowserTab? in
             guard let url = pageURL(forKey: key) else { return nil }
             let attached = attachedKeys.contains(key)
             return BrowserTab(id: stableTabID(for: key), url: url, title: key,
                               icon: attached ? "list.bullet.rectangle" : "circle.dashed")
         }
-        model.replaceTabs(tabs)
+        enqueue { try await $0.setTabs(tabs) }
+    }
+
+    private func selectTab(_ id: UUID) {
+        enqueue { try await $0.selectTab(id) }
+    }
+
+    /// Runs `call` on this widget's browser after the previous one finished. A failure (no browser yet) changes nothing.
+    private func enqueue(_ call: @escaping @MainActor (any BrowserTabsService) async throws -> Void) {
+        guard let browser = services?.browser else { return }
+        let previous = pendingTabsCall
+        pendingTabsCall = Task { @MainActor in
+            await previous?.value
+            try? await call(browser)
+        }
     }
 
     /// Open Link handed this widget an issue URL: select an attached issue's tab, or open a temporary tab
@@ -242,7 +277,7 @@ final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
             attachPromptKey = key
         }
         syncTabs()
-        browserModel?.selectTab(stableTabID(for: key))
+        selectTab(stableTabID(for: key))
     }
 
     /// The user closed `tabID`'s tab: confirm a detach, refuse the last attached issue, drop a temporary tab.
@@ -303,7 +338,7 @@ final class LinearIssueWidget: Work42Widget, Work42BrowserBacked {
         temporary.removeAll { $0.key == key }
         attachPromptKey = nil
         syncTabs()
-        browserModel?.selectTab(stableTabID(for: key))
+        selectTab(stableTabID(for: key))
     }
 
     func dismissAttachPrompt() { attachPromptKey = nil }
@@ -376,11 +411,13 @@ private struct LinearIssueMainView: View {
         } else if let declaration = widget.browserSurface {
             VStack(spacing: 0) {
                 if let key = widget.attachPromptKey,
-                   widget.browserModel?.activeTabId == widget.stableTabID(for: key) {
+                   widget.browserState.activeTabId == widget.stableTabID(for: key) {
                     LinearAttachBar(key: key, widget: widget)
                 }
                 BrowserSurface(declaration)
             }
+            // The surface is showing, so the browser can be built: set its tabs now, whatever order loading finished in.
+            .task { widget.syncTabs() }
             .alert(
                 "Detach \(widget.pendingDetachKey ?? "") from this session?",
                 isPresented: Binding(

@@ -125,7 +125,9 @@ final class LinearSpecWidget: Work42Widget, Work42BrowserBacked {
     var docs: [(key: String?, url: URL)] = []
     /// Documents opened through a link that no attached issue holds.
     var temporary: [URL] = []
-    @ObservationIgnored var browserModel: BrowserWidgetModel?
+    @ObservationIgnored private var browserTask: Task<Void, Never>?
+    /// The last `setTabs` / `selectTab` call, so the next one starts after it and the tabs end as the last call said.
+    @ObservationIgnored private var pendingTabsCall: Task<Void, Never>?
     @ObservationIgnored private var tabIDs: [String: UUID] = [:]
 
     /// One tab per stored document, then the temporary ones.
@@ -138,13 +140,29 @@ final class LinearSpecWidget: Work42Widget, Work42BrowserBacked {
         return new
     }
 
+    /// Shows one tab per document, through services.browser. The first call also builds the browser from `browserSurface` when no
+    /// view has. A no-op while there is no document to show.
     func syncTabs() {
-        guard let model = browserModel else { return }
-        model.replaceTabs(tabs.map { tab in
+        let shown = tabs.map { tab in
             BrowserTab(id: stableTabID(for: tab.slugID), url: tab.url,
                        title: documentTabTitle(emoji: "📐", kind: "Spec", key: tab.key),
                        icon: "doc.text")
-        })
+        }
+        enqueue { try await $0.setTabs(shown) }
+    }
+
+    private func selectTab(_ id: UUID) {
+        enqueue { try await $0.selectTab(id) }
+    }
+
+    /// Runs `call` on this widget's browser after the previous one finished. A failure (no browser yet) changes nothing.
+    private func enqueue(_ call: @escaping @MainActor (any BrowserTabsService) async throws -> Void) {
+        guard let browser = services?.browser else { return }
+        let previous = pendingTabsCall
+        pendingTabsCall = Task { @MainActor in
+            await previous?.value
+            try? await call(browser)
+        }
     }
 
     /// Open Link handed this widget a document URL: select its tab, or open it in a temporary one.
@@ -152,7 +170,7 @@ final class LinearSpecWidget: Work42Widget, Work42BrowserBacked {
         if !tabs.contains(where: { $0.url == url }) { temporary.append(url) }
         syncTabs()
         let slugID = documentSlugID(from: url) ?? url.absoluteString
-        browserModel?.selectTab(stableTabID(for: slugID))
+        selectTab(stableTabID(for: slugID))
     }
 
     /// A tab was closed: a temporary one goes; a stored document's tab comes back (its issue still holds it).
@@ -200,12 +218,32 @@ final class LinearSpecWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        observeBrowser(services.browser)
         Task { @MainActor [weak self] in await self?.refresh() }
     }
 
     func deactivate() {
         services = nil
+        browserTask?.cancel()
+        browserTask = nil
+        pendingTabsCall?.cancel()
+        pendingTabsCall = nil
         BrowserSurfaceCache.shared.teardown(key: id)
+    }
+
+    /// Hears the tab bar through services.browser. Documents come from the issues' storage, so "+" has nothing to add; "×"
+    /// brings a stored document's tab back.
+    private func observeBrowser(_ browser: any BrowserTabsService) {
+        browserTask?.cancel()
+        browserTask = Task { @MainActor [weak self] in
+            for await event in browser.events {
+                switch event {
+                case .newTabRequested: break
+                case .tabClosed(let tabID): self?.tabClosed(tabID)
+                @unknown default: break
+                }
+            }
+        }
     }
 
     func makeView(services: SessionServices) -> AnyView {
@@ -224,15 +262,7 @@ final class LinearSpecWidget: Work42Widget, Work42BrowserBacked {
                 title: "Spec Document",
                 icon: "doc.text"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in
-                guard let self else { return }
-                self.browserModel = model
-                self.syncTabs()
-                // Documents come from the issues' storage, so + has nothing to add.
-                model.onNewTab = {}
-                model.onTabClosed = { [weak self] tabID in self?.tabClosed(tabID) }
-            }
+            cacheKey: id
         )
     }
 
@@ -364,6 +394,7 @@ private struct LinearSpecView: View {
             }
             if let declaration = widget.browserSurface {
                 BrowserSurface(declaration)
+                .task { widget.syncTabs() }
                 .onChange(of: widget.tabs.map(\.slugID)) { _, _ in widget.syncTabs() }
             } else {
                 VStack(alignment: .leading, spacing: DT.s8) {

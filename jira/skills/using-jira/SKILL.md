@@ -64,7 +64,7 @@ The button appears in the action center while `jira-my-issues` is active. It is:
   page.
 
 Its enabled state is driven by `WidgetIntentSpec.isEnabled` — a render-time
-closure that reads the current URL from the widget's `BrowserWidgetModel`.
+closure that reads the current URL from the widget's browser (`services.browser`).
 
 Clicking the enabled button fires the generic session-open intent, naming the task
 after the issue key parsed from the URL:
