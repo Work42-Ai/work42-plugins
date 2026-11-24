@@ -171,8 +171,9 @@ final class JiraWidget: Work42Widget, Work42BrowserBacked {
     // MARK: - Internal (not observed)
 
     private var services: SessionServices?
-    /// The `BrowserWidgetModel` stored from the `configure:` closure — for tab sync.
-    var browserModel: BrowserWidgetModel?
+    @ObservationIgnored private var browserTasks: [Task<Void, Never>] = []
+    /// The last `setTabs` / `selectTab` call, so the next one starts after it and the tabs end as the last call said.
+    @ObservationIgnored private var pendingTabsCall: Task<Void, Never>?
     /// Stable UUID → URL mapping so tab close → detach works.
     private var tabIDs: [String: UUID] = [:]
 
@@ -180,6 +181,7 @@ final class JiraWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        observeBrowser(services.browser)
         Task { @MainActor [weak self] in
             await self?.loadAndSyncIssues()
         }
@@ -190,10 +192,29 @@ final class JiraWidget: Work42Widget, Work42BrowserBacked {
 
     func deactivate() {
         services = nil
-        browserModel = nil
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = []
+        pendingTabsCall?.cancel()
+        pendingTabsCall = nil
         openedLinkURL = nil
         isLoading = false
         BrowserSurfaceCache.shared.teardown(key: id)
+    }
+
+    /// Answers the tab bar through services.browser: "+" opens the attach form, "×" detaches the issue.
+    private func observeBrowser(_ browser: any BrowserTabsService) {
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = [
+            Task { @MainActor [weak self] in
+                for await event in browser.events {
+                    switch event {
+                    case .newTabRequested: self?.showingAttachForm = true
+                    case .tabClosed(let tabID): await self?.detach(tabID: tabID)
+                    @unknown default: break
+                    }
+                }
+            },
+        ]
     }
 
     // MARK: - makeView
@@ -217,21 +238,7 @@ final class JiraWidget: Work42Widget, Work42BrowserBacked {
                 title: "Jira",
                 icon: "ticket"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in
-                guard let self else { return }
-                self.browserModel = model
-                // Sync all issue tabs (replace the seeded first tab from spec).
-                self.syncTabs()
-                // + opens the attach form.
-                model.onNewTab = { [weak self] in
-                    self?.showingAttachForm = true
-                }
-                // × detaches the issue.
-                model.onTabClosed = { [weak self] tabID in
-                    Task { await self?.detach(tabID: tabID) }
-                }
-            }
+            cacheKey: id
         )
     }
 
@@ -294,28 +301,35 @@ final class JiraWidget: Work42Widget, Work42BrowserBacked {
         issues = latest     // .onChange(displayedURLs) re-runs syncTabs()
         syncTabs()          // ensure the new tab exists before we select it
         if hadTabs, let newest = addedURLs.last {
-            browserModel?.selectTab(stableTabID(for: newest))
+            selectTab(stableTabID(for: newest))
         }
     }
 
     // MARK: - Tab sync
 
-    /// The surface's model: the one `configure:` saved, else the cache entry under this widget's scope. The SDK
-    /// keys each surface by `"<session id or home>/<widget id>"`, so the unscoped lookup finds nothing.
-    private func liveBrowserModel() -> BrowserWidgetModel? {
-        browserModel ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")
-    }
-
-    /// Sync the BrowserSurface model's tab list from `displayedURLs` — one tab
-    /// per attached issue (plus a transient opened-link tab).
+    /// Show one tab per attached issue (plus a transient opened-link tab), through services.browser. The first call also builds
+    /// the browser from `browserSurface` when no view has. A no-op while there is no issue to show.
     func syncTabs() {
-        guard let model = liveBrowserModel() else { return }
         let tabs: [BrowserTab] = displayedURLs.map { url in
             let urlString = url.absoluteString
             let label = keyForURL(urlString) ?? (url.host ?? urlString)
             return BrowserTab(id: stableTabID(for: urlString), url: url, title: label, icon: "ticket")
         }
-        model.replaceTabs(tabs)
+        enqueue { try await $0.setTabs(tabs) }
+    }
+
+    private func selectTab(_ id: UUID) {
+        enqueue { try await $0.selectTab(id) }
+    }
+
+    /// Runs `call` on this widget's browser after the previous one finished. A failure (no browser yet) changes nothing.
+    private func enqueue(_ call: @escaping @MainActor (any BrowserTabsService) async throws -> Void) {
+        guard let browser = services?.browser else { return }
+        let previous = pendingTabsCall
+        pendingTabsCall = Task { @MainActor in
+            await previous?.value
+            try? await call(browser)
+        }
     }
 
     /// Attached issue URLs followed by the transient Open-Link destination, if
@@ -341,7 +355,7 @@ final class JiraWidget: Work42Widget, Work42BrowserBacked {
     func openLink(_ url: URL) {
         openedLinkURL = url
         syncTabs()
-        browserModel?.selectTab(stableTabID(for: url.absoluteString))
+        selectTab(stableTabID(for: url.absoluteString))
     }
 
     func stableTabID(for url: String) -> UUID {
@@ -833,7 +847,7 @@ private struct JiraBrandMark: View {
 // reference_cdecl_mainactor_assumeisolated_pointer_sendable in MEMORY.md).
 
 @_cdecl("work42_widget_sdk_version")
-public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }
+public func work42_widget_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
 
 @_cdecl("work42_widget_main")
 public func work42_widget_main() -> UnsafeMutableRawPointer {

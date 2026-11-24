@@ -54,7 +54,7 @@ private nonisolated func shellQuote(_ value: String) -> String {
 // cannot return an UnsafeMutableRawPointer directly (not Sendable).
 
 @_cdecl("work42_plugin_sdk_version")
-public func work42_plugin_sdk_version() -> Int32 { WidgetSDK.abiVersion }
+public func work42_plugin_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
 
 @_cdecl("work42_plugin_main")
 public func work42_plugin_main() -> UnsafeMutableRawPointer {

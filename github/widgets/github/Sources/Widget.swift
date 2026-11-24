@@ -804,10 +804,9 @@ final class GitHubPRWidget: Work42Widget, Work42BrowserBacked {
 
     private var services: SessionServices?
 
-    /// The `BrowserWidgetModel` stored from the `configure:` closure of `BrowserSurface`.
-    /// Used by the open-link intent to select the matching tab. Set to nil on
-    /// `deactivate()`.
-    var browserModel: BrowserWidgetModel?
+    @ObservationIgnored private var browserTasks: [Task<Void, Never>] = []
+    /// The last `setTabs` / `selectTab` call, so the next one starts after it and the tabs end as the last call said.
+    @ObservationIgnored private var pendingTabsCall: Task<Void, Never>?
 
     /// Stable UUID → URL mapping so tab close → detach works.
     private var tabIDs: [String: UUID] = [:]
@@ -820,6 +819,7 @@ final class GitHubPRWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        observeBrowser(services.browser)
         Task { @MainActor [weak self] in
             await self?.loadAndSyncPRs()
         }
@@ -836,9 +836,28 @@ final class GitHubPRWidget: Work42Widget, Work42BrowserBacked {
     func deactivate() {
         // View-scoped teardown only — the background agent manages its own lifecycle.
         services = nil
-        browserModel = nil
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = []
+        pendingTabsCall?.cancel()
+        pendingTabsCall = nil
         openedLinkURL = nil
         BrowserSurfaceCache.shared.teardown(key: id)
+    }
+
+    /// Answers the tab bar through services.browser: "+" opens the attach form, "×" detaches the PR.
+    private func observeBrowser(_ browser: any BrowserTabsService) {
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = [
+            Task { @MainActor [weak self] in
+                for await event in browser.events {
+                    switch event {
+                    case .newTabRequested: self?.showingAttachForm = true
+                    case .tabClosed(let tabID): await self?.detach(tabID: tabID)
+                    @unknown default: break
+                    }
+                }
+            },
+        ]
     }
 
     // MARK: - makeView
@@ -865,22 +884,7 @@ final class GitHubPRWidget: Work42Widget, Work42BrowserBacked {
                 title: "GitHub PR",
                 icon: "arrow.triangle.pull"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in
-                guard let self else { return }
-                // Store the model so the open-link intent can select tabs.
-                self.browserModel = model
-                // Sync all PR tabs (replace the seeded first tab from spec).
-                self.syncTabs()
-                // + opens the attach form.
-                model.onNewTab = { [weak self] in
-                    self?.showingAttachForm = true
-                }
-                // × removes the PR from storage.
-                model.onTabClosed = { [weak self] tabID in
-                    Task { await self?.detach(tabID: tabID) }
-                }
-            }
+            cacheKey: id
         )
     }
 
@@ -929,28 +933,36 @@ final class GitHubPRWidget: Work42Widget, Work42BrowserBacked {
         prs = latest        // .onChange(displayedURLs) re-runs syncTabs()
         syncTabs()          // ensure the new tab exists before we select it
         if hadTabs, let newest = addedURLs.last {
-            browserModel?.selectTab(stableTabID(for: newest))
+            selectTab(stableTabID(for: newest))
         }
     }
 
     // MARK: - Tab sync
 
-    /// The surface's model: the one `configure:` saved, else the cache entry under this widget's scope. The SDK
-    /// keys each surface by `"<session id or home>/<widget id>"`, so the unscoped lookup finds nothing.
-    private func liveBrowserModel() -> BrowserWidgetModel? {
-        browserModel ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")
-    }
-
-    /// Sync the BrowserSurface model's tab list from the current `prs` array.
+    /// Show one tab per displayed PR, through services.browser. The first call also builds the browser from `browserSurface`
+    /// when no view has, so the tabs are right before the widget is on screen. A no-op while there is no PR to show.
     func syncTabs() {
-        guard let model = liveBrowserModel() else { return }
         let tabs: [BrowserTab] = displayedURLs.map { url in
             let urlString = url.absoluteString
             let ref = parseGitHubPRRef(urlString)
             let label = ref?.shortName ?? urlString
             return BrowserTab(id: stableTabID(for: urlString), url: url, title: label, icon: "arrow.triangle.pull")
         }
-        model.replaceTabs(tabs)
+        enqueue { try await $0.setTabs(tabs) }
+    }
+
+    private func selectTab(_ id: UUID) {
+        enqueue { try await $0.selectTab(id) }
+    }
+
+    /// Runs `call` on this widget's browser after the previous one finished. A failure (no browser yet) changes nothing.
+    private func enqueue(_ call: @escaping @MainActor (any BrowserTabsService) async throws -> Void) {
+        guard let browser = services?.browser else { return }
+        let previous = pendingTabsCall
+        pendingTabsCall = Task { @MainActor in
+            await previous?.value
+            try? await call(browser)
+        }
     }
 
     /// Stored PR URLs followed by the transient Open Link destination, if it
@@ -967,7 +979,7 @@ final class GitHubPRWidget: Work42Widget, Work42BrowserBacked {
     func openLink(_ url: URL) {
         openedLinkURL = url
         syncTabs()
-        browserModel?.selectTab(stableTabID(for: url.absoluteString))
+        selectTab(stableTabID(for: url.absoluteString))
     }
 
     func stableTabID(for url: String) -> UUID {
@@ -1111,8 +1123,7 @@ private struct PRBrowserView: View {
                     spec: declaration.spec,
                     cacheKey: declaration.cacheKey,
                     services: services,
-                    selectionResolver: makeGitHubSelectionResolver(services: services),
-                    configure: declaration.configure
+                    selectionResolver: makeGitHubSelectionResolver(services: services)
                 )
             }
         }
@@ -1344,7 +1355,7 @@ private struct GitHubBrandMark: View {
 // reference_cdecl_mainactor_assumeisolated_pointer_sendable in MEMORY.md).
 
 @_cdecl("work42_widget_sdk_version")
-public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }
+public func work42_widget_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
 
 @_cdecl("work42_widget_main")
 public func work42_widget_main() -> UnsafeMutableRawPointer {

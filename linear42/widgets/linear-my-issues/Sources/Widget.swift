@@ -48,10 +48,10 @@ final class LinearMyIssuesWidget: Work42Widget, Work42BrowserBacked {
 
     private var services: SessionServices?
 
-    /// Stashed from the BrowserSurface `configure:` closure so the action-area intent
-    /// can read the page URL. Ignored by observation: the model is @Observable itself.
-    @ObservationIgnored
-    fileprivate var browserModel: BrowserWidgetModel?
+    /// The browser as it is now (its tabs and the page showing), kept from `services.browser.tabs`, so the action-area intent
+    /// can read the page URL. Observed, so the button follows the page.
+    private(set) var browserState = BrowserTabsState()
+    @ObservationIgnored private var browserTask: Task<Void, Never>?
 
     // MARK: Intents
 
@@ -89,7 +89,7 @@ final class LinearMyIssuesWidget: Work42Widget, Work42BrowserBacked {
     }
 
     private var currentURL: String {
-        browserModel?.urlDraft ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")?.urlDraft ?? ""
+        browserState.address
     }
 
     /// `"<KEY>: <title>"` and Linear's `branchName` from one fail-soft `linear api` lookup, else the bare
@@ -106,11 +106,18 @@ final class LinearMyIssuesWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        let browser = services.browser
+        browserTask?.cancel()
+        browserTask = Task { @MainActor [weak self] in
+            for await state in browser.tabs { self?.browserState = state }
+        }
     }
 
     func deactivate() {
         services = nil
-        browserModel = nil
+        browserTask?.cancel()
+        browserTask = nil
+        browserState = BrowserTabsState()
         BrowserSurfaceCache.shared.teardown(key: id)
     }
 
@@ -143,8 +150,7 @@ final class LinearMyIssuesWidget: Work42Widget, Work42BrowserBacked {
                 title: "Linear",
                 icon: "list.bullet.rectangle"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in self?.browserModel = model }
+            cacheKey: id
         )
     }
 }
@@ -195,7 +201,7 @@ private struct LinearMyIssuesView: View {
 // MARK: - Widget entry-point ABI
 
 @_cdecl("work42_widget_sdk_version")
-public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }
+public func work42_widget_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
 
 @_cdecl("work42_widget_main")
 public func work42_widget_main() -> UnsafeMutableRawPointer {

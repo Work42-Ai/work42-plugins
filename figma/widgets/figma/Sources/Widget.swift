@@ -133,8 +133,9 @@ final class FigmaWidget: Work42Widget, Work42BrowserBacked {
     // MARK: - Internal (not observed)
 
     private var services: SessionServices?
-    /// The `BrowserWidgetModel` stored from the `configure:` closure — for tab sync.
-    var browserModel: BrowserWidgetModel?
+    @ObservationIgnored private var browserTasks: [Task<Void, Never>] = []
+    /// The last `setTabs` / `selectTab` call, so the next one starts after it and the tabs end as the last call said.
+    @ObservationIgnored private var pendingTabsCall: Task<Void, Never>?
     /// Stable UUID → URL mapping so tab close → detach works.
     private var tabIDs: [String: UUID] = [:]
 
@@ -142,6 +143,7 @@ final class FigmaWidget: Work42Widget, Work42BrowserBacked {
 
     func activate(services: SessionServices) {
         self.services = services
+        observeBrowser(services.browser)
         Task { @MainActor [weak self] in
             await self?.loadAndSyncLinks()
         }
@@ -149,10 +151,29 @@ final class FigmaWidget: Work42Widget, Work42BrowserBacked {
 
     func deactivate() {
         services = nil
-        browserModel = nil
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = []
+        pendingTabsCall?.cancel()
+        pendingTabsCall = nil
         openedLinkURL = nil
         isLoading = false
         BrowserSurfaceCache.shared.teardown(key: id)
+    }
+
+    /// Answers the tab bar through services.browser: "+" opens the attach form, "×" detaches the file.
+    private func observeBrowser(_ browser: any BrowserTabsService) {
+        browserTasks.forEach { $0.cancel() }
+        browserTasks = [
+            Task { @MainActor [weak self] in
+                for await event in browser.events {
+                    switch event {
+                    case .newTabRequested: self?.showingAttachForm = true
+                    case .tabClosed(let tabID): await self?.detach(tabID: tabID)
+                    @unknown default: break
+                    }
+                }
+            },
+        ]
     }
 
     func makeView(services: SessionServices) -> AnyView {
@@ -171,18 +192,7 @@ final class FigmaWidget: Work42Widget, Work42BrowserBacked {
                 title: "Figma",
                 icon: "square.on.square.dashed"
             ),
-            cacheKey: id,
-            configure: { [weak self] model in
-                guard let self else { return }
-                self.browserModel = model
-                self.syncTabs()
-                model.onNewTab = { [weak self] in
-                    self?.showingAttachForm = true
-                }
-                model.onTabClosed = { [weak self] tabID in
-                    Task { await self?.detach(tabID: tabID) }
-                }
-            }
+            cacheKey: id
         )
     }
 
@@ -224,28 +234,35 @@ final class FigmaWidget: Work42Widget, Work42BrowserBacked {
         links = latest
         syncTabs()
         if hadTabs, let newest = addedURLs.last {
-            browserModel?.selectTab(stableTabID(for: newest))
+            selectTab(stableTabID(for: newest))
         }
     }
 
     // MARK: - Tab sync
 
-    /// The surface's model: the one `configure:` saved, else the cache entry under this widget's scope. The SDK
-    /// keys each surface by `"<session id or home>/<widget id>"`, so the unscoped lookup finds nothing.
-    private func liveBrowserModel() -> BrowserWidgetModel? {
-        browserModel ?? BrowserSurface.model(forKey: id, scope: services?.sessionId ?? "home")
-    }
-
-    /// Sync the BrowserSurface model's tab list from `displayedURLs` — one tab
-    /// per attached file (plus a transient opened-link tab).
+    /// Show one tab per attached file (plus a transient opened-link tab), through services.browser. The first call also builds
+    /// the browser from `browserSurface` when no view has. A no-op while there is no file to show.
     func syncTabs() {
-        guard let model = liveBrowserModel() else { return }
         let tabs: [BrowserTab] = displayedURLs.map { url in
             let urlString = url.absoluteString
             let label = nameForURL(urlString) ?? (url.host ?? urlString)
             return BrowserTab(id: stableTabID(for: urlString), url: url, title: label, icon: "square.on.square.dashed")
         }
-        model.replaceTabs(tabs)
+        enqueue { try await $0.setTabs(tabs) }
+    }
+
+    private func selectTab(_ id: UUID) {
+        enqueue { try await $0.selectTab(id) }
+    }
+
+    /// Runs `call` on this widget's browser after the previous one finished. A failure (no browser yet) changes nothing.
+    private func enqueue(_ call: @escaping @MainActor (any BrowserTabsService) async throws -> Void) {
+        guard let browser = services?.browser else { return }
+        let previous = pendingTabsCall
+        pendingTabsCall = Task { @MainActor in
+            await previous?.value
+            try? await call(browser)
+        }
     }
 
     /// Attached file URLs followed by the transient Open-Link destination, if it
@@ -271,7 +288,7 @@ final class FigmaWidget: Work42Widget, Work42BrowserBacked {
     func openLink(_ url: URL) {
         openedLinkURL = url
         syncTabs()
-        browserModel?.selectTab(stableTabID(for: url.absoluteString))
+        selectTab(stableTabID(for: url.absoluteString))
     }
 
     func stableTabID(for url: String) -> UUID {
@@ -386,6 +403,8 @@ private struct FigmaBrowserView: View {
                 BrowserSurface(declaration)
             }
         }
+        // The surface is showing, so the browser can be built: set its tabs now, whatever order loading finished in.
+        .task { widget.syncTabs() }
         .onChange(of: widget.displayedURLs.map(\.absoluteString)) { _, _ in
             widget.syncTabs()
         }
@@ -598,7 +617,7 @@ struct FigmaBrandMark: View {
 // cannot return an UnsafeMutableRawPointer directly (not Sendable).
 
 @_cdecl("work42_widget_sdk_version")
-public func work42_widget_sdk_version() -> Int32 { WidgetSDK.abiVersion }
+public func work42_widget_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
 
 @_cdecl("work42_widget_main")
 public func work42_widget_main() -> UnsafeMutableRawPointer {
