@@ -12,4 +12,7 @@ author: work42
 sdk_version: 3.3.0
 runtime: extension
 extension_bundle_id: com.work42.task42.extension
+file_access:
+  - path: ~/.work42/artifacts
+    mode: read-write
 requires: [github]

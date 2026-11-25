@@ -9,4 +9,6 @@ extension_bundle_id: com.work42.flow42.extension
 file_access:
   - path: ~/.work42/flows
     mode: read
+  - path: ~/.work42/artifacts
+    mode: read
 requires: []
