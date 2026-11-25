@@ -499,24 +499,21 @@ final class GitHubBackgroundAgent: WidgetBackgroundAgent {
             try? await Task.sleep(nanoseconds: 2_000_000_000)
             while !Task.isCancelled {
                 await self?.poll(services: services)
-                // Cadence is the app-level PR-watch interval preference, read
-                // live each cycle so a change in Settings → Plugins applies on
-                // the next poll (defaults to 60s when unset).
-                let seconds = Self.pollIntervalSeconds()
+                // Cadence is the PR-watch interval from Settings → Plugins, read live each cycle so a change applies
+                // on the next poll (defaults to 60s when the host has not written one).
+                let seconds = await Self.pollIntervalSeconds(storage: services.storage)
                 try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
             }
         }
     }
 
-    /// Poll cadence in seconds. Reads the app-wide PR-watch interval preference
-    /// (`prWatch.pollIntervalSeconds`, the same `@AppStorage` key the
-    /// Settings → Plugins "PR-watch interval" row writes), clamped to a sane
-    /// range. Falls back to 60s when unset or out of range. The widget runs
-    /// in-process, so `UserDefaults.standard` is the app's own defaults domain.
-    private static func pollIntervalSeconds() -> Int {
-        let stored = UserDefaults.standard.integer(forKey: "prWatch.pollIntervalSeconds")
-        guard stored > 0 else { return 60 }
-        return min(3600, max(15, stored))
+    /// Poll cadence in seconds. The host writes the app-wide PR-watch interval (the Settings → Plugins row) into this
+    /// session's `github` storage as `poll_interval_seconds` when the agent starts and whenever the row changes: the
+    /// extension runs in its own sandbox and cannot read the app's defaults. Clamped to a sane range; 60s when absent.
+    static func pollIntervalSeconds(storage: any WidgetStorageService) async -> Int {
+        guard case .number(let stored)? = try? await storage.get(namespace: "github", key: "poll_interval_seconds"),
+              stored > 0 else { return 60 }
+        return min(3600, max(15, Int(stored)))
     }
 
     func stop() {
