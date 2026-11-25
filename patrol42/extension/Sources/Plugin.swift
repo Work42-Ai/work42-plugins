@@ -143,7 +143,7 @@ final class Patrol42Hooks: Work42SessionHooks {
     static func matchRepo(
         _ pr: PR, under worktreePath: String, shell: any WidgetShellService
     ) async throws -> String? {
-        for candidate in repoCandidates(under: worktreePath) {
+        for candidate in try await repoCandidates(under: worktreePath, shell: shell) {
             let result = try await shell.run(
                 command: "git -C \(shellQuote(candidate)) config --get remote.origin.url"
             )
@@ -157,22 +157,18 @@ final class Patrol42Hooks: Work42SessionHooks {
     /// Candidate repo directories: every depth-1 child of the container that
     /// holds a `.git` (multi-repo workspaces), plus the container itself when
     /// it is a lone repo. Absolute paths.
-    static func repoCandidates(under worktreePath: String) -> [String] {
-        let fm = FileManager.default
-        var candidates: [String] = []
-        if let children = try? fm.contentsOfDirectory(atPath: worktreePath) {
-            for name in children.sorted() where !name.hasPrefix(".") {
-                let child = (worktreePath as NSString).appendingPathComponent(name)
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: child, isDirectory: &isDir), isDir.boolValue else { continue }
-                if fm.fileExists(atPath: (child as NSString).appendingPathComponent(".git")) {
-                    candidates.append(child)
-                }
-            }
-        }
-        if candidates.isEmpty,
-           fm.fileExists(atPath: (worktreePath as NSString).appendingPathComponent(".git")) {
-            candidates.append(worktreePath)
+    ///
+    /// Runs through the hook context's shell: the extension runs in its own sandbox and cannot read the session's
+    /// folder itself.
+    static func repoCandidates(under worktreePath: String, shell: any WidgetShellService) async throws -> [String] {
+        let quoted = shellQuote(worktreePath)
+        // The shell's glob skips dot-entries and lists directories only (`*/`), in name order.
+        let children = try await shell.run(
+            command: "for d in \(quoted)/*/; do [ -e \"${d}.git\" ] && printf '%s\\n' \"${d%/}\"; done; true")
+        var candidates = children.stdout.split(separator: "\n").map(String.init)
+        if candidates.isEmpty {
+            let container = try await shell.run(command: "[ -e \(quoted)/.git ]")
+            if container.exitCode == 0 { candidates.append(worktreePath) }
         }
         return candidates
     }
@@ -199,23 +195,4 @@ final class Patrol42Hooks: Work42SessionHooks {
     static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
-}
-
-// MARK: - Plugin entry-point ABI
-
-// The two @_cdecl symbols the app's dlopen/dlsym loader expects (mirrors
-// task42's work42_plugin_main / work42_plugin_sdk_version pair).
-// `nonisolated(unsafe)` local is required because MainActor.assumeIsolated
-// cannot return an UnsafeMutableRawPointer directly (not Sendable).
-
-@_cdecl("work42_plugin_sdk_version")
-public func work42_plugin_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
-
-@_cdecl("work42_plugin_main")
-public func work42_plugin_main() -> UnsafeMutableRawPointer {
-    nonisolated(unsafe) var result: UnsafeMutableRawPointer!
-    MainActor.assumeIsolated {
-        result = PluginEntryPoint.register(Patrol42Hooks())
-    }
-    return result
 }

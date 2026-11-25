@@ -591,24 +591,6 @@ private struct JiraBrandMark: View {
     }
 }
 
-// MARK: - Widget entry-point ABI
-
-// The two @_cdecl symbols the app's dlopen/dlsym loader expects.
-// `nonisolated(unsafe)` local is required because MainActor.assumeIsolated
-// cannot return an UnsafeMutableRawPointer directly (not Sendable — see
-// reference_cdecl_mainactor_assumeisolated_pointer_sendable in MEMORY.md).
-
-@_cdecl("work42_widget_sdk_version")
-public func work42_widget_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
-
-@_cdecl("work42_widget_main")
-public func work42_widget_main() -> UnsafeMutableRawPointer {
-    nonisolated(unsafe) var result: UnsafeMutableRawPointer!
-    MainActor.assumeIsolated {
-        result = WidgetEntryPoint.register(JiraBoardWidget())
-    }
-    return result
-}
 
 // PATH enrichment for the fail-soft `acli` calls (session-name lookup and the
 // assigned-count agent). The app may be launched from Finder with a minimal

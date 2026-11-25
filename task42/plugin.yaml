@@ -1,6 +1,6 @@
 manifest_version: 2
 name: task42
-version: 1.0.2
+version: 1.1.0
 description: >
   The built-in Task session, extracted into a first-party plugin. Provides
   the task42 workflow (Planning -> In-Progress -> Testing -> Human Review ->
@@ -9,5 +9,7 @@ description: >
   To-Do. A reference conversion: declarative workflow + session type + intent
   and a compiled session hook.
 author: work42
-sdk_version: 3.0.0
+sdk_version: 3.3.0
+runtime: extension
+extension_bundle_id: com.work42.task42.extension
 requires: [github]

@@ -1,0 +1,17 @@
+// The jira plugin's extension (`runtime: extension`): its widgets and session hooks run in their own process.
+import SwiftUI
+import Work42Extension
+import Work42PluginKit
+
+/// `nonisolated` is required: ExtensionKit makes this class off the main actor (the widgets and hooks stay on it).
+@main
+nonisolated final class JiraExtension: Work42PluginExtension {
+    required init() {}
+
+    @MainActor var widgets: [ExtensionWidgetFactory] {
+        [
+            ExtensionWidgetFactory("jira") { JiraWidget() },
+            ExtensionWidgetFactory("jira-my-issues") { JiraBoardWidget() },
+        ]
+    }
+}

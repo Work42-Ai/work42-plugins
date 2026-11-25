@@ -45,22 +45,3 @@ final class Task42Hooks: Work42SessionHooks {
 private nonisolated func shellQuote(_ value: String) -> String {
     "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
 }
-
-// MARK: - Plugin entry-point ABI
-
-// The two @_cdecl symbols the app's dlopen/dlsym loader expects (mirrors
-// every widget's work42_widget_main/work42_widget_sdk_version pair).
-// `nonisolated(unsafe)` local is required because MainActor.assumeIsolated
-// cannot return an UnsafeMutableRawPointer directly (not Sendable).
-
-@_cdecl("work42_plugin_sdk_version")
-public func work42_plugin_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
-
-@_cdecl("work42_plugin_main")
-public func work42_plugin_main() -> UnsafeMutableRawPointer {
-    nonisolated(unsafe) var result: UnsafeMutableRawPointer!
-    MainActor.assumeIsolated {
-        result = PluginEntryPoint.register(Task42Hooks())
-    }
-    return result
-}

@@ -1,6 +1,6 @@
 manifest_version: 2
 name: figma
-version: 1.0.4
+version: 1.1.0
 description: >
   Figma integration for Work42. Provides the Figma file browser widget (one tab
   per attached figma.com link, sharing the "browser" cookie jar) plus a
@@ -14,5 +14,7 @@ description: >
   Figma's approved MCP Catalog, so the agent (e.g. Claude, an approved client)
   connects it via its own connector settings instead.
 author: work42
-sdk_version: 3.0.0
+sdk_version: 3.3.0
+runtime: extension
+extension_bundle_id: com.work42.figma.extension
 requires: []

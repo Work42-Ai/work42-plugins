@@ -1,6 +1,6 @@
 manifest_version: 2
 name: jira
-version: 1.0.2
+version: 1.1.0
 description: >
   Jira integration for Work42. Provides the Jira issue browser widget
   (renders the issue linked to the current session) and the jira-my-issues
@@ -8,5 +8,7 @@ description: >
   Includes a Jira Work tab template and a plugin skill that explains how the
   two widgets work together.
 author: work42
-sdk_version: 3.0.0
+sdk_version: 3.3.0
+runtime: extension
+extension_bundle_id: com.work42.jira.extension
 requires: []

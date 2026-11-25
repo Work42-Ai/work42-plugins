@@ -240,21 +240,3 @@ private struct SpecWidgetView: View {
         }
     }
 }
-
-// MARK: - Widget entry-point ABI
-
-// The two @_cdecl symbols the app's dlopen/dlsym loader expects.
-// `nonisolated(unsafe)` local is required because MainActor.assumeIsolated
-// cannot return an UnsafeMutableRawPointer directly (not Sendable).
-
-@_cdecl("work42_widget_sdk_version")
-public func work42_widget_sdk_version() -> Int32 { Work42SDKCompatibility.versionProbeValue }
-
-@_cdecl("work42_widget_main")
-public func work42_widget_main() -> UnsafeMutableRawPointer {
-    nonisolated(unsafe) var result: UnsafeMutableRawPointer!
-    MainActor.assumeIsolated {
-        result = WidgetEntryPoint.register(SpecWidget())
-    }
-    return result
-}
