@@ -1,6 +1,6 @@
 manifest_version: 2
 name: firebase
-version: 0.2.2
+version: 0.3.0
 description: >
   Firebase Console widgets for Work42: Authentication, Analytics, Firestore and Crashlytics, each its own
   widget with its official Firebase icon, showing that product's live Console pages with one browser tab per
@@ -10,6 +10,11 @@ description: >
   global using-firebase index, and one skill per product describing what the Firebase CLI can and cannot do
   for it.
 author: work42
-sdk_version: 3.0.0
+sdk_version: 3.3.0
+runtime: extension
+extension_bundle_id: com.work42.firebase.extension
+file_access:
+  - path: ~/.work42/firebase
+    mode: read-write
 requires: []
 global_skills: using-firebase
